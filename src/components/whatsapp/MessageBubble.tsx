@@ -107,20 +107,54 @@ function mediaSrc(chatId: string, msg: ChatMessage): string | null {
 
 /**
  * Renders text with every case-insensitive occurrence of `query` wrapped in a
- * <mark> — used while the in-chat search is active.
+ * <mark> — used while the in-chat search is active. With `regex`, the query is
+ * interpreted as a regular expression instead (invalid patterns render as-is).
  */
 export function Highlight({
   text,
   query,
+  regex,
 }: {
   text: string
   query?: string
+  regex?: boolean
 }) {
   const q = query?.trim()
   if (!q) return <>{text}</>
+  const parts: React.ReactNode[] = []
+  if (regex) {
+    let re: RegExp
+    try {
+      re = new RegExp(q, 'gi')
+    } catch {
+      return <>{text}</>
+    }
+    let i = 0
+    let key = 0
+    let guard = 0
+    let m: RegExpExecArray | null
+    while ((m = re.exec(text)) !== null) {
+      if (m[0].length === 0) {
+        re.lastIndex += 1
+        continue
+      }
+      if (++guard > 500) break // safety valve for pathological patterns
+      if (m.index > i) parts.push(text.slice(i, m.index))
+      parts.push(
+        <mark
+          key={key++}
+          className="rounded-[3px] bg-[#ffe084] px-[1px] text-inherit dark:bg-[#937317]/70"
+        >
+          {m[0]}
+        </mark>
+      )
+      i = m.index + m[0].length
+    }
+    if (i < text.length) parts.push(text.slice(i))
+    return <>{parts}</>
+  }
   const lower = text.toLowerCase()
   const ql = q.toLowerCase()
-  const parts: React.ReactNode[] = []
   let i = 0
   let pos = lower.indexOf(ql)
   let key = 0
@@ -139,6 +173,72 @@ export function Highlight({
   }
   if (i < text.length) parts.push(text.slice(i))
   return <>{parts}</>
+}
+
+const EMOJI_PICTOGRAPHIC = new RegExp('\\p{Extended_Pictographic}', 'u')
+
+/** True when a body is made purely of emoji — WhatsApp renders those ~2.4x. */
+function isEmojiOnly(text: string): boolean {
+  const t = text.replace(/\s+/g, '')
+  if (!t || t.length > 12) return false
+  let sawEmoji = false
+  for (const ch of t) {
+    const cp = ch.codePointAt(0) ?? 0
+    if (cp === 0xfe0f || cp === 0x200d || cp === 0x20e3) continue
+    if (cp >= 0x1f3fb && cp <= 0x1f3ff) continue // skin-tone modifiers
+    if (cp >= 0x1f1e6 && cp <= 0x1f1ff) continue // regional indicators (flags)
+    if (EMOJI_PICTOGRAPHIC.test(ch)) {
+      sawEmoji = true
+      continue
+    }
+    return false
+  }
+  return sawEmoji
+}
+
+const URL_SPLIT_RE = /(https?:\/\/[^\s]+)/g
+const URL_TRAILING_RE = /[.,;:!?)\]}'"…»>]+$/
+
+/**
+ * Text body with WhatsApp-style URL linkification, layered with search
+ * highlighting (URLs themselves are never highlighted).
+ */
+function LinkifiedText({
+  text,
+  query,
+  regex,
+}: {
+  text: string
+  query?: string
+  regex?: boolean
+}) {
+  const chunks = text.split(URL_SPLIT_RE)
+  return (
+    <>
+      {chunks.map((chunk, i) => {
+        if (i % 2 === 1) {
+          const m = chunk.match(URL_TRAILING_RE)
+          const tail = m ? m[0] : ''
+          const url = tail ? chunk.slice(0, chunk.length - tail.length) : chunk
+          return (
+            <span key={i}>
+              <a
+                href={url}
+                target="_blank"
+                rel="noreferrer noopener"
+                onClick={(e) => e.stopPropagation()}
+                className="break-all text-[#027eb5] underline decoration-[#027eb5]/35 underline-offset-2 hover:decoration-[#027eb5] dark:text-[#53bdeb] dark:decoration-[#53bdeb]/35"
+              >
+                {url}
+              </a>
+              {tail}
+            </span>
+          )
+        }
+        return <Highlight key={i} text={chunk} query={query} regex={regex} />
+      })}
+    </>
+  )
 }
 
 interface MetaProps {
@@ -222,10 +322,12 @@ function ImageContent({
   msg,
   src,
   highlight,
+  highlightRegex,
 }: {
   msg: ChatMessage
   src: string | null
   highlight?: string
+  highlightRegex?: boolean
 }) {
   const [open, setOpen] = useState(false)
   if (!src) {
@@ -255,7 +357,7 @@ function ImageContent({
         />
         {msg.body && (
           <figcaption className="mt-1 whitespace-pre-wrap">
-            <Highlight text={msg.body} query={highlight} />
+            <LinkifiedText text={msg.body} query={highlight} regex={highlightRegex} />
           </figcaption>
         )}
       </figure>
@@ -369,6 +471,7 @@ export function MessageBubble({
   showAvatar,
   onToggleStar,
   highlight,
+  highlightRegex,
 }: {
   msg: ChatMessage
   chatId: string
@@ -377,6 +480,7 @@ export function MessageBubble({
   showAvatar: boolean
   onToggleStar?: (id: string, starred: boolean) => void
   highlight?: string
+  highlightRegex?: boolean
 }) {
   const outgoing = msg.sender === 'You'
   const senderColor = useMemo(
@@ -395,6 +499,7 @@ export function MessageBubble({
         src={src}
         onToggleStar={onToggleStar}
         highlight={highlight}
+        highlightRegex={highlightRegex}
       />
     )
   }
@@ -431,10 +536,17 @@ export function MessageBubble({
                   className="mb-0.5 text-[12.5px] font-semibold leading-tight"
                   style={{ color: senderColor }}
                 >
-                  <Highlight text={msg.sender} query={highlight} />
+                  <Highlight text={msg.sender} query={highlight} regex={highlightRegex} />
                 </p>
               )}
-              <Content msg={msg} chatId={chatId} src={src} outgoing={false} highlight={highlight} />
+              <Content
+                msg={msg}
+                chatId={chatId}
+                src={src}
+                outgoing={false}
+                highlight={highlight}
+                highlightRegex={highlightRegex}
+              />
               <Meta msg={msg} outgoing={false} onMedia={false} />
             </div>
           </div>
@@ -453,6 +565,7 @@ function OutgoingBubble({
   src,
   onToggleStar,
   highlight,
+  highlightRegex,
 }: {
   msg: ChatMessage
   chatId: string
@@ -460,6 +573,7 @@ function OutgoingBubble({
   src: string | null
   onToggleStar?: (id: string, starred: boolean) => void
   highlight?: string
+  highlightRegex?: boolean
 }) {
   const press = usePressFeedback()
   return (
@@ -483,7 +597,14 @@ function OutgoingBubble({
                 press.pressing && 'scale-[0.98]'
               )}
             >
-              <Content msg={msg} chatId={chatId} src={src} outgoing highlight={highlight} />
+              <Content
+                msg={msg}
+                chatId={chatId}
+                src={src}
+                outgoing
+                highlight={highlight}
+                highlightRegex={highlightRegex}
+              />
               <Meta msg={msg} outgoing onMedia={false} />
             </div>
           </div>
@@ -500,12 +621,14 @@ function Content({
   src,
   outgoing,
   highlight,
+  highlightRegex,
 }: {
   msg: ChatMessage
   chatId: string
   src: string | null
   outgoing: boolean
   highlight?: string
+  highlightRegex?: boolean
 }) {
   switch (msg.type) {
     case 'deleted':
@@ -572,7 +695,14 @@ function Content({
         </div>
       )
     case 'image':
-      return <ImageContent msg={msg} src={src} highlight={highlight} />
+      return (
+        <ImageContent
+          msg={msg}
+          src={src}
+          highlight={highlight}
+          highlightRegex={highlightRegex}
+        />
+      )
     case 'sticker':
       return src ? (
         <img
@@ -623,14 +753,22 @@ function Content({
               {msg.mediaName} · not in export
             </p>
           )}
-          {msg.body && <p className="mt-1 whitespace-pre-wrap"><Highlight text={msg.body} query={highlight} /></p>}
+          {msg.body && (
+            <p className="mt-1 whitespace-pre-wrap">
+              <LinkifiedText text={msg.body} query={highlight} regex={highlightRegex} />
+            </p>
+          )}
         </div>
       )
     case 'document':
       return (
         <div>
           <DocumentChip name={msg.mediaName ?? 'Document'} src={src} />
-          {msg.body && <p className="mt-1 whitespace-pre-wrap"><Highlight text={msg.body} query={highlight} /></p>}
+          {msg.body && (
+            <p className="mt-1 whitespace-pre-wrap">
+              <LinkifiedText text={msg.body} query={highlight} regex={highlightRegex} />
+            </p>
+          )}
         </div>
       )
     case 'media':
@@ -640,11 +778,19 @@ function Content({
           label={msg.mediaName ?? 'Media'}
         />
       )
-    default:
+    default: {
+      const body = msg.body ?? ''
+      const emojiOnly = isEmojiOnly(body)
       return (
-        <p className="whitespace-pre-wrap break-words">
-          <Highlight text={msg.body} query={highlight} />
+        <p
+          className={cn(
+            'whitespace-pre-wrap break-words',
+            emojiOnly && 'text-[2.4em] leading-[1.2]'
+          )}
+        >
+          <LinkifiedText text={body} query={highlight} regex={highlightRegex} />
         </p>
       )
+    }
   }
 }

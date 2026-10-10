@@ -10,7 +10,9 @@ import {
 } from 'react'
 import { toast } from 'sonner'
 import {
+  ArrowDownToLine,
   ArrowLeft,
+  ArrowUpToLine,
   CalendarDays,
   Check,
   ChevronDown,
@@ -20,11 +22,13 @@ import {
   Loader2,
   Lock,
   Palette,
+  Regex,
   RotateCcw,
   Search,
   SlidersHorizontal,
   Star,
   Trash2,
+  TriangleAlert,
   X,
   Info,
 } from 'lucide-react'
@@ -38,6 +42,7 @@ import type { ChatDetail, ChatMessage } from './types'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import { Calendar } from '@/components/ui/calendar'
 import {
   Popover,
   PopoverContent,
@@ -206,12 +211,14 @@ export function ChatView({
   const [starredOpen, setStarredOpen] = useState(false)
   const [showFab, setShowFab] = useState(false)
   const [jumpedId, setJumpedId] = useState<string | null>(null)
-  const [jumpDate, setJumpDate] = useState('')
+  const [jumpDate, setJumpDate] = useState<Date | undefined>(undefined)
   const [jumpOpen, setJumpOpen] = useState(false)
   const [wallpaperOpen, setWallpaperOpen] = useState(false)
   const [starredOnly, setStarredOnly] = useState(false)
+  const [regexMode, setRegexMode] = useState(false)
   const [matchIdx, setMatchIdx] = useState(0)
   const [filterKey, setFilterKey] = useState('')
+  const [isNarrow, setIsNarrow] = useState(false)
   const chatId = detail?.chat.id ?? ''
   const { key: wallpaperKey, isCustom: wallpaperIsCustom } = useWallpaper(chatId)
   const wallpaper = WALLPAPERS[wallpaperKey] ?? WALLPAPERS.doodle
@@ -224,23 +231,49 @@ export function ChatView({
 
   const messages = detail?.messages ?? []
 
+  // Track the md breakpoint so only ONE jump-to-date popover is ever mounted
+  // (desktop header trigger vs the mobile one inside the search panel)
+  useEffect(() => {
+    const mq = window.matchMedia('(max-width: 767px)')
+    const update = () => setIsNarrow(mq.matches)
+    update()
+    mq.addEventListener('change', update)
+    return () => mq.removeEventListener('change', update)
+  }, [])
+
+  const compiledRegex = useMemo<{ re: RegExp } | 'invalid' | null>(() => {
+    const q = query.trim()
+    if (!q || !regexMode) return null
+    try {
+      return { re: new RegExp(q, 'i') }
+    } catch {
+      return 'invalid'
+    }
+  }, [query, regexMode])
+  const regexInvalid = compiledRegex === 'invalid'
+
   const filtered = useMemo(() => {
-    const q = query.trim().toLowerCase()
+    const q = query.trim()
     const from = fromDate ? new Date(fromDate + 'T00:00:00').getTime() : null
     const to = toDate ? new Date(toDate + 'T23:59:59.999').getTime() : null
     if (!q && from == null && to == null && !starredOnly) return null
     return messages.filter((m) => {
       if (starredOnly && !m.starred) return false
       if (q) {
-        const hay = `${m.body ?? ''}\n${m.sender ?? ''}`.toLowerCase()
-        if (!hay.includes(q)) return false
+        const hay = `${m.body ?? ''}\n${m.sender ?? ''}`
+        if (compiledRegex === 'invalid') return false
+        if (compiledRegex) {
+          if (!compiledRegex.re.test(hay)) return false
+        } else if (!hay.toLowerCase().includes(q.toLowerCase())) {
+          return false
+        }
       }
       const t = new Date(m.ts).getTime()
       if (from != null && t < from) return false
       if (to != null && t > to) return false
       return true
     })
-  }, [messages, query, fromDate, toDate, starredOnly])
+  }, [messages, query, fromDate, toDate, starredOnly, compiledRegex])
 
   const hasDateFilter = !!(fromDate || toDate)
 
@@ -248,7 +281,7 @@ export function ChatView({
   // (adjust-state-during-render, no effect needed)
   const matchCount = filtered?.length ?? 0
   const safeMatchIdx = matchCount > 0 ? Math.min(matchIdx, matchCount - 1) : 0
-  const activeFilterKey = `${query}|${fromDate}|${toDate}|${starredOnly}`
+  const activeFilterKey = `${query}|${fromDate}|${toDate}|${starredOnly}|${regexMode}`
   if (activeFilterKey !== filterKey) {
     setFilterKey(activeFilterKey)
     setMatchIdx(0)
@@ -282,7 +315,7 @@ export function ChatView({
   const grouped = useMemo(() => {
     const out: Array<
       | { kind: 'date'; key: string; label: string }
-      | { kind: 'system'; key: string; body: string; ts: string }
+      | { kind: 'system'; key: string; id: string; body: string; ts: string }
       | { kind: 'msg'; key: string; msg: ChatMessage; showTail: boolean; showAvatar: boolean }
     > = []
     let prev: ChatMessage | null = null
@@ -295,7 +328,7 @@ export function ChatView({
         prev = null
       }
       if (m.type === 'system' || !m.sender) {
-        out.push({ kind: 'system', key: `s-${m.id}`, body: m.body, ts: m.ts })
+        out.push({ kind: 'system', key: `s-${m.id}`, id: m.id, body: m.body, ts: m.ts })
         prev = null
         continue
       }
@@ -368,11 +401,6 @@ export function ChatView({
     toast.success(starred ? 'Message starred' : 'Message unstarred')
   }
 
-  const starredCount = useMemo(
-    () => messages.reduce((s, m) => s + (m.starred ? 1 : 0), 0),
-    [messages]
-  )
-
   /** Expand the render window and smooth-scroll to a message with a flash. */
   function jumpToMessageId(id: string) {
     const idx = messages.findIndex((m) => m.id === id)
@@ -398,14 +426,13 @@ export function ChatView({
     })
   }
 
-  function handleJumpToDate() {
-    if (!jumpDate) return
-    const target = new Date(jumpDate + 'T00:00:00')
-    const targetKey = `${target.getFullYear()}-${target.getMonth()}-${target.getDate()}`
+  /** Smooth-scroll to the first message of `d` (expanding the window if needed). */
+  function jumpToDate(d: Date) {
+    const targetKey = `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`
     const idx = messages.findIndex((m) => dayKey(m.ts) === targetKey)
     if (idx === -1) {
       toast.info(
-        `No messages on ${target.toLocaleDateString('en-GB', {
+        `No messages on ${d.toLocaleDateString('en-GB', {
           day: 'numeric',
           month: 'long',
           year: 'numeric',
@@ -416,6 +443,99 @@ export function ChatView({
     jumpToMessageId(messages[idx].id)
     setJumpOpen(false)
   }
+
+  const starredCount = useMemo(
+    () => messages.reduce((s, m) => s + (m.starred ? 1 : 0), 0),
+    [messages]
+  )
+
+  const chatDaySet = useMemo(() => {
+    const s = new Set<string>()
+    for (const m of messages) s.add(dayKey(m.ts))
+    return s
+  }, [messages])
+  const firstMsgDay = messages.length ? new Date(messages[0].ts) : null
+  const lastMsgDay = messages.length
+    ? new Date(messages[messages.length - 1].ts)
+    : null
+
+  /** Shared calendar body for the jump-to-date popovers (desktop + mobile). */
+  const jumpPopoverBody = (
+    <div className="flex flex-col items-center">
+      <Calendar
+        mode="single"
+        selected={jumpDate}
+        onSelect={(d) => {
+          if (!d) return
+          setJumpDate(d)
+          jumpToDate(d)
+        }}
+        defaultMonth={
+          lastMsgDay
+            ? new Date(lastMsgDay.getFullYear(), lastMsgDay.getMonth(), 1)
+            : undefined
+        }
+        startMonth={
+          firstMsgDay
+            ? new Date(firstMsgDay.getFullYear(), firstMsgDay.getMonth(), 1)
+            : undefined
+        }
+        endMonth={
+          lastMsgDay
+            ? new Date(lastMsgDay.getFullYear(), lastMsgDay.getMonth(), 1)
+            : undefined
+        }
+        disabled={
+          firstMsgDay && lastMsgDay
+            ? [
+                { before: firstMsgDay, after: lastMsgDay },
+                (date: Date) =>
+                  !chatDaySet.has(
+                    `${date.getFullYear()}-${date.getMonth()}-${date.getDate()}`
+                  ),
+              ]
+            : undefined
+        }
+        modifiers={{
+          hasMsg: (date: Date) =>
+            chatDaySet.has(
+              `${date.getFullYear()}-${date.getMonth()}-${date.getDate()}`
+            ),
+        }}
+        modifiersClassNames={{
+          hasMsg:
+            'relative after:absolute after:bottom-[3px] after:left-1/2 after:h-[3px] after:w-[3px] after:-translate-x-1/2 after:rounded-full after:bg-[#00a884] after:content-[""]',
+        }}
+        className="w-[272px] rounded-xl p-2 [&_[data-selected-single=true]]:bg-[#00a884] [&_[data-selected-single=true]]:text-white"
+      />
+      <div className="flex w-full gap-1.5 border-t px-2 pb-1.5 pt-2">
+        <Button
+          variant="ghost"
+          size="sm"
+          className="h-7 flex-1 gap-1 rounded-full text-[12px] text-[#54656f] dark:text-[#aebac1]"
+          disabled={!messages.length}
+          onClick={() => {
+            jumpToMessageId(messages[0].id)
+            setJumpOpen(false)
+          }}
+        >
+          <ArrowUpToLine className="h-3.5 w-3.5" /> Oldest
+        </Button>
+        <Button
+          variant="ghost"
+          size="sm"
+          className="h-7 flex-1 gap-1 rounded-full text-[12px] text-[#54656f] dark:text-[#aebac1]"
+          disabled={!messages.length}
+          onClick={() => {
+            jumpToMessageId(messages[messages.length - 1].id)
+            setJumpOpen(false)
+          }}
+        >
+          <ArrowDownToLine className="h-3.5 w-3.5" /> Latest
+        </Button>
+      </div>
+    </div>
+  )
 
   /** Cycle the search-match cursor (1 = next, -1 = previous) and jump. */
   function goToMatch(dir: 1 | -1) {
@@ -541,41 +661,24 @@ export function ChatView({
               </span>
             )}
           </Button>
-          <Popover open={jumpOpen} onOpenChange={setJumpOpen}>
-            <PopoverTrigger asChild>
-              <Button
-                variant="ghost"
-                size="icon"
-                className="hidden h-9 w-9 md:inline-flex"
-                aria-label="Jump to date"
-                title="Jump to date"
-              >
-                <CalendarDays className="h-5 w-5 text-[#54656f] dark:text-[#aebac1]" />
-              </Button>
-            </PopoverTrigger>
-            <PopoverContent align="end" className="w-64 p-3">
-              <p className="mb-2 text-[13px] font-medium text-[#111b21] dark:text-[#e9edef]">
-                Jump to date
-              </p>
-              <Input
-                type="date"
-                value={jumpDate}
-                onChange={(e) => setJumpDate(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter') handleJumpToDate()
-                }}
-                className="h-9 text-[13px] [color-scheme:light] dark:[color-scheme:dark]"
-              />
-              <Button
-                size="sm"
-                className="mt-2 w-full rounded-full bg-[#00a884] text-white hover:bg-[#029374]"
-                onClick={handleJumpToDate}
-                disabled={!jumpDate}
-              >
-                Go to date
-              </Button>
-            </PopoverContent>
-          </Popover>
+          {!isNarrow && (
+            <Popover open={jumpOpen} onOpenChange={setJumpOpen}>
+              <PopoverTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-9 w-9"
+                  aria-label="Jump to date"
+                  title="Jump to date"
+                >
+                  <CalendarDays className="h-5 w-5 text-[#54656f] dark:text-[#aebac1]" />
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent align="end" className="w-auto p-0">
+                {jumpPopoverBody}
+              </PopoverContent>
+            </Popover>
+          )}
           <Popover open={wallpaperOpen} onOpenChange={setWallpaperOpen}>
             <PopoverTrigger asChild>
               <Button
@@ -703,8 +806,13 @@ export function ChatView({
                   goToMatch(e.shiftKey ? -1 : 1)
                 }
               }}
-              placeholder={`Search in ${chat.title}...`}
-              className="h-9 rounded-lg bg-white text-[14px] dark:bg-[#2a3942] dark:text-[#e9edef] dark:placeholder:text-[#8696a0]"
+              placeholder={
+                regexMode ? 'Regular expression...' : `Search in ${chat.title}...`
+              }
+              className={cn(
+                'h-9 min-w-0 flex-1 rounded-lg bg-white text-[14px] dark:bg-[#2a3942] dark:text-[#e9edef] dark:placeholder:text-[#8696a0]',
+                regexInvalid && 'ring-1 ring-rose-400 dark:ring-rose-500/60'
+              )}
             />
             {/* Match navigation (query only) */}
             {query.trim() && matchCount > 0 && (
@@ -732,6 +840,26 @@ export function ChatView({
                 </button>
               </span>
             )}
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-8 w-8 shrink-0"
+              onClick={() => {
+                setSearchOpen(false)
+                setQuery('')
+                setFromDate('')
+                setToDate('')
+                setDateFilterOpen(false)
+                setStarredOnly(false)
+                setRegexMode(false)
+              }}
+              aria-label="Close search"
+            >
+              <X className="h-4 w-4" />
+            </Button>
+          </div>
+          {/* Filter chips row (wraps on narrow screens) */}
+          <div className="mt-2 flex flex-wrap items-center gap-2">
             <button
               type="button"
               onClick={() => setStarredOnly((v) => !v)}
@@ -752,6 +880,21 @@ export function ChatView({
               />
               Starred
             </button>
+            <button
+              type="button"
+              onClick={() => setRegexMode((v) => !v)}
+              aria-pressed={regexMode}
+              title="Treat the query as a regular expression"
+              className={cn(
+                'flex h-9 shrink-0 items-center gap-1 rounded-full px-2.5 text-[12.5px] font-medium transition-colors',
+                regexMode
+                  ? 'bg-[#00a884]/15 text-[#008069] ring-1 ring-[#00a884]/40 dark:bg-[#00a884]/25 dark:text-[#6fd3b6]'
+                  : 'bg-black/5 text-[#667781] hover:bg-black/10 dark:bg-white/5 dark:text-[#8696a0] dark:hover:bg-white/10'
+              )}
+            >
+              <Regex className="h-3.5 w-3.5" />
+              .*
+            </button>
             <Button
               variant="ghost"
               size="icon"
@@ -766,28 +909,36 @@ export function ChatView({
             >
               <SlidersHorizontal className="h-4 w-4" />
             </Button>
+            {isNarrow && (
+              <Popover open={jumpOpen} onOpenChange={setJumpOpen}>
+                <PopoverTrigger asChild>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-9 w-9 shrink-0"
+                    aria-label="Jump to date"
+                    title="Jump to date"
+                  >
+                    <CalendarDays className="h-4 w-4 text-[#54656f] dark:text-[#aebac1]" />
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent align="end" className="w-auto p-0">
+                  {jumpPopoverBody}
+                </PopoverContent>
+              </Popover>
+            )}
             {(query || hasDateFilter || starredOnly) && (
-              <span className="hidden shrink-0 text-[12px] text-[#667781] sm:inline dark:text-[#8696a0]">
+              <span className="ml-auto shrink-0 text-[12px] text-[#667781] dark:text-[#8696a0]">
                 {filtered?.length ?? 0} result{(filtered?.length ?? 0) === 1 ? '' : 's'}
               </span>
             )}
-            <Button
-              variant="ghost"
-              size="icon"
-              className="h-8 w-8 shrink-0"
-              onClick={() => {
-                setSearchOpen(false)
-                setQuery('')
-                setFromDate('')
-                setToDate('')
-                setDateFilterOpen(false)
-                setStarredOnly(false)
-              }}
-              aria-label="Close search"
-            >
-              <X className="h-4 w-4" />
-            </Button>
           </div>
+          {regexInvalid && (
+            <p className="mt-1.5 flex items-center gap-1.5 text-[12px] font-medium text-rose-600 dark:text-rose-400">
+              <TriangleAlert className="h-3.5 w-3.5 shrink-0" />
+              Invalid regular expression — fix the pattern to search again
+            </p>
+          )}
           {dateFilterOpen && (
             <div className="mt-2 flex flex-wrap items-center gap-2">
               <span className="text-[11.5px] font-medium uppercase tracking-wide text-[#667781] dark:text-[#8696a0]">
@@ -856,11 +1007,15 @@ export function ChatView({
         {filtered && filtered.length === 0 && (
           <div className="mt-10 text-center text-[13px] text-[#667781] dark:text-[#8696a0]">
             {query ? (
-              <>
-                No messages match &quot;{query}&quot;
-                {hasDateFilter ? ' in the selected date range' : ''}
-                {starredOnly ? ' among starred' : ''}
-              </>
+              regexInvalid ? (
+                'Invalid regular expression — fix the pattern in the search bar'
+              ) : (
+                <>
+                  No messages match &quot;{query}&quot;
+                  {hasDateFilter ? ' in the selected date range' : ''}
+                  {starredOnly ? ' among starred' : ''}
+                </>
+              )
             ) : starredOnly ? (
               hasDateFilter ? (
                 'No starred messages in the selected date range'
@@ -885,7 +1040,15 @@ export function ChatView({
           }
           if (item.kind === 'system') {
             return (
-              <div key={item.key} className="my-2 flex justify-center px-8">
+              <div
+                key={item.key}
+                data-mid={item.id}
+                className={cn(
+                  'my-2 flex justify-center rounded-lg px-8 transition-colors',
+                  jumpedId === item.id &&
+                    'bg-amber-200/50 ring-1 ring-amber-400/60 dark:bg-amber-500/20'
+                )}
+              >
                 <span className="flex max-w-lg items-center justify-center gap-1.5 rounded-md bg-[#ffeecd] px-3 py-1.5 text-center text-[12.5px] leading-snug text-[#54656f] shadow-sm dark:bg-[#182229] dark:text-[#ffd279]">
                   {/encrypted/i.test(item.body) && <Lock className="h-3 w-3 shrink-0" />}
                   {item.body}
@@ -912,6 +1075,7 @@ export function ChatView({
                 showAvatar={item.showAvatar}
                 onToggleStar={handleToggleStar}
                 highlight={query.trim() || undefined}
+                highlightRegex={regexMode && !!query.trim()}
               />
             </div>
           )

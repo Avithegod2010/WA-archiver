@@ -566,10 +566,15 @@ export function WhatsAppApp() {
                 search panel filters the chat down to just those. Search
                 highlights every match inside the bubbles and shows a{' '}
                 <b>n/m counter</b> — press <b>Enter</b> (or the arrows) to hop
-                between matches, <b>Shift+Enter</b> to go back. Personalize
-                each chat with its own <b>wallpaper</b> (palette icon) and
-                adjust the reading <b>text size</b> from the Aa menu in the top
-                bar.
+                between matches, <b>Shift+Enter</b> to go back. The <b>.*</b>{' '}
+                chip treats your query as a <b>regular expression</b> for
+                power searches. Tap the <b>calendar icon</b> to jump to any day
+                — days with messages show a green dot, plus one-tap{' '}
+                <b>Oldest / Latest</b> shortcuts. Personalize each chat with
+                its own <b>wallpaper</b> (palette icon) and adjust the reading{' '}
+                <b>text size</b> from the Aa menu in the top bar. Links in
+                messages are tappable and emoji-only messages render big, just
+                like WhatsApp.
               </p>
             </div>
             <div>
