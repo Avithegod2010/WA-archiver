@@ -469,7 +469,11 @@ interface HoverActionsProps {
   side: 'in' | 'out'
 }
 
-const ACTION_STAGGER = ['delay-[0ms]', 'delay-[50ms]', 'delay-[100ms]']
+const ACTION_STAGGER = [
+  'group-hover/msg:delay-[1000ms]',
+  'group-hover/msg:delay-[1080ms]',
+  'group-hover/msg:delay-[1160ms]',
+]
 
 function HoverActions({
   msg,
@@ -482,10 +486,11 @@ function HoverActions({
       'mb-1 hidden h-7 w-7 shrink-0 items-center justify-center rounded-full bg-(--wa-in) text-(--wa-text-2) shadow-md sm:flex',
       'opacity-0 scale-75 will-change-transform',
       side === 'in' ? '-translate-x-2' : 'translate-x-2',
-      'transition-[opacity,transform] duration-250 ease-out motion-reduce:transition-none',
+      'transition-[opacity,transform] duration-300 ease-out motion-reduce:transition-none',
       '[transition-timing-function:cubic-bezier(0.34,1.56,0.64,1)]',
+      // 1s deliberate pause before the actions pop out (instant on leave)
       'group-hover/msg:translate-x-0 group-hover/msg:scale-100 group-hover/msg:opacity-100',
-      'focus-visible:translate-x-0 focus-visible:scale-100 focus-visible:opacity-100',
+      'focus-visible:translate-x-0 focus-visible:scale-100 focus-visible:opacity-100 focus-visible:delay-[0ms]',
       stagger
     )
   return (
@@ -640,7 +645,7 @@ export function MessageBubble({
             <div className="w-7 shrink-0" />
           )
         ) : null}
-        <div className="relative min-w-0 max-w-[78%] sm:max-w-[65%]">
+        <div className="relative min-w-0 max-w-[78%] drop-shadow-[0_1px_0.5px_rgba(11,20,26,0.13)] dark:drop-shadow-[0_1px_0.5px_rgba(0,0,0,0.25)] sm:max-w-[65%]">
           {showTail && (
             <BubbleTail
               side="left"
@@ -650,8 +655,9 @@ export function MessageBubble({
           <div
             className={cn(
               'relative rounded-[7.5px] px-2.5 py-1.5 text-(length:--wa-msg-size,14.2px) leading-[1.34]',
-              'bg-(--wa-in) text-(--wa-text) shadow-[0_1px_0.5px_rgba(11,20,26,0.13)] dark:shadow-[0_1px_0.5px_rgba(0,0,0,0.25)]',
-              !showTail && 'rounded-tl-none',
+              'bg-(--wa-in) text-(--wa-text)',
+              // Sharp corner where the tail attaches — merges seamlessly
+              showTail && 'rounded-tl-none',
               selected && 'ring-2 ring-(--wa-accent)'
             )}
           >
@@ -689,7 +695,7 @@ export function MessageBubble({
       ) : null}
       <ContextMenu>
         <ContextMenuTrigger asChild>
-          <div className="relative min-w-0 max-w-[78%] sm:max-w-[65%]">
+          <div className="relative min-w-0 max-w-[78%] drop-shadow-[0_1px_0.5px_rgba(11,20,26,0.13)] dark:drop-shadow-[0_1px_0.5px_rgba(0,0,0,0.25)] sm:max-w-[65%]">
             {showTail && (
               <BubbleTail
                 side="left"
@@ -698,10 +704,12 @@ export function MessageBubble({
             )}
             <div
               {...press.handlers}
+              data-bubble
               className={cn(
-                'relative rounded-[7.5px] px-2.5 py-1.5 text-(length:--wa-msg-size,14.2px) leading-[1.34] transition-[transform,box-shadow] duration-150',
-                'bg-(--wa-in) text-(--wa-text) shadow-[0_1px_0.5px_rgba(11,20,26,0.13)] dark:shadow-[0_1px_0.5px_rgba(0,0,0,0.25)]',
-                !showTail && 'rounded-tl-none',
+                'relative rounded-[7.5px] px-2.5 py-1.5 text-(length:--wa-msg-size,14.2px) leading-[1.34] transition-transform duration-150',
+                'bg-(--wa-in) text-(--wa-text)',
+                // Sharp corner where the tail attaches — merges seamlessly
+                showTail && 'rounded-tl-none',
                 press.pressing && 'scale-[0.98]'
               )}
             >
@@ -775,7 +783,7 @@ function OutgoingBubble({
   const press = usePressFeedback()
 
   const bubble = (
-    <div className="relative min-w-0 max-w-[78%] sm:max-w-[65%]">
+    <div className="relative min-w-0 max-w-[78%] drop-shadow-[0_1px_0.5px_rgba(11,20,26,0.13)] dark:drop-shadow-[0_1px_0.5px_rgba(0,0,0,0.25)] sm:max-w-[65%]">
       {showTail && (
         <BubbleTail
           side="right"
@@ -784,10 +792,12 @@ function OutgoingBubble({
       )}
       <div
         {...(selectMode ? {} : press.handlers)}
+        data-bubble
         className={cn(
-          'relative rounded-[7.5px] px-2.5 py-1.5 text-(length:--wa-msg-size,14.2px) leading-[1.34] transition-[transform,box-shadow] duration-150',
-          'bg-(--wa-out) text-(--wa-text) shadow-[0_1px_0.5px_rgba(11,20,26,0.13)] dark:text-(--wa-text) dark:shadow-[0_1px_0.5px_rgba(0,0,0,0.25)]',
-          !showTail && 'rounded-tr-none',
+          'relative rounded-[7.5px] px-2.5 py-1.5 text-(length:--wa-msg-size,14.2px) leading-[1.34] transition-transform duration-150',
+          'bg-(--wa-out) text-(--wa-text) dark:text-(--wa-text)',
+          // Sharp corner where the tail attaches — merges seamlessly
+          showTail && 'rounded-tr-none',
           !selectMode && press.pressing && 'scale-[0.98]',
           selectMode && selected && 'ring-2 ring-(--wa-accent)'
         )}

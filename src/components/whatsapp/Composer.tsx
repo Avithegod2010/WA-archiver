@@ -171,14 +171,14 @@ export function Composer({
               variant="ghost"
               size="icon"
               disabled={busy}
-              className="h-10 w-10 shrink-0 rounded-full text-(--wa-text-2) hover:bg-black/5 dark:text-(--wa-text-2) dark:hover:bg-white/10"
+              className="wa-iconbtn h-10 w-10 shrink-0 rounded-full text-(--wa-text-2) hover:bg-black/5 dark:text-(--wa-text-2) dark:hover:bg-white/10"
               aria-label="Attach"
               title="Attach photo, video, document or poll"
             >
               <Plus
                 className={cn(
                   'h-6 w-6 transition-transform duration-200',
-                  'group-hover:rotate-90'
+                  'hover:rotate-90'
                 )}
               />
             </Button>
@@ -220,7 +220,7 @@ export function Composer({
               variant="ghost"
               size="icon"
               disabled={busy}
-              className="h-10 w-10 shrink-0 rounded-full text-(--wa-text-2) hover:bg-black/5 dark:text-(--wa-text-2) dark:hover:bg-white/10"
+              className="wa-iconbtn h-10 w-10 shrink-0 rounded-full text-(--wa-text-2) hover:bg-black/5 dark:text-(--wa-text-2) dark:hover:bg-white/10"
               aria-label="Emoji"
               title="Emoji"
             >
@@ -271,7 +271,7 @@ export function Composer({
           disabled={busy}
           onClick={sendText}
           className={cn(
-            'h-10 w-10 shrink-0 rounded-full text-white shadow-md transition-all',
+            'h-10 w-10 shrink-0 rounded-full text-white shadow-md transition-all duration-200 [transition-timing-function:cubic-bezier(0.34,1.56,0.64,1)] hover:scale-110 active:scale-90 disabled:hover:scale-100',
             canSend || busy
               ? 'bg-(--wa-accent) hover:bg-(--wa-accent-strong)'
               : 'bg-(--wa-text-2)/60'

@@ -15,7 +15,6 @@ import {
   ArrowUpToLine,
   BookmarkPlus,
   CalendarDays,
-  Check,
   ChevronDown,
   ChevronUp,
   Copy,
@@ -27,7 +26,6 @@ import {
   Palette,
   Pencil,
   Regex,
-  RotateCcw,
   Search,
   SlidersHorizontal,
   Star,
@@ -43,7 +41,15 @@ import { MediaGallery } from './MediaGallery'
 import { StarredMessages } from './StarredMessages'
 import { Composer } from './Composer'
 import { PollDialog } from './PollDialog'
+import { WallpaperPicker } from './WallpaperPicker'
 import { DoodleBackground } from './icons'
+import {
+  GLOBAL_WALLPAPER_KEY,
+  presetByKey,
+  readWallpaper,
+  subscribeWallpaper,
+  type WallpaperConfig,
+} from './wallpaper'
 import { SAVED_CHAT_ID, type ChatDetail, type ChatMessage } from './types'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
@@ -82,108 +88,84 @@ import {
 
 const PAGE_SIZE = 300
 
-/* ---------- Chat wallpaper (per chat, falls back to the app default) ---------- */
+/* ------------------------- Chat wallpaper (v2) ------------------------- */
 
-const WALLPAPERS = {
-  doodle: {
-    label: 'Classic',
-    bg: 'bg-(--wa-chat-bg)',
-    doodle: 'text-(--wa-doodle)',
-    swatch: 'bg-(--wa-chat-bg)',
-    swatchDot: 'bg-black/20 dark:bg-white/20',
-  },
-  plain: {
-    label: 'Plain',
-    bg: 'bg-(--wa-chat-bg)',
-    doodle: null,
-    swatch: 'bg-(--wa-chat-bg)',
-    swatchDot: null,
-  },
-  sage: {
-    label: 'Sage',
-    bg: 'bg-[#e3ecdd] dark:bg-[#0c1710]',
-    doodle: 'text-[#4a7c59]/[0.08] dark:text-[#8fc7a5]/[0.05]',
-    swatch: 'bg-[#e3ecdd] dark:bg-[#0c1710]',
-    swatchDot: 'bg-[#4a7c59]/30 dark:bg-[#8fc7a5]/30',
-  },
-  sepia: {
-    label: 'Sepia',
-    bg: 'bg-[#f2e9d8] dark:bg-[#16120d]',
-    doodle: 'text-[#8a6d3b]/[0.09] dark:text-[#d9b878]/[0.05]',
-    swatch: 'bg-[#f2e9d8] dark:bg-[#16120d]',
-    swatchDot: 'bg-[#8a6d3b]/30 dark:bg-[#d9b878]/30',
-  },
-} as const
-
-type WallpaperKey = keyof typeof WALLPAPERS
-
-const GLOBAL_WALLPAPER_KEY = 'wa-viewer:wallpaper'
-
-function subscribeWallpaper(cb: () => void) {
-  window.addEventListener('wa-wallpaper', cb)
-  window.addEventListener('storage', cb)
-  return () => {
-    window.removeEventListener('wa-wallpaper', cb)
-    window.removeEventListener('storage', cb)
-  }
+/** Reactive wallpaper config: per-chat override → app default → classic. */
+function useWallpaperConfig(chatId: string): WallpaperConfig {
+  const getSnapshot = useCallback(() => {
+    try {
+      return (
+        localStorage.getItem(`wa-viewer:wallpaper:${chatId}`) ??
+        localStorage.getItem(GLOBAL_WALLPAPER_KEY) ??
+        ''
+      )
+    } catch {
+      return ''
+    }
+  }, [chatId])
+  const raw = useSyncExternalStore(subscribeWallpaper, getSnapshot, () => '')
+  return useMemo(() => readWallpaper(chatId), [chatId, raw])
 }
 
-/** Per-chat override first, then the app-wide default. */
-function wallpaperKeyFor(chatId: string): string {
-  try {
-    return (
-      localStorage.getItem(`wa-viewer:wallpaper:${chatId}`) ??
-      localStorage.getItem(GLOBAL_WALLPAPER_KEY) ??
-      'doodle'
-    )
-  } catch {
-    return 'doodle'
-  }
+function prefersReducedMotion(): boolean {
+  return (
+    typeof window !== 'undefined' &&
+    window.matchMedia('(prefers-reduced-motion: reduce)').matches
+  )
 }
 
-function hasWallpaperOverride(chatId: string): boolean {
-  try {
-    return !!localStorage.getItem(`wa-viewer:wallpaper:${chatId}`)
-  } catch {
-    return false
-  }
-}
+/**
+ * Telegram-style save animation: clone the bubble in place and fly it into
+ * the Saved Messages row (or the app logo on mobile), shrinking + fading,
+ * then pulse the destination avatar.
+ */
+function flyBubbleToSaved(msgId: string, staggerIdx: number) {
+  if (typeof document === 'undefined' || prefersReducedMotion()) return
+  const bubble = document.querySelector(
+    `[data-mid="${msgId}"] [data-bubble]`
+  ) as HTMLElement | null
+  if (!bubble) return
+  const target =
+    (document.querySelector('[data-saved-avatar]') as HTMLElement | null) ??
+    (document.querySelector('[data-app-logo]') as HTMLElement | null)
+  if (!target) return
 
-/** `chatId` empty = set the app-wide default. */
-function setStoredWallpaper(chatId: string, w: string) {
-  try {
-    localStorage.setItem(
-      chatId ? `wa-viewer:wallpaper:${chatId}` : GLOBAL_WALLPAPER_KEY,
-      w
-    )
-  } catch {
-    /* storage unavailable */
-  }
-  window.dispatchEvent(new Event('wa-wallpaper'))
-}
+  const from = bubble.getBoundingClientRect()
+  const to = target.getBoundingClientRect()
+  if (!from.width || !to.width) return
 
-function resetStoredWallpaper(chatId: string) {
-  try {
-    localStorage.removeItem(`wa-viewer:wallpaper:${chatId}`)
-  } catch {
-    /* ignore */
-  }
-  window.dispatchEvent(new Event('wa-wallpaper'))
-}
+  const ghost = bubble.cloneNode(true) as HTMLElement
+  ghost.setAttribute('aria-hidden', 'true')
+  ghost.style.cssText = `position:fixed;left:${from.left}px;top:${from.top}px;width:${from.width}px;min-height:${from.height}px;margin:0;max-width:none;z-index:80;pointer-events:none;border-radius:7.5px;box-shadow:0 12px 32px rgba(0,0,0,0.28);will-change:transform,opacity;`
+  document.body.appendChild(ghost)
 
-function useWallpaper(chatId: string): {
-  key: WallpaperKey
-  isCustom: boolean
-} {
-  const getSnapshot = useCallback(() => wallpaperKeyFor(chatId), [chatId])
-  const getCustom = useCallback(() => hasWallpaperOverride(chatId), [chatId])
-  const key = useSyncExternalStore(
-    subscribeWallpaper,
-    getSnapshot,
-    () => 'doodle'
-  ) as WallpaperKey
-  const isCustom = useSyncExternalStore(subscribeWallpaper, getCustom, () => false)
-  return { key, isCustom }
+  const dx = to.left + to.width / 2 - (from.left + from.width / 2)
+  const dy = to.top + to.height / 2 - (from.top + from.height / 2)
+  const anim = ghost.animate(
+    [
+      { transform: 'translate(0,0) scale(1)', opacity: 1 },
+      {
+        transform: `translate(${dx * 0.35}px, ${dy * 0.35 - 36}px) scale(0.72)`,
+        opacity: 0.96,
+        offset: 0.42,
+      },
+      { transform: `translate(${dx}px, ${dy}px) scale(0.06)`, opacity: 0 },
+    ],
+    {
+      duration: 640,
+      delay: staggerIdx * 85,
+      easing: 'cubic-bezier(0.3, 0.72, 0.4, 1)',
+      fill: 'forwards',
+    }
+  )
+  anim.onfinish = () => {
+    ghost.remove()
+    // Heartbeat pulse on the destination avatar (retriggerable)
+    target.classList.remove('wa-pulse-ring')
+    void target.offsetWidth
+    target.classList.add('wa-pulse-ring')
+    window.setTimeout(() => target.classList.remove('wa-pulse-ring'), 950)
+  }
 }
 
 function formatDayLabel(d: Date): string {
@@ -263,8 +245,9 @@ export function ChatView({
   const [deleteBusy, setDeleteBusy] = useState(false)
 
   const chatId = detail?.chat.id ?? ''
-  const { key: wallpaperKey, isCustom: wallpaperIsCustom } = useWallpaper(chatId)
-  const wallpaper = WALLPAPERS[wallpaperKey] ?? WALLPAPERS.doodle
+  const wallpaperCfg = useWallpaperConfig(chatId)
+  const wallpaperPreset = presetByKey(wallpaperCfg.k)
+  const wallpaperIsPhoto = wallpaperCfg.k === 'custom' && !!wallpaperCfg.photo
   const textSizeKey: TextSizeKey = useSyncExternalStore(
     subscribeTextSize,
     getTextSize,
@@ -510,6 +493,10 @@ export function ChatView({
 
   /** Forward one or many messages into Saved Messages. */
   async function forwardToSaved(targets: ChatMessage[]) {
+    // Telegram-style fly animation (skipped inside Saved itself)
+    if (!isSavedChat) {
+      targets.forEach((t, i) => flyBubbleToSaved(t.id, i))
+    }
     let ok = 0
     const toastId = toast.loading(
       targets.length > 1 ? `Saving 1 of ${targets.length}…` : 'Saving to Saved Messages…'
@@ -827,7 +814,7 @@ export function ChatView({
     return (
       <div className="relative hidden flex-1 flex-col items-center justify-center bg-(--wa-deep) px-6 text-center text-white/[0.08] md:flex">
         <DoodleBackground />
-        <div className="relative z-10 max-w-md">
+        <div className="anim-fade-up relative z-10 mx-auto max-w-md">
           <div className="mx-auto mb-6 flex h-24 w-24 items-center justify-center rounded-full bg-white/10">
             <svg viewBox="0 0 24 24" className="h-12 w-12 text-white/60" fill="none" stroke="currentColor" strokeWidth="1.4">
               <rect x="2" y="4" width="20" height="13" rx="2" />
@@ -856,21 +843,47 @@ export function ChatView({
       : 'click here for chat info'
 
   return (
-    <div
-      className={cn(
-        'relative flex min-h-0 flex-1 flex-col transition-colors duration-300',
-        wallpaper.bg,
-        wallpaper.doodle ?? 'text-transparent'
-      )}
-    >
-      {wallpaper.doodle && <DoodleBackground />}
+    <div className="anim-fade-up relative flex min-h-0 flex-1 flex-col">
+      {/* Wallpaper stack (base color/gradient → photo → doodles → dim overlay) */}
+      <div aria-hidden className="pointer-events-none absolute inset-0 overflow-hidden">
+        <div
+          className={cn(
+            'absolute inset-0 transition-[background-color,background-image] duration-300',
+            wallpaperPreset.bg
+          )}
+        />
+        {wallpaperIsPhoto && wallpaperCfg.photo && (
+          <div
+            className="absolute inset-0"
+            style={{
+              backgroundImage: `url("${wallpaperCfg.photo}")`,
+              backgroundSize: 'cover',
+              backgroundPosition: 'center',
+              filter:
+                wallpaperCfg.blur > 0 ? `blur(${wallpaperCfg.blur}px)` : undefined,
+              transform: wallpaperCfg.blur > 0 ? 'scale(1.08)' : undefined,
+            }}
+          />
+        )}
+        {!wallpaperIsPhoto && wallpaperPreset.doodle && (
+          <div className={cn('absolute inset-0', wallpaperPreset.doodle)}>
+            <DoodleBackground />
+          </div>
+        )}
+        {wallpaperCfg.dim > 0 && (
+          <div
+            className="absolute inset-0 bg-black transition-opacity duration-300"
+            style={{ opacity: wallpaperCfg.dim }}
+          />
+        )}
+      </div>
 
       {/* Header */}
       <header className="relative z-10 flex items-center gap-3 border-l border-(--wa-line) bg-(--wa-panel-2) px-3 py-2 dark:bg-(--wa-panel-2)">
         <Button
           variant="ghost"
           size="icon"
-          className="h-8 w-8 md:hidden"
+          className="wa-iconbtn h-8 w-8 md:hidden"
           onClick={onBack}
           aria-label="Back to chats"
         >
@@ -899,7 +912,7 @@ export function ChatView({
             variant="ghost"
             size="icon"
             className={cn(
-              'h-9 w-9',
+              'wa-iconbtn h-9 w-9',
               editMode &&
                 'bg-(--wa-accent)/15 text-(--wa-accent-strong) dark:text-(--wa-accent)'
             )}
@@ -923,7 +936,7 @@ export function ChatView({
           <Button
             variant="ghost"
             size="icon"
-            className="h-9 w-9"
+            className="wa-iconbtn h-9 w-9"
             onClick={() => setGalleryOpen(true)}
             aria-label="Media gallery"
             title="Media gallery"
@@ -933,7 +946,7 @@ export function ChatView({
           <Button
             variant="ghost"
             size="icon"
-            className="h-9 w-9"
+            className="wa-iconbtn h-9 w-9"
             onClick={() => setSearchOpen((v) => !v)}
             aria-label="Search in chat"
             title="Search in chat"
@@ -943,7 +956,7 @@ export function ChatView({
           <Button
             variant="ghost"
             size="icon"
-            className="relative h-9 w-9"
+            className="wa-iconbtn relative h-9 w-9"
             onClick={() => setStarredOpen(true)}
             aria-label="Starred messages"
             title="Starred messages"
@@ -968,7 +981,7 @@ export function ChatView({
                 <Button
                   variant="ghost"
                   size="icon"
-                  className="h-9 w-9"
+                  className="wa-iconbtn h-9 w-9"
                   aria-label="Jump to date"
                   title="Jump to date"
                 >
@@ -980,90 +993,26 @@ export function ChatView({
               </PopoverContent>
             </Popover>
           )}
-          <Popover open={wallpaperOpen} onOpenChange={setWallpaperOpen}>
-            <PopoverTrigger asChild>
-              <Button
-                variant="ghost"
-                size="icon"
-                className="hidden h-9 w-9 md:inline-flex"
-                aria-label="Chat wallpaper"
-                title="Chat wallpaper"
-              >
-                <Palette className="h-5 w-5 text-(--wa-text-2)" />
-              </Button>
-            </PopoverTrigger>
-            <PopoverContent align="end" className="w-56 p-3">
-              <div className="mb-0.5 flex items-center justify-between">
-                <p className="text-[13px] font-medium text-(--wa-text)">
-                  Wallpaper for this chat
-                </p>
-                {wallpaperIsCustom && (
-                  <span className="rounded-full bg-(--wa-accent)/15 px-1.5 py-0.5 text-[9.5px] font-semibold uppercase tracking-wide text-(--wa-accent-strong)">
-                    Custom
-                  </span>
-                )}
-              </div>
-              <p className="mb-2 text-[11px] leading-snug text-(--wa-text-2)">
-                Applies only to {chat.title} — other chats keep the default.
-              </p>
-              <div className="grid grid-cols-2 gap-2">
-                {(Object.keys(WALLPAPERS) as WallpaperKey[]).map((key) => {
-                  const w = WALLPAPERS[key]
-                  const active = wallpaperKey === key
-                  return (
-                    <button
-                      key={key}
-                      onClick={() => setStoredWallpaper(chatId, key)}
-                      aria-pressed={active}
-                      className={cn(
-                        'group flex flex-col items-center gap-1.5 rounded-lg p-2 transition-colors',
-                        active
-                          ? 'bg-(--wa-accent)/10 ring-1 ring-(--wa-accent)'
-                          : 'hover:bg-black/5 dark:hover:bg-white/5'
-                      )}
-                    >
-                      <span
-                        className={cn(
-                          'relative flex h-12 w-full items-center justify-center rounded-md ring-1 ring-black/10 dark:ring-white/10',
-                          w.swatch
-                        )}
-                      >
-                        {w.swatchDot && (
-                          <span className="flex gap-1">
-                            <i className={cn('block h-1.5 w-1.5 rounded-full', w.swatchDot)} />
-                            <i className={cn('block h-1.5 w-1.5 rounded-full', w.swatchDot)} />
-                            <i className={cn('block h-1.5 w-1.5 rounded-full', w.swatchDot)} />
-                          </span>
-                        )}
-                        {active && (
-                          <span className="absolute inset-0 flex items-center justify-center">
-                            <Check className="h-4 w-4 text-(--wa-accent) drop-shadow" />
-                          </span>
-                        )}
-                      </span>
-                      <span className="text-[11.5px] font-medium text-(--wa-text)">
-                        {w.label}
-                      </span>
-                    </button>
-                  )
-                })}
-              </div>
-              {wallpaperIsCustom && (
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className="mt-2 h-7 w-full gap-1 rounded-full text-[12px] text-(--wa-text-2) hover:text-rose-500 dark:text-(--wa-text-2)"
-                  onClick={() => resetStoredWallpaper(chatId)}
-                >
-                  <RotateCcw className="h-3 w-3" /> Use app default
-                </Button>
-              )}
-            </PopoverContent>
-          </Popover>
+          <WallpaperPicker
+            chatId={chatId}
+            chatTitle={chat.title}
+            open={wallpaperOpen}
+            onOpenChange={setWallpaperOpen}
+          >
+            <Button
+              variant="ghost"
+              size="icon"
+              className="wa-iconbtn h-9 w-9"
+              aria-label="Chat wallpaper"
+              title="Chat wallpaper & photo"
+            >
+              <Palette className="h-5 w-5 text-(--wa-text-2)" />
+            </Button>
+          </WallpaperPicker>
           <Button
             variant="ghost"
             size="icon"
-            className="hidden h-9 w-9 md:inline-flex"
+            className="wa-iconbtn hidden h-9 w-9 md:inline-flex"
             onClick={handleExport}
             aria-label="Export chat as text"
             title="Export chat as .txt"
@@ -1073,7 +1022,7 @@ export function ChatView({
           <Button
             variant="ghost"
             size="icon"
-            className="hidden h-9 w-9 md:inline-flex"
+            className="wa-iconbtn hidden h-9 w-9 md:inline-flex"
             onClick={() => setInfoOpen(true)}
             aria-label="Chat info"
             title="Chat info"
@@ -1084,7 +1033,7 @@ export function ChatView({
             <Button
               variant="ghost"
               size="icon"
-              className="h-9 w-9 hover:bg-rose-500/10"
+              className="wa-iconbtn h-9 w-9 hover:bg-rose-500/10"
               onClick={() => onDelete(chat.id)}
               disabled={deleting}
               aria-label="Delete chat"
@@ -1337,8 +1286,8 @@ export function ChatView({
         {grouped.map((item) => {
           if (item.kind === 'date') {
             return (
-              <div key={item.key} className="animate-in fade-in my-3 flex justify-center duration-300">
-                <span className="rounded-lg bg-(--wa-in)/95 px-3 py-1 text-[12.2px] font-medium uppercase tracking-wide text-(--wa-text-2) shadow-[0_1px_1px_rgba(11,20,26,0.12)] backdrop-blur-sm dark:bg-(--wa-panel-2)/95 dark:text-(--wa-text-2)">
+              <div key={item.key} className="my-3 flex justify-center">
+                <span className="anim-pop rounded-lg bg-(--wa-in)/95 px-3 py-1 text-[12.2px] font-medium uppercase tracking-wide text-(--wa-text-2) shadow-[0_1px_1px_rgba(11,20,26,0.12)] backdrop-blur-sm dark:bg-(--wa-panel-2)/95 dark:text-(--wa-text-2)">
                   {item.label}
                 </span>
               </div>
@@ -1367,7 +1316,7 @@ export function ChatView({
               key={item.key}
               data-mid={item.msg.id}
               className={cn(
-                'animate-in fade-in mt-0.5 rounded-lg duration-300 transition-colors',
+                'animate-in fade-in slide-in-from-bottom-1 mt-0.5 rounded-lg duration-300 transition-colors',
                 item.showTail && 'mt-2.5',
                 jumpedId === item.msg.id &&
                   'bg-amber-200/50 ring-1 ring-amber-400/60 dark:bg-amber-500/20',
@@ -1397,20 +1346,25 @@ export function ChatView({
         })}
       </div>
 
-      {/* Scroll-to-bottom FAB (WhatsApp style) */}
-      {showFab && !searchOpen && (
-        <button
-          onClick={handleScrollToBottom}
-          aria-label="Scroll to latest messages"
-          className="absolute bottom-[68px] right-4 z-20 flex h-10 w-10 items-center justify-center rounded-full bg-(--wa-in) text-(--wa-text-2) shadow-[0_1px_3px_rgba(11,20,26,0.3)] transition-transform hover:scale-105 active:scale-95 dark:bg-(--wa-panel-2) dark:text-(--wa-text-2)"
-        >
-          <ChevronDown className="h-6 w-6" />
-        </button>
-      )}
+      {/* Scroll-to-bottom FAB (WhatsApp style) — springs in/out of view */}
+      <button
+        onClick={handleScrollToBottom}
+        aria-label="Scroll to latest messages"
+        aria-hidden={!showFab || searchOpen}
+        tabIndex={showFab && !searchOpen ? 0 : -1}
+        className={cn(
+          'absolute bottom-[68px] right-4 z-20 flex h-10 w-10 items-center justify-center rounded-full bg-(--wa-in) text-(--wa-text-2) shadow-[0_1px_3px_rgba(11,20,26,0.3)] transition-all duration-300 [transition-timing-function:cubic-bezier(0.34,1.56,0.64,1)] hover:scale-110 active:scale-90 dark:bg-(--wa-panel-2) dark:text-(--wa-text-2)',
+          showFab && !searchOpen
+            ? 'translate-y-0 scale-100 opacity-100'
+            : 'pointer-events-none translate-y-4 scale-50 opacity-0'
+        )}
+      >
+        <ChevronDown className="h-6 w-6" />
+      </button>
 
       {/* Selection toolbar (edit mode with active selection) */}
       {editMode && selectedCount > 0 ? (
-        <div className="relative z-10 flex items-center gap-1 border-t border-black/5 bg-(--wa-panel-2) px-3 py-2 dark:bg-(--wa-panel-2)">
+        <div className="animate-in fade-in slide-in-from-bottom-2 relative z-10 flex items-center gap-1 border-t border-black/5 bg-(--wa-panel-2) px-3 py-2 duration-200 dark:bg-(--wa-panel-2)">
           <Button
             variant="ghost"
             size="icon"

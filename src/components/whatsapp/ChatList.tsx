@@ -125,8 +125,10 @@ function ChatRow({
   return (
     <button
       data-chat-idx={index}
+      data-chat-id={chat.id}
+      style={{ animationDelay: `${Math.min(index * 35, 320)}ms` }}
       className={cn(
-        'group relative flex w-full items-center gap-3 px-3 py-2.5 text-left transition-colors hover:bg-(--wa-row-hover)',
+        'anim-fade-up group relative flex w-full items-center gap-3 px-3 py-2.5 text-left transition-colors hover:bg-(--wa-row-hover)',
         activeId === chat.id && 'bg-(--wa-row-active)',
         cursor === index &&
           'ring-1 ring-inset ring-(--wa-accent)/70 bg-(--wa-accent)/[0.04] dark:bg-(--wa-panel-2)'
@@ -139,7 +141,13 @@ function ChatRow({
           className="absolute left-0 top-1/2 h-7 w-[3px] -translate-y-1/2 rounded-r-full bg-(--wa-accent)"
         />
       )}
-      {isSaved ? <SavedAvatar size={49} /> : <Avatar name={chat.title} size={49} />}
+      {isSaved ? (
+        <span data-saved-avatar className="inline-flex shrink-0 rounded-full">
+          <SavedAvatar size={49} />
+        </span>
+      ) : (
+        <Avatar name={chat.title} size={49} />
+      )}
       <div className="min-w-0 flex-1 border-b border-black/5 py-1.5 dark:border-white/5">
         <div className="flex items-baseline justify-between gap-2">
           <span className="flex min-w-0 items-center gap-1">
@@ -265,6 +273,41 @@ function ChatRow({
           </span>
         </div>
       </div>
+    </button>
+  )
+}
+
+/** Collapsible "Archived" header — sticky shortcut when closed, in-flow when open. */
+function ArchivedToggle({
+  count,
+  open,
+  onClick,
+}: {
+  count: number
+  open: boolean
+  onClick: () => void
+}) {
+  return (
+    <button
+      onClick={onClick}
+      aria-expanded={open}
+      className="flex w-full items-center gap-3 border-t border-(--wa-line) bg-(--wa-panel) px-4 py-2.5 text-left transition-colors hover:bg-(--wa-row-hover) dark:border-white/5 dark:bg-(--wa-panel) dark:hover:bg-(--wa-row-hover)"
+    >
+      <span className="flex h-9 w-9 items-center justify-center rounded-full bg-black/5 text-(--wa-text-2) dark:bg-white/10 dark:text-(--wa-text-2)">
+        <Archive className="h-4 w-4" />
+      </span>
+      <span className="flex-1 text-[14.5px] font-medium text-(--wa-text)">
+        Archived
+      </span>
+      <span className="rounded-full bg-black/5 px-2 py-0.5 text-[11.5px] font-semibold tabular-nums text-(--wa-text-2) transition-transform duration-150 active:scale-90 dark:bg-white/10 dark:text-(--wa-text-2)">
+        {count}
+      </span>
+      <ChevronDown
+        className={cn(
+          'h-4 w-4 text-(--wa-text-2) transition-transform duration-300 [transition-timing-function:cubic-bezier(0.34,1.56,0.64,1)]',
+          open && 'rotate-180'
+        )}
+      />
     </button>
   )
 }
@@ -439,7 +482,7 @@ export function ChatList({
             <Button
               size="icon"
               variant="ghost"
-              className="h-9 w-9 rounded-full bg-white/10 text-white hover:bg-white/20 dark:text-(--wa-text)"
+              className="wa-iconbtn h-9 w-9 rounded-full bg-white/10 text-white hover:bg-white/20 dark:text-(--wa-text)"
               onClick={onOpenInsights}
               disabled={importing}
               title="Insights across all chats"
@@ -450,7 +493,7 @@ export function ChatList({
             <Button
               size="sm"
               variant="ghost"
-              className="h-9 gap-1.5 rounded-full bg-white/10 px-3 text-[12.5px] font-medium text-white hover:bg-white/20 dark:text-(--wa-text)"
+              className="wa-iconbtn h-9 gap-1.5 rounded-full bg-white/10 px-3 text-[12.5px] font-medium text-white hover:bg-white/20 dark:text-(--wa-text)"
               onClick={onDemo}
               disabled={importing}
             >
@@ -460,7 +503,7 @@ export function ChatList({
             <Button
               size="sm"
               variant="ghost"
-              className="h-9 gap-1.5 rounded-full bg-white/10 px-3 text-[12.5px] font-medium text-white hover:bg-white/20 dark:text-(--wa-text)"
+              className="wa-iconbtn h-9 gap-1.5 rounded-full bg-white/10 px-3 text-[12.5px] font-medium text-white hover:bg-white/20 dark:text-(--wa-text)"
               onClick={() => fileInputRef.current?.click()}
               disabled={importing}
             >
@@ -568,7 +611,7 @@ export function ChatList({
             {query.trim() && (
               <button
                 onClick={() => onOpenGlobalSearch(query.trim())}
-                className="group flex w-full items-center gap-3 border-b border-black/5 px-4 py-2.5 text-left transition-colors hover:bg-(--wa-row-hover) dark:border-white/5 dark:hover:bg-(--wa-row-hover)"
+                className="anim-fade-up group flex w-full items-center gap-3 border-b border-black/5 px-4 py-2.5 text-left transition-colors hover:bg-(--wa-row-hover) dark:border-white/5 dark:hover:bg-(--wa-row-hover)"
                 title={`Search messages for "${query.trim()}"`}
               >
                 <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-(--wa-accent)/10 text-(--wa-accent-strong) transition-colors group-hover:bg-(--wa-accent) group-hover:text-white dark:bg-(--wa-accent)/20 dark:text-(--wa-accent) dark:group-hover:text-white">
@@ -625,34 +668,21 @@ export function ChatList({
               })}
             </ul>
 
-            {/* Archived drawer (WhatsApp-style collapsible section) */}
+            {/* Archived drawer (WhatsApp-style collapsible section).
+                When open it becomes a normal-flow section with a SOLID
+                background — active chats can no longer show through while
+                scrolling, and long archived lists stay fully reachable. */}
             {archivedChats.length > 0 && (
-              <div className="sticky bottom-0 mt-1">
-                <button
-                  onClick={() => setArchivedOpen((v) => !v)}
-                  aria-expanded={archivedOpen}
-                  className="flex w-full items-center gap-3 border-t border-(--wa-line) bg-(--wa-panel) px-4 py-2.5 text-left transition-colors hover:bg-(--wa-row-hover) dark:border-white/5 dark:bg-(--wa-panel) dark:hover:bg-(--wa-row-hover)"
-                >
-                  <span className="flex h-9 w-9 items-center justify-center rounded-full bg-black/5 text-(--wa-text-2) dark:bg-white/10 dark:text-(--wa-text-2)">
-                    <Archive className="h-4 w-4" />
-                  </span>
-                  <span className="flex-1 text-[14.5px] font-medium text-(--wa-text)">
-                    Archived
-                  </span>
-                  <span className="rounded-full bg-black/5 px-2 py-0.5 text-[11.5px] font-semibold tabular-nums text-(--wa-text-2) dark:bg-white/10 dark:text-(--wa-text-2)">
-                    {archivedChats.length}
-                  </span>
-                  <ChevronDown
-                    className={cn(
-                      'h-4 w-4 text-(--wa-text-2) transition-transform duration-200',
-                      archivedOpen && 'rotate-180'
-                    )}
+              archivedOpen ? (
+                <div className="anim-fade-up mt-1 border-t border-(--wa-line) bg-white shadow-[0_-10px_18px_-14px_rgba(0,0,0,0.45)] dark:bg-(--wa-panel)">
+                  <ArchivedToggle
+                    count={archivedChats.length}
+                    open={archivedOpen}
+                    onClick={() => setArchivedOpen(false)}
                   />
-                </button>
-                {archivedOpen && (
                   <ul
                     role="list"
-                    className="animate-in slide-in-from-top-1 bg-black/[0.015] pb-2 duration-200 dark:bg-white/[0.02]"
+                    className="bg-white pb-2 dark:bg-(--wa-panel)"
                   >
                     {archivedChats.map((chat, i) => (
                       <li key={chat.id}>
@@ -670,8 +700,16 @@ export function ChatList({
                       </li>
                     ))}
                   </ul>
-                )}
-              </div>
+                </div>
+              ) : (
+                <div className="sticky bottom-0 z-10 mt-1">
+                  <ArchivedToggle
+                    count={archivedChats.length}
+                    open={archivedOpen}
+                    onClick={() => setArchivedOpen(true)}
+                  />
+                </div>
+              )
             )}
           </>
         )}

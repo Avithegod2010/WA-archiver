@@ -396,8 +396,10 @@ export function WhatsAppApp() {
     >
       {/* Top app bar */}
       <div className="flex items-center justify-between bg-(--wa-appbar) px-4 py-2">
-        <div className="flex min-w-0 items-center gap-2.5">
-          <WhatsAppLogo size={30} className="shrink-0 text-white" />
+        <div className="anim-fade-up flex min-w-0 items-center gap-2.5">
+          <span data-app-logo className="shrink-0">
+            <WhatsAppLogo size={30} className="text-white" />
+          </span>
           <div className="min-w-0">
             <h1 className="truncate text-[16px] font-semibold leading-tight text-white">
               WhatsApp Viewer
@@ -413,7 +415,7 @@ export function WhatsAppApp() {
               <Button
                 variant="ghost"
                 size="icon"
-                className="h-9 w-9 text-white hover:bg-white/10"
+                className="wa-iconbtn h-9 w-9 text-white hover:bg-white/10"
                 onClick={() => setTextSizeOpen((v) => !v)}
                 aria-label="Display settings"
                 title="Text size & font"
@@ -437,7 +439,7 @@ export function WhatsAppApp() {
                       onClick={() => setTextSize(k)}
                       aria-pressed={active}
                       className={cn(
-                        'flex flex-col items-center gap-1 rounded-lg py-2 transition-colors',
+                        'flex flex-col items-center gap-1 rounded-lg py-2 transition-transform duration-150 hover:scale-[1.04] active:scale-95',
                         active
                           ? 'bg-(--wa-accent)/10 ring-1 ring-(--wa-accent)'
                           : 'hover:bg-black/5 dark:hover:bg-white/5'
@@ -478,7 +480,7 @@ export function WhatsAppApp() {
                       aria-pressed={active}
                       title={`${t.label} — ${t.hint}`}
                       className={cn(
-                        'flex flex-col items-center gap-1 rounded-lg py-1.5 transition-colors',
+                        'flex flex-col items-center gap-1 rounded-lg py-1.5 transition-transform duration-150 hover:scale-[1.06] active:scale-95',
                         active
                           ? 'bg-(--wa-accent)/10 ring-1 ring-(--wa-accent)'
                           : 'hover:bg-black/5 dark:hover:bg-white/5'
@@ -545,7 +547,7 @@ export function WhatsAppApp() {
                       aria-pressed={active}
                       title={f.hint}
                       className={cn(
-                        'flex flex-col items-start gap-0.5 rounded-lg px-2.5 py-2 text-left transition-colors',
+                        'flex flex-col items-start gap-0.5 rounded-lg px-2.5 py-2 text-left transition-transform duration-150 hover:scale-[1.03] active:scale-[0.97]',
                         active
                           ? 'bg-(--wa-accent)/10 ring-1 ring-(--wa-accent)'
                           : 'hover:bg-black/5 dark:hover:bg-white/5'
@@ -583,7 +585,7 @@ export function WhatsAppApp() {
             <Button
               variant="ghost"
               size="icon"
-              className="h-9 w-9 text-white hover:bg-white/10"
+              className="wa-iconbtn h-9 w-9 text-white hover:bg-white/10"
               onClick={() => setTheme(resolvedTheme === 'dark' ? 'light' : 'dark')}
               aria-label="Toggle dark mode"
             >
@@ -597,7 +599,7 @@ export function WhatsAppApp() {
           <Button
             variant="ghost"
             size="icon"
-            className="h-9 w-9 text-white hover:bg-white/10"
+            className="wa-iconbtn h-9 w-9 text-white hover:bg-white/10"
             onClick={() => setAboutOpen(true)}
             aria-label="About and help"
           >
@@ -653,8 +655,8 @@ export function WhatsAppApp() {
           />
         </div>
         {importing && (
-          <div className="absolute inset-0 z-30 flex items-center justify-center bg-black/20 backdrop-blur-[2px]">
-            <div className="flex items-center gap-3 rounded-xl bg-white px-5 py-4 shadow-xl dark:bg-(--wa-panel-2)">
+          <div className="animate-in fade-in absolute inset-0 z-30 flex items-center justify-center bg-black/20 backdrop-blur-[2px] duration-200">
+            <div className="anim-pop flex items-center gap-3 rounded-xl bg-white px-5 py-4 shadow-xl dark:bg-(--wa-panel-2)">
               <Loader2 className="h-5 w-5 animate-spin text-(--wa-accent)" />
               <span className="text-[14px] font-medium text-(--wa-text)">
                 Working on it...
