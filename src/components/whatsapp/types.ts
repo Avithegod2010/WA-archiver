@@ -22,6 +22,7 @@ export interface ChatMessage {
   type: string
   mediaPath: string | null
   mediaName: string | null
+  starred?: boolean
 }
 
 export interface ChatDetailChat {

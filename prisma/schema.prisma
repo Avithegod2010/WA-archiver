@@ -35,6 +35,7 @@ model Message {
   type      String   @default("text")
   mediaPath String?
   mediaName String?
+  starred   Boolean  @default(false)
 
   @@index([chatId, idx])
   @@index([chatId, ts])

@@ -8,6 +8,7 @@ import {
   MessageSquare,
   Images,
   Group,
+  Search,
   Smile,
   Type,
   HardDrive,
@@ -19,6 +20,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
+import { Input } from '@/components/ui/input'
 import { Avatar } from './Avatar'
 import type { StatsData } from './types'
 import { cn } from '@/lib/utils'
@@ -155,6 +157,7 @@ export function StatsDashboard({
 }) {
   // undefined = not fetched yet (loading), null = fetch error
   const [data, setData] = useState<StatsData | null | undefined>(undefined)
+  const [chatQuery, setChatQuery] = useState('')
 
   useEffect(() => {
     if (!open) return
@@ -176,13 +179,23 @@ export function StatsDashboard({
 
   const maxMonth = data ? Math.max(...data.months.map((m) => m.count), 1) : 1
   const maxWeekday = data ? Math.max(...data.weekdays.map((w) => w.count), 1) : 1
-  const maxChat = data ? Math.max(...data.perChat.map((c) => c.count), 1) : 1
   const maxParticipant = data
     ? Math.max(...data.participants.map((p) => p.count), 1)
     : 1
-  const maxStorage = data
-    ? Math.max(...data.storage.perChat.map((s) => s.bytes), 1)
-    : 1
+
+  const q = chatQuery.trim().toLowerCase()
+  const filteredChats = data
+    ? q
+      ? data.perChat.filter((c) => c.title.toLowerCase().includes(q))
+      : data.perChat
+    : []
+  const filteredStorage = data
+    ? q
+      ? data.storage.perChat.filter((c) => c.title.toLowerCase().includes(q))
+      : data.storage.perChat
+    : []
+  const filteredChatMax = Math.max(...filteredChats.map((c) => c.count), 1)
+  const filteredStorageMax = Math.max(...filteredStorage.map((c) => c.bytes), 1)
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -334,23 +347,40 @@ export function StatsDashboard({
                   </Section>
 
                   <Section title="Top chats">
-                    <div className="space-y-1.5">
-                      {data.perChat.map((c) => (
-                        <BarRow
-                          key={c.id}
-                          label={c.title}
-                          value={c.count}
-                          max={maxChat}
-                          total={data.totals.messages}
-                          accent={c.isGroup ? '#e542a3' : '#00a884'}
-                          leading={
-                            <span className="shrink-0">
-                              <Avatar name={c.title} size={24} />
-                            </span>
-                          }
+                    {(data.perChat.length > 2 || q) && (
+                      <div className="relative mb-2">
+                        <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-[#667781] dark:text-[#8696a0]" />
+                        <Input
+                          value={chatQuery}
+                          onChange={(e) => setChatQuery(e.target.value)}
+                          placeholder="Filter chats by name…"
+                          className="h-8 rounded-lg bg-white pl-8 text-[12.5px] dark:bg-[#2a3942] dark:text-[#e9edef] dark:placeholder:text-[#8696a0]"
                         />
-                      ))}
-                    </div>
+                      </div>
+                    )}
+                    {q && filteredChats.length === 0 ? (
+                      <p className="py-3 text-center text-[12.5px] text-[#667781] dark:text-[#8696a0]">
+                        No chats match &quot;{chatQuery.trim()}&quot;
+                      </p>
+                    ) : (
+                      <div className="space-y-1.5">
+                        {filteredChats.map((c) => (
+                          <BarRow
+                            key={c.id}
+                            label={c.title}
+                            value={c.count}
+                            max={filteredChatMax}
+                            total={data.totals.messages}
+                            accent={c.isGroup ? '#e542a3' : '#00a884'}
+                            leading={
+                              <span className="shrink-0">
+                                <Avatar name={c.title} size={24} />
+                              </span>
+                            }
+                          />
+                        ))}
+                      </div>
+                    )}
                   </Section>
 
                   {data.participants.length > 0 && (
@@ -397,12 +427,12 @@ export function StatsDashboard({
                   {data.storage.perChat.length > 0 && (
                     <Section title="Media storage by chat">
                       <div className="space-y-1.5">
-                        {data.storage.perChat.map((s) => (
+                        {filteredStorage.map((s) => (
                           <BarRow
                             key={s.chatId}
                             label={s.title}
                             value={s.bytes}
-                            max={maxStorage}
+                            max={filteredStorageMax}
                             total={data.storage.totalBytes}
                             accent="#12b886"
                             formatValue={formatBytes}

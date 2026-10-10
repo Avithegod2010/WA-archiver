@@ -255,6 +255,43 @@ export function WhatsAppApp() {
     [chats]
   )
 
+  /** Star/unstar a message: optimistic DB-backed bookmark with revert. */
+  const toggleStar = useCallback(
+    async (messageId: string, starred: boolean) => {
+      setDetail((d) =>
+        d
+          ? {
+              ...d,
+              messages: d.messages.map((m) =>
+                m.id === messageId ? { ...m, starred } : m
+              ),
+            }
+          : d
+      )
+      try {
+        const res = await fetch(`/api/messages/${messageId}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ starred }),
+        })
+        if (!res.ok) throw new Error('failed')
+      } catch {
+        setDetail((d) =>
+          d
+            ? {
+                ...d,
+                messages: d.messages.map((m) =>
+                  m.id === messageId ? { ...m, starred: !starred } : m
+                ),
+              }
+            : d
+        )
+        toast.error('Could not update star')
+      }
+    },
+    []
+  )
+
   const totalMessages = chats.reduce((s, c) => s + c.messageCount, 0)
 
   return (
@@ -332,6 +369,7 @@ export function WhatsAppApp() {
             }}
             onDelete={deleteChat}
             deleting={deleting}
+            onStarMessage={toggleStar}
           />
         </div>
         {importing && (
@@ -413,6 +451,14 @@ export function WhatsAppApp() {
                 <Kbd>Esc</Kbd>
                 <span>Clear search / close panels / back</span>
               </div>
+            </div>
+            <div>
+              <h4 className="mb-1.5 font-semibold">Message actions</h4>
+              <p>
+                <b>Right-click</b> a message (or <b>long-press</b> on touch) to
+                star it or copy it — starred messages are collected under the
+                star icon in the chat header.
+              </p>
             </div>
             <p className="text-[12px] text-[#667781] dark:text-[#8696a0]">
               Supported: Android &amp; iOS exports (.zip with media or .txt only).

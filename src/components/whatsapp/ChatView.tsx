@@ -20,6 +20,7 @@ import {
   Palette,
   Search,
   SlidersHorizontal,
+  Star,
   Trash2,
   X,
   Info,
@@ -28,6 +29,7 @@ import { Avatar } from './Avatar'
 import { MessageBubble } from './MessageBubble'
 import { ChatInfo } from './ChatInfo'
 import { MediaGallery } from './MediaGallery'
+import { StarredMessages } from './StarredMessages'
 import { DoodleBackground } from './icons'
 import type { ChatDetail, ChatMessage } from './types'
 import { cn } from '@/lib/utils'
@@ -129,12 +131,14 @@ export function ChatView({
   onBack,
   onDelete,
   deleting,
+  onStarMessage,
 }: {
   detail: ChatDetail | null
   loading: boolean
   onBack: () => void
   onDelete: (id: string) => void
   deleting: boolean
+  onStarMessage?: (messageId: string, starred: boolean) => void
 }) {
   const scrollRef = useRef<HTMLDivElement>(null)
   const visibleCountRef = useRef(PAGE_SIZE)
@@ -147,6 +151,7 @@ export function ChatView({
   const [dateFilterOpen, setDateFilterOpen] = useState(false)
   const [galleryOpen, setGalleryOpen] = useState(false)
   const [infoOpen, setInfoOpen] = useState(false)
+  const [starredOpen, setStarredOpen] = useState(false)
   const [showFab, setShowFab] = useState(false)
   const [jumpedId, setJumpedId] = useState<string | null>(null)
   const [jumpDate, setJumpDate] = useState('')
@@ -253,8 +258,9 @@ export function ChatView({
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
       if (e.key !== 'Escape') return
-      // Never intercept Escape while a dialog/alert is open (Radix handles it)
-      if (document.querySelector('[role="dialog"],[role="alertdialog"]')) return
+      // Never intercept Escape while a dialog/alert/context menu is open
+      // (Radix handles those Escapes itself)
+      if (document.querySelector('[role="dialog"],[role="alertdialog"],[role="menu"]')) return
       if (jumpOpen) return
       if (query) {
         setQuery('')
@@ -286,6 +292,16 @@ export function ChatView({
     a.remove()
     toast.success('Chat exported as .txt — check your downloads')
   }
+
+  function handleToggleStar(id: string, starred: boolean) {
+    onStarMessage?.(id, starred)
+    toast.success(starred ? 'Message starred' : 'Message unstarred')
+  }
+
+  const starredCount = useMemo(
+    () => messages.reduce((s, m) => s + (m.starred ? 1 : 0), 0),
+    [messages]
+  )
 
   /** Expand the render window and smooth-scroll to a message with a flash. */
   function jumpToMessageId(id: string) {
@@ -425,13 +441,36 @@ export function ChatView({
           >
             <Search className="h-5 w-5 text-[#54656f] dark:text-[#aebac1]" />
           </Button>
+          <Button
+            variant="ghost"
+            size="icon"
+            className="relative h-9 w-9"
+            onClick={() => setStarredOpen(true)}
+            aria-label="Starred messages"
+            title="Starred messages"
+          >
+            <Star
+              className={cn(
+                'h-5 w-5',
+                starredCount > 0
+                  ? 'fill-[#f2a33c] text-[#f2a33c]'
+                  : 'text-[#54656f] dark:text-[#aebac1]'
+              )}
+            />
+            {starredCount > 0 && (
+              <span className="absolute -right-0.5 -top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-[#f2a33c] px-1 text-[9px] font-bold leading-none text-white shadow">
+                {starredCount > 99 ? '99+' : starredCount}
+              </span>
+            )}
+          </Button>
           <Popover open={jumpOpen} onOpenChange={setJumpOpen}>
             <PopoverTrigger asChild>
               <Button
                 variant="ghost"
                 size="icon"
-                className="h-9 w-9"
+                className="hidden h-9 w-9 md:inline-flex"
                 aria-label="Jump to date"
+                title="Jump to date"
               >
                 <CalendarDays className="h-5 w-5 text-[#54656f] dark:text-[#aebac1]" />
               </Button>
@@ -712,6 +751,7 @@ export function ChatView({
                 isGroup={chat.isGroup}
                 showTail={item.showTail}
                 showAvatar={item.showAvatar}
+                onToggleStar={handleToggleStar}
               />
             </div>
           )
@@ -746,6 +786,17 @@ export function ChatView({
           const el = scrollRef.current
           if (el) el.scrollTo({ top: el.scrollHeight })
         }}
+      />
+
+      {/* Starred messages list */}
+      <StarredMessages
+        open={starredOpen}
+        onOpenChange={setStarredOpen}
+        chatId={chatId}
+        chatTitle={chat.title}
+        isGroup={chat.isGroup}
+        onJumpToMessage={jumpToMessageId}
+        onUnstar={(id) => onStarMessage?.(id, false)}
       />
 
       {/* Full media gallery (mounted per open for fresh state) */}

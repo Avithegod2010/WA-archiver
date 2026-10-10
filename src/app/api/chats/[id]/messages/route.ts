@@ -40,6 +40,7 @@ export async function GET(
       type: true,
       mediaPath: true,
       mediaName: true,
+      starred: true,
     },
   })
 

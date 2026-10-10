@@ -5,13 +5,23 @@ import {
   Ban,
   BarChart3,
   Copy,
+  Download,
   FileText,
   MapPin,
   Mic,
   PhoneMissed,
+  Star,
+  StarOff,
   UserRound,
 } from 'lucide-react'
 import { toast } from 'sonner'
+import {
+  ContextMenu,
+  ContextMenuContent,
+  ContextMenuItem,
+  ContextMenuSeparator,
+  ContextMenuTrigger,
+} from '@/components/ui/context-menu'
 import { Avatar } from './Avatar'
 import { BubbleTail, TicksDouble } from './icons'
 import { Lightbox } from './Lightbox'
@@ -50,74 +60,39 @@ function copyTextFor(msg: ChatMessage): string {
   return prefix + body
 }
 
-function CopyButton({ msg }: { msg: ChatMessage }) {
-  async function handleCopy(e: React.MouseEvent) {
-    e.stopPropagation()
-    const text = copyTextFor(msg)
-    try {
-      await navigator.clipboard.writeText(text)
-      toast.success('Message copied')
-    } catch {
-      toast.error('Could not copy')
-    }
+async function copyMessage(msg: ChatMessage) {
+  try {
+    await navigator.clipboard.writeText(copyTextFor(msg))
+    toast.success('Message copied')
+  } catch {
+    toast.error('Could not copy')
   }
-  return (
-    <button
-      onClick={handleCopy}
-      aria-label="Copy message"
-      title="Copy message"
-      className={cn(
-        'mb-1 hidden h-7 w-7 shrink-0 items-center justify-center rounded-full bg-white text-[#54656f] shadow-md transition-opacity sm:flex',
-        'opacity-0 group-hover/msg:opacity-100 focus-visible:opacity-100 dark:bg-[#233138] dark:text-[#aebac1]'
-      )}
-    >
-      <Copy className="h-3.5 w-3.5" />
-    </button>
-  )
 }
 
-/** Long-press (mobile) copies the message, with haptic feedback. */
-function useLongPressCopy(msg: ChatMessage) {
-  const timer = useRef<ReturnType<typeof setTimeout> | null>(null)
+/** Visual press feedback while long-pressing (Radix opens the context menu). */
+function usePressFeedback() {
   const startXY = useRef<{ x: number; y: number } | null>(null)
   const [pressing, setPressing] = useState(false)
 
   function clear() {
-    if (timer.current) clearTimeout(timer.current)
-    timer.current = null
     startXY.current = null
     setPressing(false)
-  }
-
-  function onPointerDown(e: React.PointerEvent) {
-    if (e.pointerType === 'mouse') return
-    startXY.current = { x: e.clientX, y: e.clientY }
-    setPressing(true)
-    timer.current = setTimeout(async () => {
-      timer.current = null
-      setPressing(false)
-      try {
-        await navigator.clipboard.writeText(copyTextFor(msg))
-        navigator.vibrate?.(30)
-        toast.success('Message copied')
-      } catch {
-        toast.error('Could not copy')
-      }
-    }, 550)
-  }
-
-  function onPointerMove(e: React.PointerEvent) {
-    if (!timer.current || !startXY.current) return
-    const dx = e.clientX - startXY.current.x
-    const dy = e.clientY - startXY.current.y
-    if (dx * dx + dy * dy > 64) clear() // scrolled/dragged — cancel
   }
 
   return {
     pressing,
     handlers: {
-      onPointerDown,
-      onPointerMove,
+      onPointerDown(e: React.PointerEvent) {
+        if (e.pointerType === 'mouse') return
+        startXY.current = { x: e.clientX, y: e.clientY }
+        setPressing(true)
+      },
+      onPointerMove(e: React.PointerEvent) {
+        if (!startXY.current) return
+        const dx = e.clientX - startXY.current.x
+        const dy = e.clientY - startXY.current.y
+        if (dx * dx + dy * dy > 64) clear() // scrolled/dragged — cancel
+      },
       onPointerUp: clear,
       onPointerCancel: clear,
       onPointerLeave: clear,
@@ -151,6 +126,9 @@ function Meta({ msg, outgoing, onMedia }: MetaProps) {
       )}
     >
       <span className="whitespace-nowrap">{formatTime(msg.ts)}</span>
+      {msg.starred && (
+        <Star className="h-3 w-3 fill-[#f2a33c] text-[#f2a33c] drop-shadow-sm" />
+      )}
       {outgoing && <TicksDouble />}
     </span>
   )
@@ -247,18 +225,110 @@ function ImageContent({ msg, src }: { msg: ChatMessage; src: string | null }) {
   )
 }
 
+interface BubbleMenuProps {
+  msg: ChatMessage
+  src: string | null
+  onToggleStar?: (id: string, starred: boolean) => void
+}
+
+/** WhatsApp-style message context menu (right-click / long-press). */
+function BubbleMenu({ msg, src, onToggleStar }: BubbleMenuProps) {
+  return (
+    <ContextMenuContent className="min-w-[180px]">
+      {onToggleStar && (
+        <ContextMenuItem
+          onClick={() => onToggleStar(msg.id, !msg.starred)}
+          className="gap-2"
+        >
+          {msg.starred ? (
+            <>
+              <StarOff className="h-4 w-4 text-[#f2a33c]" /> Unstar message
+            </>
+          ) : (
+            <>
+              <Star className="h-4 w-4 text-[#f2a33c]" /> Star message
+            </>
+          )}
+        </ContextMenuItem>
+      )}
+      <ContextMenuItem onClick={() => copyMessage(msg)} className="gap-2">
+        <Copy className="h-4 w-4" /> Copy message
+      </ContextMenuItem>
+      {src && (
+        <>
+          <ContextMenuSeparator />
+          <ContextMenuItem asChild className="gap-2">
+            <a href={src} download={msg.mediaName ?? true}>
+              <Download className="h-4 w-4" /> Download media
+            </a>
+          </ContextMenuItem>
+        </>
+      )}
+    </ContextMenuContent>
+  )
+}
+
+interface HoverActionsProps {
+  msg: ChatMessage
+  onToggleStar?: (id: string, starred: boolean) => void
+}
+
+function HoverActions({ msg, onToggleStar }: HoverActionsProps) {
+  const cls = cn(
+    'mb-1 hidden h-7 w-7 shrink-0 items-center justify-center rounded-full bg-white text-[#54656f] shadow-md transition-opacity sm:flex',
+    'opacity-0 group-hover/msg:opacity-100 focus-visible:opacity-100 dark:bg-[#233138] dark:text-[#aebac1]'
+  )
+  return (
+    <>
+      {onToggleStar && (
+        <button
+          onClick={(e) => {
+            e.stopPropagation()
+            onToggleStar(msg.id, !msg.starred)
+          }}
+          aria-label={msg.starred ? 'Unstar message' : 'Star message'}
+          title={msg.starred ? 'Unstar message' : 'Star message'}
+          className={cls}
+        >
+          <Star
+            className={cn(
+              'h-3.5 w-3.5 transition-colors',
+              msg.starred
+                ? 'fill-[#f2a33c] text-[#f2a33c]'
+                : 'hover:fill-[#f2a33c]/40 hover:text-[#f2a33c]'
+            )}
+          />
+        </button>
+      )}
+      <button
+        onClick={(e) => {
+          e.stopPropagation()
+          copyMessage(msg)
+        }}
+        aria-label="Copy message"
+        title="Copy message"
+        className={cls}
+      >
+        <Copy className="h-3.5 w-3.5" />
+      </button>
+    </>
+  )
+}
+
 export function MessageBubble({
   msg,
   chatId,
   isGroup,
   showTail,
   showAvatar,
+  onToggleStar,
 }: {
   msg: ChatMessage
   chatId: string
   isGroup: boolean
   showTail: boolean
   showAvatar: boolean
+  onToggleStar?: (id: string, starred: boolean) => void
 }) {
   const outgoing = msg.sender === 'You'
   const senderColor = useMemo(
@@ -266,10 +336,10 @@ export function MessageBubble({
     [msg.sender]
   )
   const src = mediaSrc(chatId, msg)
-  const longPress = useLongPressCopy(msg)
+  const press = usePressFeedback()
 
   if (outgoing) {
-    return <OutgoingBubble msg={msg} chatId={chatId} showTail={showTail} src={src} />
+    return <OutgoingBubble msg={msg} chatId={chatId} showTail={showTail} src={src} onToggleStar={onToggleStar} />
   }
 
   return (
@@ -281,35 +351,40 @@ export function MessageBubble({
           <div className="w-7 shrink-0" />
         )
       ) : null}
-      <div className="relative min-w-0 max-w-[78%] sm:max-w-[65%]">
-        {showTail && (
-          <BubbleTail
-            side="left"
-            className="absolute -left-[7px] top-0 fill-white dark:fill-[#202c33]"
-          />
-        )}
-        <div
-          {...longPress.handlers}
-          className={cn(
-            'relative rounded-[7.5px] px-2.5 py-1.5 text-[14.2px] leading-[19px] transition-[transform,box-shadow] duration-150',
-            'bg-white text-[#111b21] shadow-[0_1px_0.5px_rgba(11,20,26,0.13)] dark:bg-[#202c33] dark:text-[#e9edef] dark:shadow-[0_1px_0.5px_rgba(0,0,0,0.25)]',
-            !showTail && 'rounded-tl-none',
-            longPress.pressing && 'scale-[0.98]'
-          )}
-        >
-          {isGroup && msg.sender && (
-            <p
-              className="mb-0.5 text-[12.5px] font-semibold leading-tight"
-              style={{ color: senderColor }}
+      <ContextMenu>
+        <ContextMenuTrigger asChild>
+          <div className="relative min-w-0 max-w-[78%] sm:max-w-[65%]">
+            {showTail && (
+              <BubbleTail
+                side="left"
+                className="absolute -left-[7px] top-0 fill-white dark:fill-[#202c33]"
+              />
+            )}
+            <div
+              {...press.handlers}
+              className={cn(
+                'relative rounded-[7.5px] px-2.5 py-1.5 text-[14.2px] leading-[19px] transition-[transform,box-shadow] duration-150',
+                'bg-white text-[#111b21] shadow-[0_1px_0.5px_rgba(11,20,26,0.13)] dark:bg-[#202c33] dark:text-[#e9edef] dark:shadow-[0_1px_0.5px_rgba(0,0,0,0.25)]',
+                !showTail && 'rounded-tl-none',
+                press.pressing && 'scale-[0.98]'
+              )}
             >
-              {msg.sender}
-            </p>
-          )}
-          <Content msg={msg} chatId={chatId} src={src} outgoing={false} />
-          <Meta msg={msg} outgoing={false} onMedia={false} />
-        </div>
-      </div>
-      <CopyButton msg={msg} />
+              {isGroup && msg.sender && (
+                <p
+                  className="mb-0.5 text-[12.5px] font-semibold leading-tight"
+                  style={{ color: senderColor }}
+                >
+                  {msg.sender}
+                </p>
+              )}
+              <Content msg={msg} chatId={chatId} src={src} outgoing={false} />
+              <Meta msg={msg} outgoing={false} onMedia={false} />
+            </div>
+          </div>
+        </ContextMenuTrigger>
+        <BubbleMenu msg={msg} src={src} onToggleStar={onToggleStar} />
+      </ContextMenu>
+      <HoverActions msg={msg} onToggleStar={onToggleStar} />
     </div>
   )
 }
@@ -319,36 +394,43 @@ function OutgoingBubble({
   chatId,
   showTail,
   src,
+  onToggleStar,
 }: {
   msg: ChatMessage
   chatId: string
   showTail: boolean
   src: string | null
+  onToggleStar?: (id: string, starred: boolean) => void
 }) {
-  const longPress = useLongPressCopy(msg)
+  const press = usePressFeedback()
   return (
     <div className="group/msg flex justify-end gap-1.5 px-2 sm:px-4">
-      <CopyButton msg={msg} />
-      <div className="relative min-w-0 max-w-[78%] sm:max-w-[65%]">
-        {showTail && (
-          <BubbleTail
-            side="right"
-            className="absolute -right-[7px] top-0 fill-[#d9fdd3] dark:fill-[#005c4b]"
-          />
-        )}
-        <div
-          {...longPress.handlers}
-          className={cn(
-            'relative rounded-[7.5px] px-2.5 py-1.5 text-[14.2px] leading-[19px] transition-[transform,box-shadow] duration-150',
-            'bg-[#d9fdd3] text-[#111b21] shadow-[0_1px_0.5px_rgba(11,20,26,0.13)] dark:bg-[#005c4b] dark:text-[#e9edef] dark:shadow-[0_1px_0.5px_rgba(0,0,0,0.25)]',
-            !showTail && 'rounded-tr-none',
-            longPress.pressing && 'scale-[0.98]'
-          )}
-        >
-          <Content msg={msg} chatId={chatId} src={src} outgoing />
-          <Meta msg={msg} outgoing onMedia={false} />
-        </div>
-      </div>
+      <HoverActions msg={msg} onToggleStar={onToggleStar} />
+      <ContextMenu>
+        <ContextMenuTrigger asChild>
+          <div className="relative min-w-0 max-w-[78%] sm:max-w-[65%]">
+            {showTail && (
+              <BubbleTail
+                side="right"
+                className="absolute -right-[7px] top-0 fill-[#d9fdd3] dark:fill-[#005c4b]"
+              />
+            )}
+            <div
+              {...press.handlers}
+              className={cn(
+                'relative rounded-[7.5px] px-2.5 py-1.5 text-[14.2px] leading-[19px] transition-[transform,box-shadow] duration-150',
+                'bg-[#d9fdd3] text-[#111b21] shadow-[0_1px_0.5px_rgba(11,20,26,0.13)] dark:bg-[#005c4b] dark:text-[#e9edef] dark:shadow-[0_1px_0.5px_rgba(0,0,0,0.25)]',
+                !showTail && 'rounded-tr-none',
+                press.pressing && 'scale-[0.98]'
+              )}
+            >
+              <Content msg={msg} chatId={chatId} src={src} outgoing />
+              <Meta msg={msg} outgoing onMedia={false} />
+            </div>
+          </div>
+        </ContextMenuTrigger>
+        <BubbleMenu msg={msg} src={src} onToggleStar={onToggleStar} />
+      </ContextMenu>
     </div>
   )
 }

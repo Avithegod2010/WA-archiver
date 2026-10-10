@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState, useSyncExternalStore } from 'react'
 import { createPortal } from 'react-dom'
 import {
+  Archive,
   CornerDownLeft,
   FileText,
   Film,
@@ -73,6 +74,7 @@ export function MediaGallery({
   const [items, setItems] = useState<MediaItem[] | null | undefined>(undefined)
   const [viewerIndex, setViewerIndex] = useState<number | null>(null)
   const [filter, setFilter] = useState<'all' | 'image' | 'video' | 'audio' | 'doc'>('all')
+  const [zipping, setZipping] = useState(false)
   const mounted = useSyncExternalStore(
     () => () => {},
     () => true,
@@ -120,6 +122,30 @@ export function MediaGallery({
     return c
   }, [items])
 
+  const totalBytes = useMemo(
+    () => (items ?? []).reduce((s, m) => s + (m.bytes ?? 0), 0),
+    [items]
+  )
+
+  const availableCount = useMemo(
+    () => (items ?? []).filter((m) => m.mediaPath).length,
+    [items]
+  )
+
+  function handleDownloadZip() {
+    if (zipping) return
+    setZipping(true)
+    const a = document.createElement('a')
+    a.href = `/api/chats/${chatId}/media-zip`
+    a.download = ''
+    document.body.appendChild(a)
+    a.click()
+    a.remove()
+    // Give the browser a moment to start the download
+    setTimeout(() => setZipping(false), 1500)
+    toast.success('Preparing media .zip — check your downloads')
+  }
+
   if (!open || !mounted) return null
 
   const tabs: Array<{ key: typeof filter; label: string; icon: React.ReactNode }> = [
@@ -152,9 +178,27 @@ export function MediaGallery({
           <p className="text-[11.5px] text-[#8696a0]">
             {items == null
               ? 'Loading…'
-              : `${counts.all} item${counts.all === 1 ? '' : 's'} · click to view`}
+              : `${counts.all} item${counts.all === 1 ? '' : 's'}${
+                  totalBytes > 0 ? ` · ${formatBytes(totalBytes)}` : ''
+                } · click to view`}
           </p>
         </div>
+        {items != null && availableCount > 0 && (
+          <button
+            onClick={handleDownloadZip}
+            disabled={zipping}
+            aria-label="Download all media as zip"
+            title="Download all media (.zip with transcript)"
+            className="flex h-9 items-center gap-1.5 rounded-full bg-[#00a884] px-3.5 text-[12.5px] font-medium text-white transition-colors hover:bg-[#029374] disabled:opacity-60"
+          >
+            {zipping ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <Archive className="h-4 w-4" />
+            )}
+            Download all
+          </button>
+        )}
         <button
           onClick={onClose}
           aria-label="Close gallery"

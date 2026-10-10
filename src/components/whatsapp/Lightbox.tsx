@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState, useSyncExternalStore } from 'react'
+import { useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import { createPortal } from 'react-dom'
 import {
   ChevronLeft,
@@ -53,6 +53,29 @@ export function Lightbox({
     () => false
   )
 
+  // Touch swipe -> prev/next on mobile
+  const touchStart = useRef<{ x: number; y: number } | null>(null)
+
+  function onTouchStart(e: React.TouchEvent) {
+    touchStart.current = {
+      x: e.touches[0].clientX,
+      y: e.touches[0].clientY,
+    }
+  }
+
+  function onTouchEnd(e: React.TouchEvent) {
+    const start = touchStart.current
+    touchStart.current = null
+    if (!start || !onPrev || !onNext) return
+    const dx = e.changedTouches[0].clientX - start.x
+    const dy = e.changedTouches[0].clientY - start.y
+    // Horizontal swipe dominant and long enough
+    if (Math.abs(dx) > 60 && Math.abs(dx) > Math.abs(dy) * 1.5) {
+      if (dx < 0) onNext()
+      else onPrev()
+    }
+  }
+
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
       if (e.key === 'Escape') {
@@ -89,6 +112,8 @@ export function Lightbox({
       onKeyDown={(e) => {
         if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') e.stopPropagation()
       }}
+      onTouchStart={onTouchStart}
+      onTouchEnd={onTouchEnd}
     >
       {/* Toolbar */}
       <div
@@ -211,7 +236,7 @@ export function Lightbox({
             ) : (
               <>
                 <ZoomIn className="h-3 w-3" />
-                {hasNav ? 'Click to zoom · ← → to browse' : 'Click image to zoom in'}
+                {hasNav ? 'Click to zoom · ← → or swipe to browse' : 'Click image to zoom in'}
               </>
             )}
           </p>

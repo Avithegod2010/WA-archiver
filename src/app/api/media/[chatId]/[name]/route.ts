@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { promises as fsp } from 'fs'
+import { promises as fsp, createReadStream } from 'fs'
+import { Readable } from 'stream'
 import {
   resolveMediaPath,
   mimeFromName,
@@ -9,6 +10,12 @@ import {
 } from '@/lib/media-store'
 
 export const runtime = 'nodejs'
+
+/** Node stream -> web body so large videos are never buffered fully in memory. */
+function streamOf(filePath: string, start?: number, end?: number): ReadableStream {
+  const node = createReadStream(filePath, { start, end })
+  return Readable.toWeb(node) as unknown as ReadableStream
+}
 
 export async function GET(
   req: NextRequest,
@@ -60,22 +67,20 @@ export async function GET(
       const start = m[1] ? parseInt(m[1], 10) : 0
       const end = m[2] ? Math.min(parseInt(m[2], 10), stat.size - 1) : stat.size - 1
       if (start <= end && start < stat.size) {
-        const chunk = await fsp.readFile(filePath)
-        const body = chunk.subarray(start, end + 1)
-        return new NextResponse(new Uint8Array(body), {
+        // Stream only the requested slice — seeks stay cheap on big videos
+        return new NextResponse(streamOf(filePath, start, end), {
           status: 206,
           headers: {
             ...baseHeaders,
             'Content-Range': `bytes ${start}-${end}/${stat.size}`,
-            'Content-Length': String(body.length),
+            'Content-Length': String(end - start + 1),
           },
         })
       }
     }
   }
 
-  const buf = await fsp.readFile(filePath)
-  return new NextResponse(new Uint8Array(buf), {
+  return new NextResponse(streamOf(filePath), {
     status: 200,
     headers: {
       ...baseHeaders,
