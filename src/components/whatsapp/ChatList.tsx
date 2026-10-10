@@ -17,10 +17,12 @@ import {
   Search,
   Sparkles,
   StickyNote,
+  TextSearch,
   Trash2,
   Upload,
   Ban,
   BarChart3,
+  ChevronRight,
   UserRound,
 } from 'lucide-react'
 import { Avatar } from './Avatar'
@@ -274,6 +276,7 @@ export function ChatList({
   onTogglePin,
   onToggleArchive,
   onOpenInsights,
+  onOpenGlobalSearch,
 }: {
   chats: ChatSummary[]
   activeId: string | null
@@ -286,6 +289,7 @@ export function ChatList({
   onTogglePin: (id: string, pinned: boolean) => void
   onToggleArchive: (id: string, archived: boolean) => void
   onOpenInsights: () => void
+  onOpenGlobalSearch: (query: string) => void
 }) {
   const [query, setQuery] = useState('')
   const [pendingDelete, setPendingDelete] = useState<ChatSummary | null>(null)
@@ -529,13 +533,44 @@ export function ChatList({
                 </p>
               </>
             ) : (
-              <p className="text-[13.5px] text-[#667781] dark:text-[#8696a0]">
-                No chats match &quot;{query}&quot;
-              </p>
+              <div className="flex h-full flex-col items-center justify-center gap-4 px-8 py-10 text-center">
+                <p className="text-[13.5px] text-[#667781] dark:text-[#8696a0]">
+                  No chats match &quot;{query}&quot;
+                </p>
+                <Button
+                  variant="secondary"
+                  className="gap-2 rounded-full bg-[#00a884]/10 text-[13px] font-medium text-[#008069] hover:bg-[#00a884]/20 dark:bg-[#00a884]/15 dark:text-[#6fd3b6]"
+                  onClick={() => onOpenGlobalSearch(query.trim())}
+                >
+                  <TextSearch className="h-4 w-4" />
+                  Search messages instead
+                </Button>
+              </div>
             )}
           </div>
         ) : (
           <>
+            {/* Global message search trigger (WhatsApp-style row above results) */}
+            {query.trim() && (
+              <button
+                onClick={() => onOpenGlobalSearch(query.trim())}
+                className="group flex w-full items-center gap-3 border-b border-black/5 px-4 py-2.5 text-left transition-colors hover:bg-[#f5f6f6] dark:border-white/5 dark:hover:bg-[#202c33]"
+                title={`Search messages for "${query.trim()}"`}
+              >
+                <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[#00a884]/10 text-[#008069] transition-colors group-hover:bg-[#00a884] group-hover:text-white dark:bg-[#00a884]/20 dark:text-[#6fd3b6] dark:group-hover:text-white">
+                  <TextSearch className="h-4 w-4" />
+                </span>
+                <span className="min-w-0 flex-1">
+                  <span className="block text-[14.5px] font-medium text-[#111b21] dark:text-[#e9edef]">
+                    Search messages for &quot;{query.trim()}&quot;
+                  </span>
+                  <span className="block truncate text-[12.5px] text-[#667781] dark:text-[#8696a0]">
+                    Find this text inside every chat
+                  </span>
+                </span>
+                <ChevronRight className="h-4 w-4 shrink-0 text-[#8696a0] transition-transform group-hover:translate-x-0.5" />
+              </button>
+            )}
             <ul role="list">
               {activeChats.length === 0 && (
                 <li className="px-4 pb-1 pt-4 text-center">

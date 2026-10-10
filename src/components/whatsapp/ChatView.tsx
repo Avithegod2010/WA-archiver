@@ -189,6 +189,7 @@ export function ChatView({
   onDelete,
   deleting,
   onStarMessage,
+  initialJumpMessageId,
 }: {
   detail: ChatDetail | null
   loading: boolean
@@ -196,6 +197,7 @@ export function ChatView({
   onDelete: (id: string) => void
   deleting: boolean
   onStarMessage?: (messageId: string, starred: boolean) => void
+  initialJumpMessageId?: string | null
 }) {
   const scrollRef = useRef<HTMLDivElement>(null)
   const visibleCountRef = useRef(PAGE_SIZE)
@@ -287,13 +289,22 @@ export function ChatView({
     setMatchIdx(0)
   }
 
-  // Scroll to bottom on open / chat change
+  // Scroll to bottom on open / chat change — unless a jump is queued
+  // (e.g. arriving from a global-search hit), which wins instead.
   useEffect(() => {
+    if (pendingJumpRef.current) return
     const el = scrollRef.current
     if (el) el.scrollTop = el.scrollHeight
   }, [chatId, loading])
 
-  // Execute pending jump-to-date after the expanded window has rendered
+  // Queue an incoming jump target (e.g. arriving from a global-search hit).
+  // Ref-only effect — the executor below performs the scroll when rendered.
+  useEffect(() => {
+    if (initialJumpMessageId) pendingJumpRef.current = initialJumpMessageId
+  }, [initialJumpMessageId])
+
+  // Execute pending jumps (jump-to-date, search hits, starred dialog, and the
+  // queued initial jump from global search) once the target has rendered.
   useEffect(() => {
     const id = pendingJumpRef.current
     if (!id) return
@@ -305,7 +316,19 @@ export function ChatView({
       pendingJumpRef.current = null
       return () => clearTimeout(t)
     }
-  }, [visibleCount, messages.length])
+    // Not rendered yet — if it exists further up, expand the window and this
+    // effect re-runs (visibleCount changed) to perform the actual scroll.
+    const idx = messages.findIndex((m) => m.id === id)
+    if (idx === -1) return
+    const needed = messages.length - idx
+    if (needed > visibleCountRef.current) {
+      const raf = requestAnimationFrame(() => {
+        visibleCountRef.current = needed
+        setVisibleCount(needed)
+      })
+      return () => cancelAnimationFrame(raf)
+    }
+  }, [visibleCount, messages.length, initialJumpMessageId, messages])
 
   const shown = useMemo(() => {
     if (filtered) return filtered

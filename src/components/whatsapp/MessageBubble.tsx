@@ -25,6 +25,7 @@ import {
 import { Avatar } from './Avatar'
 import { BubbleTail, TicksDouble } from './icons'
 import { Lightbox } from './Lightbox'
+import { VoicePlayer } from './VoicePlayer'
 import { colorForName, type ChatMessage } from './types'
 import { cn } from '@/lib/utils'
 
@@ -735,23 +736,25 @@ function Content({
       )
     case 'audio':
       return (
-        <div className="min-w-[230px]">
-          <div className="flex items-center gap-2">
-            <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-[#00a884]/15 text-[#00a884]">
-              <Mic className="h-4 w-4" />
-            </span>
-            {src ? (
-              <audio controls preload="metadata" src={src} className="h-8 max-w-[220px]" />
-            ) : (
-              <span className="text-[13px] text-[#667781] dark:text-[#8696a0]">
-                Voice message
-              </span>
-            )}
-          </div>
-          {msg.mediaName && !src && (
-            <p className="mt-1 truncate text-[11px] text-[#667781] dark:text-[#8696a0]">
-              {msg.mediaName} · not in export
-            </p>
+        <div className="min-w-0">
+          {src ? (
+            <VoicePlayer src={src} seed={msg.id} />
+          ) : (
+            <div className="min-w-[230px]">
+              <div className="flex items-center gap-2">
+                <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-[#00a884]/15 text-[#00a884]">
+                  <Mic className="h-4 w-4" />
+                </span>
+                <span className="text-[13px] text-[#667781] dark:text-[#8696a0]">
+                  Voice message
+                </span>
+              </div>
+              {msg.mediaName && (
+                <p className="mt-1 truncate text-[11px] text-[#667781] dark:text-[#8696a0]">
+                  {msg.mediaName} · not in export
+                </p>
+              )}
+            </div>
           )}
           {msg.body && (
             <p className="mt-1 whitespace-pre-wrap">

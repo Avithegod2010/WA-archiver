@@ -35,6 +35,7 @@ import {
 import { ChatList } from './ChatList'
 import { ChatView } from './ChatView'
 import { StatsDashboard } from './StatsDashboard'
+import { GlobalSearch } from './GlobalSearch'
 import { WhatsAppLogo } from './icons'
 import type { ChatDetail, ChatSummary } from './types'
 import { cn } from '@/lib/utils'
@@ -60,6 +61,9 @@ export function WhatsAppApp() {
   const [aboutOpen, setAboutOpen] = useState(false)
   const [statsOpen, setStatsOpen] = useState(false)
   const [textSizeOpen, setTextSizeOpen] = useState(false)
+  const [globalSearchOpen, setGlobalSearchOpen] = useState(false)
+  const [globalSearchQuery, setGlobalSearchQuery] = useState('')
+  const [pendingJumpId, setPendingJumpId] = useState<string | null>(null)
   const textSizeKey: TextSizeKey = useSyncExternalStore(
     subscribeTextSize,
     getTextSize,
@@ -84,10 +88,11 @@ export function WhatsAppApp() {
     refreshChats()
   }, [refreshChats])
 
-  const openChat = useCallback(async (id: string) => {
+  const openChat = useCallback(async (id: string, jumpMessageId?: string) => {
     setActiveId(id)
     setDetailLoading(true)
     setDetail(null)
+    setPendingJumpId(jumpMessageId ?? null)
     try {
       const res = await fetch(`/api/chats/${id}/messages`, { cache: 'no-store' })
       if (!res.ok) throw new Error('failed')
@@ -337,6 +342,14 @@ export function WhatsAppApp() {
 
   const totalMessages = chats.reduce((s, c) => s + c.messageCount, 0)
 
+  /** Open a chat from a global-search hit and jump straight to the message. */
+  const openFromSearch = useCallback(
+    (chatId: string, messageId: string) => {
+      openChat(chatId, messageId)
+    },
+    [openChat]
+  )
+
   return (
     <div className="flex h-dvh min-h-0 flex-col bg-[#efeae2] dark:bg-[#0b141a]">
       {/* Top app bar */}
@@ -446,6 +459,10 @@ export function WhatsAppApp() {
             onTogglePin={togglePin}
             onToggleArchive={toggleArchive}
             onOpenInsights={() => setStatsOpen(true)}
+            onOpenGlobalSearch={(q) => {
+              setGlobalSearchQuery(q)
+              setGlobalSearchOpen(true)
+            }}
           />
         </div>
         <div className={cn('flex min-h-0 min-w-0 flex-1 flex-col', activeId ? 'flex' : 'hidden md:flex')}>
@@ -465,6 +482,7 @@ export function WhatsAppApp() {
             onDelete={deleteChat}
             deleting={deleting}
             onStarMessage={toggleStar}
+            initialJumpMessageId={pendingJumpId}
           />
         </div>
         {importing && (
@@ -488,6 +506,14 @@ export function WhatsAppApp() {
 
       {/* Insights dashboard */}
       <StatsDashboard open={statsOpen} onOpenChange={setStatsOpen} />
+
+      {/* Global search across all chats */}
+      <GlobalSearch
+        open={globalSearchOpen}
+        onOpenChange={setGlobalSearchOpen}
+        initialQuery={globalSearchQuery}
+        onOpenMessage={openFromSearch}
+      />
 
       {/* About / help dialog */}
       <Dialog open={aboutOpen} onOpenChange={setAboutOpen}>
@@ -575,6 +601,18 @@ export function WhatsAppApp() {
                 <b>text size</b> from the Aa menu in the top bar. Links in
                 messages are tappable and emoji-only messages render big, just
                 like WhatsApp.
+              </p>
+            </div>
+            <div>
+              <h4 className="mb-1.5 font-semibold">Search everywhere</h4>
+              <p>
+                While filtering the chat list, tap <b>Search messages for
+                “…”</b> to look <i>inside every chat</i> at once — matches are
+                grouped per chat with a count badge, and clicking a hit opens
+                that chat and jumps straight to the message with a highlight
+                flash. Voice notes play in a <b>waveform player</b>: tap the
+                waveform to seek, and the <b>1×</b> pill to switch to
+                1.5× / 2× speed.
               </p>
             </div>
             <div>
