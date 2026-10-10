@@ -1,6 +1,6 @@
 'use client'
 
-import { useMemo } from 'react'
+import { useMemo, useRef, useState } from 'react'
 import {
   Ban,
   BarChart3,
@@ -14,6 +14,7 @@ import {
 import { toast } from 'sonner'
 import { Avatar } from './Avatar'
 import { BubbleTail, TicksDouble } from './icons'
+import { Lightbox } from './Lightbox'
 import { colorForName, type ChatMessage } from './types'
 import { cn } from '@/lib/utils'
 
@@ -73,6 +74,55 @@ function CopyButton({ msg }: { msg: ChatMessage }) {
       <Copy className="h-3.5 w-3.5" />
     </button>
   )
+}
+
+/** Long-press (mobile) copies the message, with haptic feedback. */
+function useLongPressCopy(msg: ChatMessage) {
+  const timer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const startXY = useRef<{ x: number; y: number } | null>(null)
+  const [pressing, setPressing] = useState(false)
+
+  function clear() {
+    if (timer.current) clearTimeout(timer.current)
+    timer.current = null
+    startXY.current = null
+    setPressing(false)
+  }
+
+  function onPointerDown(e: React.PointerEvent) {
+    if (e.pointerType === 'mouse') return
+    startXY.current = { x: e.clientX, y: e.clientY }
+    setPressing(true)
+    timer.current = setTimeout(async () => {
+      timer.current = null
+      setPressing(false)
+      try {
+        await navigator.clipboard.writeText(copyTextFor(msg))
+        navigator.vibrate?.(30)
+        toast.success('Message copied')
+      } catch {
+        toast.error('Could not copy')
+      }
+    }, 550)
+  }
+
+  function onPointerMove(e: React.PointerEvent) {
+    if (!timer.current || !startXY.current) return
+    const dx = e.clientX - startXY.current.x
+    const dy = e.clientY - startXY.current.y
+    if (dx * dx + dy * dy > 64) clear() // scrolled/dragged — cancel
+  }
+
+  return {
+    pressing,
+    handlers: {
+      onPointerDown,
+      onPointerMove,
+      onPointerUp: clear,
+      onPointerCancel: clear,
+      onPointerLeave: clear,
+    },
+  }
 }
 
 function mediaSrc(chatId: string, msg: ChatMessage): string | null {
@@ -153,6 +203,50 @@ function DocumentChip({ name, src }: { name: string; src: string | null }) {
   )
 }
 
+/** In-bubble photo with lightbox opening on click. */
+function ImageContent({ msg, src }: { msg: ChatMessage; src: string | null }) {
+  const [open, setOpen] = useState(false)
+  if (!src) {
+    return (
+      <MediaPlaceholder
+        icon={
+          <i className="flex h-8 w-8 items-center justify-center rounded bg-black/10 text-[13px] font-semibold dark:bg-white/10">
+            IMG
+          </i>
+        }
+        label={msg.mediaName ?? 'Photo'}
+      />
+    )
+  }
+  return (
+    <>
+      <figure className="max-w-[280px]">
+        <img
+          src={src}
+          alt={msg.mediaName ?? 'Shared image'}
+          loading="lazy"
+          className="max-h-[320px] w-full cursor-zoom-in rounded-md object-cover"
+          onClick={(e) => {
+            e.stopPropagation()
+            setOpen(true)
+          }}
+        />
+        {msg.body && (
+          <figcaption className="mt-1 whitespace-pre-wrap">{msg.body}</figcaption>
+        )}
+      </figure>
+      {open && (
+        <Lightbox
+          src={src}
+          caption={msg.body || msg.mediaName}
+          downloadName={msg.mediaName}
+          onClose={() => setOpen(false)}
+        />
+      )}
+    </>
+  )
+}
+
 export function MessageBubble({
   msg,
   chatId,
@@ -172,6 +266,7 @@ export function MessageBubble({
     [msg.sender]
   )
   const src = mediaSrc(chatId, msg)
+  const longPress = useLongPressCopy(msg)
 
   if (outgoing) {
     return <OutgoingBubble msg={msg} chatId={chatId} showTail={showTail} src={src} />
@@ -194,10 +289,12 @@ export function MessageBubble({
           />
         )}
         <div
+          {...longPress.handlers}
           className={cn(
-            'relative rounded-lg px-2.5 py-1.5 text-[14.2px] leading-[19px] shadow-sm',
+            'relative rounded-lg px-2.5 py-1.5 text-[14.2px] leading-[19px] shadow-sm transition-transform duration-150',
             'bg-white text-[#111b21] dark:bg-[#202c33] dark:text-[#e9edef]',
-            !showTail && 'rounded-tl-none'
+            !showTail && 'rounded-tl-none',
+            longPress.pressing && 'scale-[0.98]'
           )}
         >
           {isGroup && msg.sender && (
@@ -228,6 +325,7 @@ function OutgoingBubble({
   showTail: boolean
   src: string | null
 }) {
+  const longPress = useLongPressCopy(msg)
   return (
     <div className="group/msg flex justify-end gap-1.5 px-2 sm:px-4">
       <CopyButton msg={msg} />
@@ -239,10 +337,12 @@ function OutgoingBubble({
           />
         )}
         <div
+          {...longPress.handlers}
           className={cn(
-            'relative rounded-lg px-2.5 py-1.5 text-[14.2px] leading-[19px] shadow-sm',
+            'relative rounded-lg px-2.5 py-1.5 text-[14.2px] leading-[19px] shadow-sm transition-transform duration-150',
             'bg-[#d9fdd3] text-[#111b21] dark:bg-[#005c4b] dark:text-[#e9edef]',
-            !showTail && 'rounded-tr-none'
+            !showTail && 'rounded-tr-none',
+            longPress.pressing && 'scale-[0.98]'
           )}
         >
           <Content msg={msg} chatId={chatId} src={src} outgoing />
@@ -329,23 +429,7 @@ function Content({
         </div>
       )
     case 'image':
-      return src ? (
-        <figure className="max-w-[280px]">
-          <img
-            src={src}
-            alt={msg.mediaName ?? 'Shared image'}
-            loading="lazy"
-            className="max-h-[320px] w-full cursor-pointer rounded-md object-cover"
-            onClick={() => window.open(src, '_blank')}
-          />
-          {msg.body && <figcaption className="mt-1 whitespace-pre-wrap">{msg.body}</figcaption>}
-        </figure>
-      ) : (
-        <MediaPlaceholder
-          icon={<i className="flex h-8 w-8 items-center justify-center rounded bg-black/10 text-[13px] font-semibold dark:bg-white/10">IMG</i>}
-          label={msg.mediaName ?? 'Photo'}
-        />
-      )
+      return <ImageContent msg={msg} src={src} />
     case 'sticker':
       return src ? (
         <img

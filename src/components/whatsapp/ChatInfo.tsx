@@ -105,7 +105,7 @@ export function ChatInfo({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-h-[85vh] overflow-y-auto bg-[#f0f2f5] p-0 dark:bg-[#111b21] sm:max-w-md">
+      <DialogContent className="wa-scroll max-h-[85vh] overflow-y-auto bg-[#f0f2f5] p-0 dark:bg-[#111b21] sm:max-w-md">
         <DialogHeader className="bg-[#008069] p-6 dark:bg-[#202c33]">
           <div className="flex flex-col items-center gap-3 text-center">
             <Avatar name={chat.title} size={88} className="ring-4 ring-white/20" />

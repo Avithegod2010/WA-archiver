@@ -6,6 +6,7 @@ import {
   ArrowLeft,
   CalendarDays,
   ChevronDown,
+  Download,
   Loader2,
   Lock,
   Search,
@@ -178,6 +179,17 @@ export function ChatView({
     if (el) el.scrollTo({ top: el.scrollHeight, behavior: 'smooth' })
   }
 
+  function handleExport() {
+    if (!detail) return
+    const a = document.createElement('a')
+    a.href = `/api/chats/${detail.chat.id}/export`
+    a.download = ''
+    document.body.appendChild(a)
+    a.click()
+    a.remove()
+    toast.success('Chat exported as .txt — check your downloads')
+  }
+
   function handleJumpToDate() {
     if (!jumpDate) return
     const target = new Date(jumpDate + 'T00:00:00')
@@ -325,6 +337,16 @@ export function ChatView({
               </Button>
             </PopoverContent>
           </Popover>
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-9 w-9"
+            onClick={handleExport}
+            aria-label="Export chat as text"
+            title="Export chat as .txt"
+          >
+            <Download className="h-5 w-5 text-[#54656f] dark:text-[#aebac1]" />
+          </Button>
           <Button
             variant="ghost"
             size="icon"
