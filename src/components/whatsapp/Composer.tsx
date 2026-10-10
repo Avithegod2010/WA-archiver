@@ -171,14 +171,14 @@ export function Composer({
               variant="ghost"
               size="icon"
               disabled={busy}
-              className="wa-iconbtn h-10 w-10 shrink-0 rounded-full text-(--wa-text-2) hover:bg-black/5 dark:text-(--wa-text-2) dark:hover:bg-white/10"
+              className="wa-iconbtn group/plus h-10 w-10 shrink-0 rounded-full text-(--wa-text-2) hover:bg-black/5 dark:text-(--wa-text-2) dark:hover:bg-white/10"
               aria-label="Attach"
               title="Attach photo, video, document or poll"
             >
               <Plus
                 className={cn(
                   'h-6 w-6 transition-transform duration-200',
-                  'hover:rotate-90'
+                  'group-hover/plus:rotate-90 group-active/plus:rotate-90'
                 )}
               />
             </Button>

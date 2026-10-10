@@ -485,7 +485,8 @@ export function ChatView({
     })
   }
 
-  function selectAllVisible() {
+  /** Select every selectable message in the chat (edit mode). */
+  function selectAll() {
     setSelectedIds(
       new Set(messages.filter((m) => m.sender || m.type === 'poll').map((m) => m.id))
     )
@@ -907,7 +908,7 @@ export function ChatView({
             </p>
           </div>
         </button>
-        <div className="flex items-center gap-1">
+        <div className="flex shrink-0 items-center gap-1">
           <Button
             variant="ghost"
             size="icon"
@@ -1012,7 +1013,7 @@ export function ChatView({
           <Button
             variant="ghost"
             size="icon"
-            className="wa-iconbtn hidden h-9 w-9 md:inline-flex"
+            className="wa-iconbtn hidden h-9 w-9 lg:inline-flex"
             onClick={handleExport}
             aria-label="Export chat as text"
             title="Export chat as .txt"
@@ -1022,7 +1023,7 @@ export function ChatView({
           <Button
             variant="ghost"
             size="icon"
-            className="wa-iconbtn hidden h-9 w-9 md:inline-flex"
+            className="wa-iconbtn hidden h-9 w-9 lg:inline-flex"
             onClick={() => setInfoOpen(true)}
             aria-label="Chat info"
             title="Chat info"
@@ -1033,7 +1034,7 @@ export function ChatView({
             <Button
               variant="ghost"
               size="icon"
-              className="wa-iconbtn h-9 w-9 hover:bg-rose-500/10"
+              className="wa-iconbtn h-9 w-9 shrink-0 hover:bg-rose-500/10"
               onClick={() => onDelete(chat.id)}
               disabled={deleting}
               aria-label="Delete chat"
@@ -1242,7 +1243,7 @@ export function ChatView({
           setShowFab(el.scrollHeight - el.scrollTop - el.clientHeight > 400)
         }}
         style={{ '--wa-msg-size': `${msgFontPx}px` } as React.CSSProperties}
-        className="wa-scroll relative z-[1] flex-1 overflow-y-auto py-3"
+        className="wa-scroll relative z-[1] flex-1 overflow-y-auto overflow-x-hidden py-3"
         role="log"
         aria-label={`Messages in ${chat.title}`}
       >
@@ -1378,6 +1379,16 @@ export function ChatView({
           <span className="min-w-0 flex-1 truncate text-[13.5px] font-medium text-(--wa-text)">
             {selectedCount} selected
           </span>
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-9 w-9 shrink-0"
+            onClick={selectAll}
+            aria-label="Select all messages"
+            title="Select all messages"
+          >
+            <ListChecks className="h-5 w-5 text-(--wa-text-2)" />
+          </Button>
           <Button
             variant="ghost"
             size="icon"

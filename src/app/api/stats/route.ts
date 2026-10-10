@@ -110,13 +110,19 @@ export async function GET() {
     preview: string
   } | null = null
 
-  let firstAt: string | null = null
-  let lastAt: string | null = null
+  let firstAt: number | null = null
+  let lastAt: number | null = null
 
   for (const chat of chats) {
     perChatMessages.set(chat.id, 0)
-    if (chat.firstAt && (!firstAt || chat.firstAt < firstAt)) firstAt = chat.firstAt.toISOString()
-    if (chat.lastAt && (!lastAt || chat.lastAt > lastAt)) lastAt = chat.lastAt.toISOString()
+    if (chat.firstAt) {
+      const t = new Date(chat.firstAt).getTime()
+      if (!firstAt || t < firstAt) firstAt = t
+    }
+    if (chat.lastAt) {
+      const t = new Date(chat.lastAt).getTime()
+      if (!lastAt || t > lastAt) lastAt = t
+    }
   }
 
   for (const m of messages) {
@@ -224,14 +230,8 @@ export async function GET() {
   }
 
   const daysSpanned =
-    firstAt && lastAt
-      ? Math.max(
-          1,
-          Math.round(
-            (new Date(lastAt).getTime() - new Date(firstAt).getTime()) /
-              86_400_000
-          ) + 1
-        )
+    firstAt != null && lastAt != null
+      ? Math.max(1, Math.round((lastAt - firstAt) / 86_400_000) + 1)
       : 0
 
   const storage = await computeStorage()
@@ -280,8 +280,8 @@ export async function GET() {
       emojis,
     },
     range: {
-      firstAt,
-      lastAt,
+      firstAt: firstAt != null ? new Date(firstAt).toISOString() : null,
+      lastAt: lastAt != null ? new Date(lastAt).toISOString() : null,
       busiestDay,
       activeDays: dayCount.size,
       daysSpanned,

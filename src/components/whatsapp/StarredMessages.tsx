@@ -179,7 +179,20 @@ export function StarredMessages({
               <Loader2 className="h-4 w-4 animate-spin" /> Loading…
             </div>
           )}
-          {items !== undefined && items.length === 0 && (
+          {items === null && (
+            <div className="flex h-40 flex-col items-center justify-center gap-2 text-center">
+              <span className="flex h-14 w-14 items-center justify-center rounded-full bg-rose-500/10">
+                <Star className="h-6 w-6 text-rose-400" />
+              </span>
+              <p className="text-[14px] font-medium text-(--wa-text)">
+                Could not load starred messages
+              </p>
+              <p className="max-w-[260px] text-[12.5px] leading-relaxed text-(--wa-text-2)">
+                Something went wrong. Close and reopen this dialog to retry.
+              </p>
+            </div>
+          )}
+          {items != null && items.length === 0 && (
             <div className="flex h-40 flex-col items-center justify-center gap-2 text-center">
               <span className="flex h-14 w-14 items-center justify-center rounded-full bg-[#f2a33c]/10">
                 <Star className="h-6 w-6 text-[#f2a33c]" />

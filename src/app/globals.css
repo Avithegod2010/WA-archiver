@@ -434,6 +434,198 @@
   --wa-link: #38bdf8;
 }
 
+/* ---------------------------------------------------------------------------
+   Chat wallpaper pattern library — pure-CSS background designs (no images).
+   Each class sets a soft base + a repeating decorative layer; dark variants
+   recolor for night mode. Selected via the wallpaper presets in wallpaper.ts
+--------------------------------------------------------------------------- */
+.wp-confetti {
+  background-color: #faf3e7;
+  background-image:
+    radial-gradient(circle at 12px 14px, rgba(231, 111, 81, 0.32) 3px, transparent 3.5px),
+    radial-gradient(circle at 58px 30px, rgba(42, 157, 143, 0.3) 2.5px, transparent 3px),
+    radial-gradient(circle at 34px 66px, rgba(233, 196, 106, 0.42) 3px, transparent 3.5px),
+    radial-gradient(circle at 76px 78px, rgba(244, 162, 89, 0.32) 2px, transparent 2.5px);
+  background-size: 92px 92px;
+}
+.dark .wp-confetti {
+  background-color: #191410;
+  background-image:
+    radial-gradient(circle at 12px 14px, rgba(231, 111, 81, 0.2) 3px, transparent 3.5px),
+    radial-gradient(circle at 58px 30px, rgba(42, 157, 143, 0.18) 2.5px, transparent 3px),
+    radial-gradient(circle at 34px 66px, rgba(233, 196, 106, 0.16) 3px, transparent 3.5px),
+    radial-gradient(circle at 76px 78px, rgba(244, 162, 89, 0.18) 2px, transparent 2.5px);
+}
+.wp-polka {
+  background-color: #fdf4f8;
+  background-image: radial-gradient(circle, rgba(219, 112, 147, 0.26) 2.2px, transparent 2.7px);
+  background-size: 26px 26px;
+}
+.dark .wp-polka {
+  background-color: #1d1118;
+  background-image: radial-gradient(circle, rgba(200, 95, 135, 0.15) 2.2px, transparent 2.7px);
+}
+.wp-stripes {
+  background-color: #f2f6f0;
+  background-image: repeating-linear-gradient(
+    45deg,
+    rgba(107, 142, 35, 0.09) 0 10px,
+    transparent 10px 24px
+  );
+}
+.dark .wp-stripes {
+  background-color: #10160f;
+  background-image: repeating-linear-gradient(
+    45deg,
+    rgba(150, 190, 110, 0.08) 0 10px,
+    transparent 10px 24px
+  );
+}
+.wp-blueprint {
+  background-color: #eef4f8;
+  background-image:
+    linear-gradient(rgba(70, 120, 160, 0.14) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(70, 120, 160, 0.14) 1px, transparent 1px),
+    linear-gradient(rgba(70, 120, 160, 0.055) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(70, 120, 160, 0.055) 1px, transparent 1px);
+  background-size: 96px 96px, 96px 96px, 24px 24px, 24px 24px;
+}
+.dark .wp-blueprint {
+  background-color: #0c141b;
+  background-image:
+    linear-gradient(rgba(100, 160, 200, 0.11) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(100, 160, 200, 0.11) 1px, transparent 1px),
+    linear-gradient(rgba(100, 160, 200, 0.05) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(100, 160, 200, 0.05) 1px, transparent 1px);
+  background-size: 96px 96px, 96px 96px, 24px 24px, 24px 24px;
+}
+.wp-plaid {
+  background-color: #f7f3ec;
+  background-image:
+    repeating-linear-gradient(0deg, rgba(150, 90, 60, 0.08) 0 14px, transparent 14px 44px),
+    repeating-linear-gradient(90deg, rgba(150, 90, 60, 0.08) 0 14px, transparent 14px 44px),
+    repeating-linear-gradient(0deg, rgba(150, 90, 60, 0.05) 0 2px, transparent 2px 44px),
+    repeating-linear-gradient(90deg, rgba(150, 90, 60, 0.05) 0 2px, transparent 2px 44px);
+}
+.dark .wp-plaid {
+  background-color: #17110c;
+  background-image:
+    repeating-linear-gradient(0deg, rgba(220, 170, 130, 0.07) 0 14px, transparent 14px 44px),
+    repeating-linear-gradient(90deg, rgba(220, 170, 130, 0.07) 0 14px, transparent 14px 44px),
+    repeating-linear-gradient(0deg, rgba(220, 170, 130, 0.045) 0 2px, transparent 2px 44px),
+    repeating-linear-gradient(90deg, rgba(220, 170, 130, 0.045) 0 2px, transparent 2px 44px);
+}
+.wp-chevron {
+  background-color: #f2ecdf;
+  background-image:
+    linear-gradient(135deg, rgba(160, 140, 100, 0.14) 25%, transparent 25%),
+    linear-gradient(225deg, rgba(160, 140, 100, 0.14) 25%, transparent 25%),
+    linear-gradient(315deg, rgba(160, 140, 100, 0.14) 25%, transparent 25%),
+    linear-gradient(45deg, rgba(160, 140, 100, 0.14) 25%, transparent 25%);
+  background-size: 36px 36px;
+}
+.dark .wp-chevron {
+  background-color: #16130c;
+  background-image:
+    linear-gradient(135deg, rgba(210, 185, 135, 0.09) 25%, transparent 25%),
+    linear-gradient(225deg, rgba(210, 185, 135, 0.09) 25%, transparent 25%),
+    linear-gradient(315deg, rgba(210, 185, 135, 0.09) 25%, transparent 25%),
+    linear-gradient(45deg, rgba(210, 185, 135, 0.09) 25%, transparent 25%);
+  background-size: 36px 36px;
+}
+.wp-waves {
+  background-color: #eef6f4;
+  background-image:
+    radial-gradient(circle at 50% 110%, rgba(64, 145, 140, 0.16) 14px, transparent 15px),
+    radial-gradient(circle at 0 110%, rgba(64, 145, 140, 0.1) 14px, transparent 15px),
+    radial-gradient(circle at 100% 110%, rgba(64, 145, 140, 0.1) 14px, transparent 15px);
+  background-size: 52px 30px;
+}
+.dark .wp-waves {
+  background-color: #0a1513;
+  background-image:
+    radial-gradient(circle at 50% 110%, rgba(90, 190, 180, 0.12) 14px, transparent 15px),
+    radial-gradient(circle at 0 110%, rgba(90, 190, 180, 0.07) 14px, transparent 15px),
+    radial-gradient(circle at 100% 110%, rgba(90, 190, 180, 0.07) 14px, transparent 15px);
+  background-size: 52px 30px;
+}
+.wp-rings {
+  background-color: #f6f1ea;
+  background-image:
+    repeating-radial-gradient(circle at 28% 18%, rgba(140, 110, 80, 0.08) 0 10px, transparent 10px 36px),
+    repeating-radial-gradient(circle at 88% 92%, rgba(140, 110, 80, 0.07) 0 12px, transparent 12px 46px);
+}
+.dark .wp-rings {
+  background-color: #151009;
+  background-image:
+    repeating-radial-gradient(circle at 28% 18%, rgba(215, 180, 140, 0.07) 0 10px, transparent 10px 36px),
+    repeating-radial-gradient(circle at 88% 92%, rgba(215, 180, 140, 0.06) 0 12px, transparent 12px 46px);
+}
+.wp-bubbles {
+  background-color: #ecf3f7;
+  background-image:
+    radial-gradient(circle at 25% 30%, rgba(90, 150, 190, 0.16) 14px, transparent 15px),
+    radial-gradient(circle at 75% 70%, rgba(90, 150, 190, 0.13) 22px, transparent 23px),
+    radial-gradient(circle at 18% 84%, rgba(90, 150, 190, 0.11) 9px, transparent 10px),
+    radial-gradient(circle at 86% 14%, rgba(90, 150, 190, 0.12) 7px, transparent 8px);
+  background-size: 130px 130px;
+}
+.dark .wp-bubbles {
+  background-color: #0b1319;
+  background-image:
+    radial-gradient(circle at 25% 30%, rgba(120, 180, 220, 0.12) 14px, transparent 15px),
+    radial-gradient(circle at 75% 70%, rgba(120, 180, 220, 0.09) 22px, transparent 23px),
+    radial-gradient(circle at 18% 84%, rgba(120, 180, 220, 0.08) 9px, transparent 10px),
+    radial-gradient(circle at 86% 14%, rgba(120, 180, 220, 0.09) 7px, transparent 8px);
+  background-size: 130px 130px;
+}
+.wp-sparkle {
+  background-color: #fbf7ec;
+  background-image:
+    radial-gradient(circle, rgba(196, 158, 62, 0.3) 1.5px, transparent 2.1px),
+    radial-gradient(circle, rgba(196, 158, 62, 0.18) 1px, transparent 1.6px);
+  background-size: 34px 34px;
+  background-position: 0 0, 17px 17px;
+}
+.dark .wp-sparkle {
+  background-color: #161207;
+  background-image:
+    radial-gradient(circle, rgba(230, 195, 105, 0.2) 1.5px, transparent 2.1px),
+    radial-gradient(circle, rgba(230, 195, 105, 0.13) 1px, transparent 1.6px);
+  background-size: 34px 34px;
+  background-position: 0 0, 17px 17px;
+}
+.wp-aurora {
+  background-color: #eef0fa;
+  background-image:
+    radial-gradient(ellipse 60% 50% at 15% 20%, rgba(120, 150, 240, 0.22), transparent 70%),
+    radial-gradient(ellipse 50% 40% at 85% 30%, rgba(160, 120, 230, 0.18), transparent 70%),
+    radial-gradient(ellipse 55% 45% at 70% 85%, rgba(90, 190, 200, 0.2), transparent 70%),
+    radial-gradient(ellipse 45% 40% at 25% 90%, rgba(240, 150, 180, 0.14), transparent 70%);
+}
+.dark .wp-aurora {
+  background-color: #0d0f1d;
+  background-image:
+    radial-gradient(ellipse 60% 50% at 15% 20%, rgba(90, 110, 220, 0.18), transparent 70%),
+    radial-gradient(ellipse 50% 40% at 85% 30%, rgba(130, 90, 210, 0.14), transparent 70%),
+    radial-gradient(ellipse 55% 45% at 70% 85%, rgba(50, 150, 160, 0.14), transparent 70%),
+    radial-gradient(ellipse 45% 40% at 25% 90%, rgba(200, 100, 140, 0.09), transparent 70%);
+}
+.wp-dunes {
+  background-color: #f9edd8;
+  background-image:
+    radial-gradient(ellipse 90% 60% at 80% 112%, rgba(222, 160, 90, 0.32), transparent 62%),
+    radial-gradient(ellipse 80% 50% at 12% 116%, rgba(230, 180, 120, 0.28), transparent 62%),
+    radial-gradient(circle at 78% 10%, rgba(242, 194, 112, 0.5) 26px, transparent 27px);
+}
+.dark .wp-dunes {
+  background-color: #171006;
+  background-image:
+    radial-gradient(ellipse 90% 60% at 80% 112%, rgba(180, 120, 60, 0.24), transparent 62%),
+    radial-gradient(ellipse 80% 50% at 12% 116%, rgba(150, 110, 60, 0.2), transparent 62%),
+    radial-gradient(circle at 78% 10%, rgba(220, 170, 90, 0.32) 26px, transparent 27px);
+}
+
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);

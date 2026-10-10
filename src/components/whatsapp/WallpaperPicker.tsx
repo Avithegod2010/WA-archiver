@@ -79,6 +79,12 @@ export function WallpaperPicker({
     writeWallpaper(chatId, { k, photo: k === 'custom' ? cfg.photo : null })
   }
 
+  /** Remove the custom photo and fall back to the classic doodle look. */
+  function removePhoto() {
+    writeWallpaper(chatId, { k: 'doodle', photo: null, blur: 0 })
+    toast.info('Custom wallpaper removed')
+  }
+
   async function upload(file: File) {
     if (!file.type.startsWith('image/')) {
       toast.error('Please pick an image file')
@@ -129,6 +135,68 @@ export function WallpaperPicker({
             : 'Applies to every chat. Open a chat to set a per-chat wallpaper.'}
         </p>
 
+        {/* Custom photo — prominent row above the presets */}
+        <div className="mb-2.5 flex items-center gap-2.5 rounded-xl border border-dashed border-(--wa-line) bg-black/[0.03] p-2 dark:bg-white/[0.04]">
+          <button
+            onClick={() => (isPhoto ? undefined : fileRef.current?.click())}
+            aria-label={isPhoto ? 'Your photo wallpaper' : 'Upload your own photo'}
+            title={isPhoto ? 'Your photo wallpaper' : 'Upload your own photo'}
+            className={cn(
+              'relative h-12 w-16 shrink-0 overflow-hidden rounded-lg bg-black/5 ring-1 ring-black/10 transition-shadow hover:shadow-md dark:bg-white/5 dark:ring-white/10',
+              isPhoto && 'ring-2 ring-(--wa-accent)'
+            )}
+          >
+            {isPhoto && cfg.photo ? (
+              <img
+                src={cfg.photo}
+                alt="Custom wallpaper"
+                className="h-full w-full object-cover"
+              />
+            ) : (
+              <span className="flex h-full w-full items-center justify-center text-(--wa-text-2)">
+                {uploading ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <ImagePlus className="h-4 w-4" />
+                )}
+              </span>
+            )}
+          </button>
+          <div className="min-w-0 flex-1">
+            <p className="text-[12.5px] font-medium text-(--wa-text)">
+              {isPhoto ? 'Your photo' : 'Use your own photo'}
+            </p>
+            <p className="truncate text-[11px] leading-snug text-(--wa-text-2)">
+              {isPhoto
+                ? 'Shown behind this chat'
+                : 'JPG, PNG or WebP — resized locally'}
+            </p>
+          </div>
+          {isPhoto ? (
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-8 w-8 shrink-0 text-(--wa-text-2) hover:bg-rose-500/10 hover:text-rose-500"
+              onClick={removePhoto}
+              aria-label="Remove custom photo"
+              title="Remove custom photo"
+            >
+              <Trash2 className="h-4 w-4" />
+            </Button>
+          ) : (
+            <Button
+              variant="secondary"
+              size="sm"
+              className="h-8 shrink-0 gap-1.5 rounded-full bg-(--wa-accent)/10 px-3 text-[12px] font-medium text-(--wa-accent-strong) hover:bg-(--wa-accent)/20 dark:text-(--wa-accent)"
+              onClick={() => fileRef.current?.click()}
+              disabled={uploading}
+            >
+              <ImagePlus className="h-3.5 w-3.5" />
+              Upload
+            </Button>
+          )}
+        </div>
+
         {/* Presets */}
         <div className="grid grid-cols-4 gap-2">
           {WALLPAPER_PRESETS.map((p) => {
@@ -163,49 +231,6 @@ export function WallpaperPicker({
               </button>
             )
           })}
-
-          {/* Custom photo slot */}
-          <button
-            onClick={() => (isPhoto ? undefined : fileRef.current?.click())}
-            aria-pressed={isPhoto}
-            title={isPhoto ? 'Your photo wallpaper' : 'Upload your own photo'}
-            className={cn(
-              'group flex flex-col items-center gap-1 rounded-lg p-1 transition-transform duration-150 hover:scale-[1.05] active:scale-95',
-              isPhoto && 'bg-(--wa-accent)/10'
-            )}
-          >
-            <span
-              className={cn(
-                'relative h-11 w-full overflow-hidden rounded-md bg-black/5 ring-1 ring-black/10 transition-shadow group-hover:shadow-md dark:bg-white/5 dark:ring-white/10',
-                isPhoto && 'ring-2 ring-(--wa-accent)'
-              )}
-            >
-              {isPhoto && cfg.photo ? (
-                 
-                <img
-                  src={cfg.photo}
-                  alt="Custom wallpaper"
-                  className="h-full w-full object-cover"
-                />
-              ) : (
-                <span className="flex h-full w-full items-center justify-center text-(--wa-text-2)">
-                  {uploading ? (
-                    <Loader2 className="h-4 w-4 animate-spin" />
-                  ) : (
-                    <ImagePlus className="h-4 w-4" />
-                  )}
-                </span>
-              )}
-              {isPhoto && (
-                <span className="absolute inset-0 flex items-center justify-center bg-black/35 opacity-0 transition-opacity group-hover:opacity-100">
-                  <Trash2 className="h-4 w-4 text-white" />
-                </span>
-              )}
-            </span>
-            <span className="w-full truncate text-center text-[10px] font-medium text-(--wa-text-2)">
-              {isPhoto ? 'Yours' : 'Photo'}
-            </span>
-          </button>
         </div>
 
         {/* Hidden photo input */}

@@ -347,9 +347,23 @@ export function ChatList({
   const [dragOver, setDragOver] = useState(false)
   const [cursor, setCursor] = useState(-1)
   const [archivedOpen, setArchivedOpen] = useState(false)
+  const archivedSectionRef = useRef<HTMLDivElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const searchInputRef = useRef<HTMLInputElement>(null)
   const asideRef = useRef<HTMLElement>(null)
+
+  // When the archived drawer opens, bring it into view (it renders in-flow at
+  // the end of the list, below the fold on long chat lists)
+  useEffect(() => {
+    if (!archivedOpen) return
+    const raf = requestAnimationFrame(() => {
+      archivedSectionRef.current?.scrollIntoView({
+        behavior: 'smooth',
+        block: 'nearest',
+      })
+    })
+    return () => cancelAnimationFrame(raf)
+  }, [archivedOpen])
 
   // Expose the hidden file picker to the parent (interactive guide)
   useEffect(() => {
@@ -674,7 +688,10 @@ export function ChatList({
                 scrolling, and long archived lists stay fully reachable. */}
             {archivedChats.length > 0 && (
               archivedOpen ? (
-                <div className="anim-fade-up mt-1 border-t border-(--wa-line) bg-white shadow-[0_-10px_18px_-14px_rgba(0,0,0,0.45)] dark:bg-(--wa-panel)">
+                <div
+                  ref={archivedSectionRef}
+                  className="anim-fade-up mt-1 border-t border-(--wa-line) bg-white shadow-[0_-10px_18px_-14px_rgba(0,0,0,0.45)] dark:bg-(--wa-panel)"
+                >
                   <ArchivedToggle
                     count={archivedChats.length}
                     open={archivedOpen}

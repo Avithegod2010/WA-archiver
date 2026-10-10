@@ -119,6 +119,80 @@ export const WALLPAPER_PRESETS: WallpaperPreset[] = [
     doodle: 'text-[#7a5a38]/[0.08] dark:text-[#caa878]/[0.05]',
     swatch: 'bg-[#eddfcd] dark:bg-[#170f08]',
   },
+
+  /* ---- Pattern designs (pure CSS, see globals.css .wp-*) ---- */
+  {
+    key: 'confetti',
+    label: 'Confetti',
+    bg: 'wp-confetti',
+    swatch: 'wp-confetti',
+  },
+  {
+    key: 'polka',
+    label: 'Polka',
+    bg: 'wp-polka',
+    swatch: 'wp-polka',
+  },
+  {
+    key: 'stripes',
+    label: 'Stripes',
+    bg: 'wp-stripes',
+    swatch: 'wp-stripes',
+  },
+  {
+    key: 'blueprint',
+    label: 'Blueprint',
+    bg: 'wp-blueprint',
+    swatch: 'wp-blueprint',
+  },
+  {
+    key: 'plaid',
+    label: 'Plaid',
+    bg: 'wp-plaid',
+    swatch: 'wp-plaid',
+  },
+  {
+    key: 'chevron',
+    label: 'Chevron',
+    bg: 'wp-chevron',
+    swatch: 'wp-chevron',
+  },
+  {
+    key: 'waves',
+    label: 'Waves',
+    bg: 'wp-waves',
+    swatch: 'wp-waves',
+  },
+  {
+    key: 'rings',
+    label: 'Rings',
+    bg: 'wp-rings',
+    swatch: 'wp-rings',
+  },
+  {
+    key: 'bubbles',
+    label: 'Bubbles',
+    bg: 'wp-bubbles',
+    swatch: 'wp-bubbles',
+  },
+  {
+    key: 'sparkle',
+    label: 'Sparkle',
+    bg: 'wp-sparkle',
+    swatch: 'wp-sparkle',
+  },
+  {
+    key: 'aurora',
+    label: 'Aurora',
+    bg: 'wp-aurora',
+    swatch: 'wp-aurora',
+  },
+  {
+    key: 'dunes',
+    label: 'Dunes',
+    bg: 'wp-dunes',
+    swatch: 'wp-dunes',
+  },
 ]
 
 export function presetByKey(k: string): WallpaperPreset {

@@ -470,9 +470,9 @@ interface HoverActionsProps {
 }
 
 const ACTION_STAGGER = [
-  'group-hover/msg:delay-[1000ms]',
-  'group-hover/msg:delay-[1080ms]',
-  'group-hover/msg:delay-[1160ms]',
+  'group-hover/msg:delay-1000',
+  'group-hover/msg:delay-[1.08s]',
+  'group-hover/msg:delay-[1.16s]',
 ]
 
 function HoverActions({
@@ -490,7 +490,7 @@ function HoverActions({
       '[transition-timing-function:cubic-bezier(0.34,1.56,0.64,1)]',
       // 1s deliberate pause before the actions pop out (instant on leave)
       'group-hover/msg:translate-x-0 group-hover/msg:scale-100 group-hover/msg:opacity-100',
-      'focus-visible:translate-x-0 focus-visible:scale-100 focus-visible:opacity-100 focus-visible:delay-[0ms]',
+      'focus-visible:translate-x-0 focus-visible:scale-100 focus-visible:opacity-100 focus-visible:delay-0',
       stagger
     )
   return (

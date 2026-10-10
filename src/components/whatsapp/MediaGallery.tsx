@@ -330,7 +330,20 @@ export function MediaGallery({
             <Loader2 className="h-4 w-4 animate-spin" /> Loading media…
           </div>
         )}
-        {items !== undefined && shown.length === 0 && (
+        {items === null && (
+          <div className="flex h-64 flex-col items-center justify-center gap-3 text-center">
+            <div className="flex h-16 w-16 items-center justify-center rounded-full bg-white/5">
+              <ImageIcon className="h-7 w-7 text-(--wa-text-2)" />
+            </div>
+            <p className="text-[14px] font-medium text-(--wa-text)">
+              Could not load media
+            </p>
+            <p className="max-w-[280px] text-[12.5px] leading-relaxed text-(--wa-text-2)">
+              Something went wrong. Close this gallery and try again.
+            </p>
+          </div>
+        )}
+        {items != null && shown.length === 0 && (
           <div className="flex h-64 flex-col items-center justify-center gap-3 text-center">
             <div className="flex h-16 w-16 items-center justify-center rounded-full bg-white/5">
               <ImageIcon className="h-7 w-7 text-(--wa-text-2)" />

@@ -1,6 +1,12 @@
 'use client'
 
-/** WhatsApp-style single tail for chat bubbles. */
+/**
+ * WhatsApp-style single tail for chat bubbles.
+ *
+ * The inner edge hugs the bubble side (x = 8 for the left tail) from the top
+ * and only curls away toward the tip, so the tail never detaches from the
+ * bubble — no wallpaper "wedge" glitch between tail and bubble.
+ */
 export function BubbleTail({
   side,
   className,
@@ -17,9 +23,9 @@ export function BubbleTail({
       aria-hidden="true"
     >
       {side === 'left' ? (
-        <path d="M8 0 H4 C4 0 0 1 0 5 V13 C2 12 5 9 6 5 C7 2 8 0 8 0 Z" />
+        <path d="M8 0 H4 C1.6 0.7 0 2.8 0 6 V13 C2.2 11.9 4.6 9.6 6.2 6.6 C7.4 4.4 8 2 8 0 Z" />
       ) : (
-        <path d="M0 0 H4 C4 0 8 1 8 5 V13 C6 12 3 9 2 5 C1 2 0 0 0 0 Z" />
+        <path d="M0 0 H4 C6.4 0.7 8 2.8 8 6 V13 C5.8 11.9 3.4 9.6 1.8 6.6 C0.6 4.4 0 2 0 0 Z" />
       )}
     </svg>
   )
