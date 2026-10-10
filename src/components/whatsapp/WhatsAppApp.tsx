@@ -1,9 +1,11 @@
 'use client'
 
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useState, useSyncExternalStore } from 'react'
 import { useTheme } from 'next-themes'
 import { toast } from 'sonner'
 import {
+  ALargeSmall,
+  Check,
   HelpCircle,
   Loader2,
   Moon,
@@ -18,6 +20,18 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from '@/components/ui/popover'
+import {
+  TEXT_SIZES,
+  getTextSize,
+  setTextSize,
+  subscribeTextSize,
+  type TextSizeKey,
+} from './text-size'
 import { ChatList } from './ChatList'
 import { ChatView } from './ChatView'
 import { StatsDashboard } from './StatsDashboard'
@@ -45,6 +59,12 @@ export function WhatsAppApp() {
   const [deleting, setDeleting] = useState(false)
   const [aboutOpen, setAboutOpen] = useState(false)
   const [statsOpen, setStatsOpen] = useState(false)
+  const [textSizeOpen, setTextSizeOpen] = useState(false)
+  const textSizeKey: TextSizeKey = useSyncExternalStore(
+    subscribeTextSize,
+    getTextSize,
+    () => 'md'
+  )
 
   useEffect(() => setMounted(true), [])
 
@@ -298,18 +318,69 @@ export function WhatsAppApp() {
     <div className="flex h-dvh min-h-0 flex-col bg-[#efeae2] dark:bg-[#0b141a]">
       {/* Top app bar */}
       <div className="flex items-center justify-between bg-[#008069] px-4 py-2 dark:bg-[#1f2c33]">
-        <div className="flex items-center gap-2.5">
-          <WhatsAppLogo size={30} className="text-white" />
-          <div>
-            <h1 className="text-[16px] font-semibold leading-tight text-white">
+        <div className="flex min-w-0 items-center gap-2.5">
+          <WhatsAppLogo size={30} className="shrink-0 text-white" />
+          <div className="min-w-0">
+            <h1 className="truncate text-[16px] font-semibold leading-tight text-white">
               WhatsApp Viewer
             </h1>
-            <p className="text-[11px] leading-tight text-white/70">
+            <p className="truncate text-[11px] leading-tight text-white/70">
               Read your exported chats — private &amp; local
             </p>
           </div>
         </div>
         <div className="flex items-center gap-1">
+          <Popover open={textSizeOpen} onOpenChange={setTextSizeOpen}>
+            <PopoverTrigger asChild>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-9 w-9 text-white hover:bg-white/10"
+                onClick={() => setTextSizeOpen((v) => !v)}
+                aria-label="Text size"
+                title="Text size"
+              >
+                <ALargeSmall className="h-5 w-5" />
+              </Button>
+            </PopoverTrigger>
+            <PopoverContent align="end" className="w-60 p-3">
+              <p className="mb-2 text-[13px] font-medium text-[#111b21] dark:text-[#e9edef]">
+                Reading text size
+              </p>
+              <div className="grid grid-cols-3 gap-2">
+                {(Object.keys(TEXT_SIZES) as TextSizeKey[]).map((k) => {
+                  const active = textSizeKey === k
+                  return (
+                    <button
+                      key={k}
+                      onClick={() => setTextSize(k)}
+                      aria-pressed={active}
+                      className={cn(
+                        'flex flex-col items-center gap-1 rounded-lg py-2 transition-colors',
+                        active
+                          ? 'bg-[#00a884]/10 ring-1 ring-[#00a884]'
+                          : 'hover:bg-black/5 dark:hover:bg-white/5'
+                      )}
+                    >
+                      <span
+                        className="font-semibold leading-none text-[#111b21] dark:text-[#e9edef]"
+                        style={{ fontSize: TEXT_SIZES[k].px + 3 }}
+                      >
+                        Aa
+                      </span>
+                      <span className="flex items-center gap-0.5 text-[11px] font-medium text-[#3b4a54] dark:text-[#d1d7db]">
+                        {active && <Check className="h-3 w-3 text-[#00a884]" />}
+                        {TEXT_SIZES[k].label}
+                      </span>
+                    </button>
+                  )
+                })}
+              </div>
+              <p className="mt-2 text-[11px] leading-snug text-[#667781] dark:text-[#8696a0]">
+                Applies to message text in every chat.
+              </p>
+            </PopoverContent>
+          </Popover>
           {mounted && (
             <Button
               variant="ghost"
@@ -457,7 +528,10 @@ export function WhatsAppApp() {
               <p>
                 <b>Right-click</b> a message (or <b>long-press</b> on touch) to
                 star it or copy it — starred messages are collected under the
-                star icon in the chat header.
+                star icon in the chat header, and the <b>Starred</b> chip in the
+                search panel filters the chat down to just those. Personalize
+                each chat with its own <b>wallpaper</b> (palette icon) and adjust
+                the reading <b>text size</b> from the Aa menu in the top bar.
               </p>
             </div>
             <p className="text-[12px] text-[#667781] dark:text-[#8696a0]">

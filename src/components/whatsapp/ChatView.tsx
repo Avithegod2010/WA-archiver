@@ -1,6 +1,7 @@
 'use client'
 
 import {
+  useCallback,
   useEffect,
   useMemo,
   useRef,
@@ -18,6 +19,7 @@ import {
   Loader2,
   Lock,
   Palette,
+  RotateCcw,
   Search,
   SlidersHorizontal,
   Star,
@@ -40,10 +42,16 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from '@/components/ui/popover'
+import {
+  TEXT_SIZES,
+  getTextSize,
+  subscribeTextSize,
+  type TextSizeKey,
+} from './text-size'
 
 const PAGE_SIZE = 300
 
-/* ---------- Chat wallpaper (persisted per device) ---------- */
+/* ---------- Chat wallpaper (per chat, falls back to the app default) ---------- */
 
 const WALLPAPERS = {
   doodle: {
@@ -78,6 +86,8 @@ const WALLPAPERS = {
 
 type WallpaperKey = keyof typeof WALLPAPERS
 
+const GLOBAL_WALLPAPER_KEY = 'wa-viewer:wallpaper'
+
 function subscribeWallpaper(cb: () => void) {
   window.addEventListener('wa-wallpaper', cb)
   window.addEventListener('storage', cb)
@@ -87,21 +97,62 @@ function subscribeWallpaper(cb: () => void) {
   }
 }
 
-function getWallpaper(): string {
+/** Per-chat override first, then the app-wide default. */
+function wallpaperKeyFor(chatId: string): string {
   try {
-    return localStorage.getItem('wa-viewer:wallpaper') ?? 'doodle'
+    return (
+      localStorage.getItem(`wa-viewer:wallpaper:${chatId}`) ??
+      localStorage.getItem(GLOBAL_WALLPAPER_KEY) ??
+      'doodle'
+    )
   } catch {
     return 'doodle'
   }
 }
 
-function setStoredWallpaper(w: string) {
+function hasWallpaperOverride(chatId: string): boolean {
   try {
-    localStorage.setItem('wa-viewer:wallpaper', w)
+    return !!localStorage.getItem(`wa-viewer:wallpaper:${chatId}`)
+  } catch {
+    return false
+  }
+}
+
+/** `chatId` empty = set the app-wide default. */
+function setStoredWallpaper(chatId: string, w: string) {
+  try {
+    localStorage.setItem(
+      chatId ? `wa-viewer:wallpaper:${chatId}` : GLOBAL_WALLPAPER_KEY,
+      w
+    )
   } catch {
     /* storage unavailable */
   }
   window.dispatchEvent(new Event('wa-wallpaper'))
+}
+
+function resetStoredWallpaper(chatId: string) {
+  try {
+    localStorage.removeItem(`wa-viewer:wallpaper:${chatId}`)
+  } catch {
+    /* ignore */
+  }
+  window.dispatchEvent(new Event('wa-wallpaper'))
+}
+
+function useWallpaper(chatId: string): {
+  key: WallpaperKey
+  isCustom: boolean
+} {
+  const getSnapshot = useCallback(() => wallpaperKeyFor(chatId), [chatId])
+  const getCustom = useCallback(() => hasWallpaperOverride(chatId), [chatId])
+  const key = useSyncExternalStore(
+    subscribeWallpaper,
+    getSnapshot,
+    () => 'doodle'
+  ) as WallpaperKey
+  const isCustom = useSyncExternalStore(subscribeWallpaper, getCustom, () => false)
+  return { key, isCustom }
 }
 
 function formatDayLabel(d: Date): string {
@@ -157,13 +208,16 @@ export function ChatView({
   const [jumpDate, setJumpDate] = useState('')
   const [jumpOpen, setJumpOpen] = useState(false)
   const [wallpaperOpen, setWallpaperOpen] = useState(false)
-  const wallpaperKey = useSyncExternalStore(
-    subscribeWallpaper,
-    getWallpaper,
-    () => 'doodle'
-  ) as WallpaperKey
-  const wallpaper = WALLPAPERS[wallpaperKey] ?? WALLPAPERS.doodle
+  const [starredOnly, setStarredOnly] = useState(false)
   const chatId = detail?.chat.id ?? ''
+  const { key: wallpaperKey, isCustom: wallpaperIsCustom } = useWallpaper(chatId)
+  const wallpaper = WALLPAPERS[wallpaperKey] ?? WALLPAPERS.doodle
+  const textSizeKey: TextSizeKey = useSyncExternalStore(
+    subscribeTextSize,
+    getTextSize,
+    () => 'md'
+  )
+  const msgFontPx = TEXT_SIZES[textSizeKey]?.px ?? 14.2
 
   const messages = detail?.messages ?? []
 
@@ -171,8 +225,9 @@ export function ChatView({
     const q = query.trim().toLowerCase()
     const from = fromDate ? new Date(fromDate + 'T00:00:00').getTime() : null
     const to = toDate ? new Date(toDate + 'T23:59:59.999').getTime() : null
-    if (!q && from == null && to == null) return null
+    if (!q && from == null && to == null && !starredOnly) return null
     return messages.filter((m) => {
+      if (starredOnly && !m.starred) return false
       if (q) {
         const hay = `${m.body ?? ''}\n${m.sender ?? ''}`.toLowerCase()
         if (!hay.includes(q)) return false
@@ -182,7 +237,7 @@ export function ChatView({
       if (to != null && t > to) return false
       return true
     })
-  }, [messages, query, fromDate, toDate])
+  }, [messages, query, fromDate, toDate, starredOnly])
 
   const hasDateFilter = !!(fromDate || toDate)
 
@@ -267,6 +322,8 @@ export function ChatView({
       } else if (hasDateFilter) {
         setFromDate('')
         setToDate('')
+      } else if (starredOnly) {
+        setStarredOnly(false)
       } else if (searchOpen) {
         setSearchOpen(false)
       } else {
@@ -275,7 +332,7 @@ export function ChatView({
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [jumpOpen, query, hasDateFilter, searchOpen, onBack])
+  }, [jumpOpen, query, hasDateFilter, starredOnly, searchOpen, onBack])
 
   function handleScrollToBottom() {
     const el = scrollRef.current
@@ -511,8 +568,18 @@ export function ChatView({
               </Button>
             </PopoverTrigger>
             <PopoverContent align="end" className="w-56 p-3">
-              <p className="mb-2 text-[13px] font-medium text-[#111b21] dark:text-[#e9edef]">
-                Chat wallpaper
+              <div className="mb-0.5 flex items-center justify-between">
+                <p className="text-[13px] font-medium text-[#111b21] dark:text-[#e9edef]">
+                  Wallpaper for this chat
+                </p>
+                {wallpaperIsCustom && (
+                  <span className="rounded-full bg-[#00a884]/15 px-1.5 py-0.5 text-[9.5px] font-semibold uppercase tracking-wide text-[#008069] dark:text-[#6fd3b6]">
+                    Custom
+                  </span>
+                )}
+              </div>
+              <p className="mb-2 text-[11px] leading-snug text-[#667781] dark:text-[#8696a0]">
+                Applies only to {chat.title} — other chats keep the default.
               </p>
               <div className="grid grid-cols-2 gap-2">
                 {(Object.keys(WALLPAPERS) as WallpaperKey[]).map((key) => {
@@ -521,7 +588,7 @@ export function ChatView({
                   return (
                     <button
                       key={key}
-                      onClick={() => setStoredWallpaper(key)}
+                      onClick={() => setStoredWallpaper(chatId, key)}
                       aria-pressed={active}
                       className={cn(
                         'group flex flex-col items-center gap-1.5 rounded-lg p-2 transition-colors',
@@ -556,6 +623,16 @@ export function ChatView({
                   )
                 })}
               </div>
+              {wallpaperIsCustom && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="mt-2 h-7 w-full gap-1 rounded-full text-[12px] text-[#667781] hover:text-rose-500 dark:text-[#8696a0]"
+                  onClick={() => resetStoredWallpaper(chatId)}
+                >
+                  <RotateCcw className="h-3 w-3" /> Use app default
+                </Button>
+              )}
             </PopoverContent>
           </Popover>
           <Button
@@ -602,6 +679,26 @@ export function ChatView({
               placeholder={`Search in ${chat.title}...`}
               className="h-9 rounded-lg bg-white text-[14px] dark:bg-[#2a3942] dark:text-[#e9edef] dark:placeholder:text-[#8696a0]"
             />
+            <button
+              type="button"
+              onClick={() => setStarredOnly((v) => !v)}
+              aria-pressed={starredOnly}
+              title="Show starred messages only"
+              className={cn(
+                'flex h-9 shrink-0 items-center gap-1.5 rounded-full px-3 text-[12.5px] font-medium transition-colors',
+                starredOnly
+                  ? 'bg-[#f2a33c]/20 text-[#a16a08] ring-1 ring-[#f2a33c]/50 dark:bg-[#f2a33c]/25 dark:text-[#f5c877]'
+                  : 'bg-black/5 text-[#667781] hover:bg-black/10 dark:bg-white/5 dark:text-[#8696a0] dark:hover:bg-white/10'
+              )}
+            >
+              <Star
+                className={cn(
+                  'h-3.5 w-3.5 transition-colors',
+                  starredOnly && 'fill-current'
+                )}
+              />
+              Starred
+            </button>
             <Button
               variant="ghost"
               size="icon"
@@ -616,7 +713,7 @@ export function ChatView({
             >
               <SlidersHorizontal className="h-4 w-4" />
             </Button>
-            {(query || hasDateFilter) && (
+            {(query || hasDateFilter || starredOnly) && (
               <span className="shrink-0 text-[12px] text-[#667781] dark:text-[#8696a0]">
                 {filtered?.length ?? 0} result{(filtered?.length ?? 0) === 1 ? '' : 's'}
               </span>
@@ -631,6 +728,7 @@ export function ChatView({
                 setFromDate('')
                 setToDate('')
                 setDateFilterOpen(false)
+                setStarredOnly(false)
               }}
               aria-label="Close search"
             >
@@ -684,6 +782,7 @@ export function ChatView({
           const el = e.currentTarget
           setShowFab(el.scrollHeight - el.scrollTop - el.clientHeight > 400)
         }}
+        style={{ '--wa-msg-size': `${msgFontPx}px` } as React.CSSProperties}
         className="wa-scroll relative z-[1] flex-1 overflow-y-auto py-3"
         role="log"
         aria-label={`Messages in ${chat.title}`}
@@ -707,7 +806,14 @@ export function ChatView({
               <>
                 No messages match &quot;{query}&quot;
                 {hasDateFilter ? ' in the selected date range' : ''}
+                {starredOnly ? ' among starred' : ''}
               </>
+            ) : starredOnly ? (
+              hasDateFilter ? (
+                'No starred messages in the selected date range'
+              ) : (
+                'No starred messages here yet'
+              )
             ) : (
               'No messages in the selected date range'
             )}

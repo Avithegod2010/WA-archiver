@@ -363,7 +363,7 @@ export function MessageBubble({
             <div
               {...press.handlers}
               className={cn(
-                'relative rounded-[7.5px] px-2.5 py-1.5 text-[14.2px] leading-[19px] transition-[transform,box-shadow] duration-150',
+                'relative rounded-[7.5px] px-2.5 py-1.5 text-(length:--wa-msg-size,14.2px) leading-[1.34] transition-[transform,box-shadow] duration-150',
                 'bg-white text-[#111b21] shadow-[0_1px_0.5px_rgba(11,20,26,0.13)] dark:bg-[#202c33] dark:text-[#e9edef] dark:shadow-[0_1px_0.5px_rgba(0,0,0,0.25)]',
                 !showTail && 'rounded-tl-none',
                 press.pressing && 'scale-[0.98]'
@@ -418,7 +418,7 @@ function OutgoingBubble({
             <div
               {...press.handlers}
               className={cn(
-                'relative rounded-[7.5px] px-2.5 py-1.5 text-[14.2px] leading-[19px] transition-[transform,box-shadow] duration-150',
+                'relative rounded-[7.5px] px-2.5 py-1.5 text-(length:--wa-msg-size,14.2px) leading-[1.34] transition-[transform,box-shadow] duration-150',
                 'bg-[#d9fdd3] text-[#111b21] shadow-[0_1px_0.5px_rgba(11,20,26,0.13)] dark:bg-[#005c4b] dark:text-[#e9edef] dark:shadow-[0_1px_0.5px_rgba(0,0,0,0.25)]',
                 !showTail && 'rounded-tr-none',
                 press.pressing && 'scale-[0.98]'
