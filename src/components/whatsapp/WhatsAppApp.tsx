@@ -12,6 +12,13 @@ import {
   Sun,
   Upload,
 } from 'lucide-react'
+import {
+  FONT_FAMILIES,
+  getFontFamily,
+  setFontFamily,
+  subscribeFontFamily,
+  type FontFamilyKey,
+} from './font-family'
 import { Button } from '@/components/ui/button'
 import {
   Dialog,
@@ -68,6 +75,11 @@ export function WhatsAppApp() {
     subscribeTextSize,
     getTextSize,
     () => 'md'
+  )
+  const fontKey: FontFamilyKey = useSyncExternalStore(
+    subscribeFontFamily,
+    getFontFamily,
+    () => 'default'
   )
 
   useEffect(() => setMounted(true), [])
@@ -351,7 +363,10 @@ export function WhatsAppApp() {
   )
 
   return (
-    <div className="flex h-dvh min-h-0 flex-col bg-[#efeae2] dark:bg-[#0b141a]">
+    <div
+      className="flex h-dvh min-h-0 flex-col bg-[#efeae2] dark:bg-[#0b141a]"
+      style={{ fontFamily: FONT_FAMILIES[fontKey].stack }}
+    >
       {/* Top app bar */}
       <div className="flex items-center justify-between bg-[#008069] px-4 py-2 dark:bg-[#1f2c33]">
         <div className="flex min-w-0 items-center gap-2.5">
@@ -373,13 +388,16 @@ export function WhatsAppApp() {
                 size="icon"
                 className="h-9 w-9 text-white hover:bg-white/10"
                 onClick={() => setTextSizeOpen((v) => !v)}
-                aria-label="Text size"
-                title="Text size"
+                aria-label="Display settings"
+                title="Text size & font"
               >
                 <ALargeSmall className="h-5 w-5" />
               </Button>
             </PopoverTrigger>
-            <PopoverContent align="end" className="w-60 p-3">
+            <PopoverContent
+              align="end"
+              className="wa-scroll max-h-[80vh] w-72 overflow-y-auto p-3"
+            >
               <p className="mb-2 text-[13px] font-medium text-[#111b21] dark:text-[#e9edef]">
                 Reading text size
               </p>
@@ -414,6 +432,55 @@ export function WhatsAppApp() {
               </div>
               <p className="mt-2 text-[11px] leading-snug text-[#667781] dark:text-[#8696a0]">
                 Applies to message text in every chat.
+              </p>
+
+              <div className="my-3 h-px bg-black/10 dark:bg-white/10" />
+
+              <p className="mb-2 text-[13px] font-medium text-[#111b21] dark:text-[#e9edef]">
+                Chat font
+              </p>
+              <div className="grid grid-cols-2 gap-2">
+                {(Object.keys(FONT_FAMILIES) as FontFamilyKey[]).map((k) => {
+                  const f = FONT_FAMILIES[k]
+                  const active = fontKey === k
+                  return (
+                    <button
+                      key={k}
+                      onClick={() => setFontFamily(k)}
+                      aria-pressed={active}
+                      title={f.hint}
+                      className={cn(
+                        'flex flex-col items-start gap-0.5 rounded-lg px-2.5 py-2 text-left transition-colors',
+                        active
+                          ? 'bg-[#00a884]/10 ring-1 ring-[#00a884]'
+                          : 'hover:bg-black/5 dark:hover:bg-white/5'
+                      )}
+                    >
+                      <span
+                        className="flex w-full items-center gap-1 text-[15px] font-semibold leading-tight text-[#111b21] dark:text-[#e9edef]"
+                        style={{ fontFamily: f.stack }}
+                      >
+                        <span className="truncate">Aa</span>
+                        {active && (
+                          <Check className="ml-auto h-3.5 w-3.5 shrink-0 text-[#00a884]" />
+                        )}
+                      </span>
+                      <span className="truncate text-[11px] font-medium text-[#3b4a54] dark:text-[#d1d7db]">
+                        {f.label}
+                      </span>
+                      <span
+                        className="w-full truncate text-[10.5px] leading-tight text-[#667781] dark:text-[#8696a0]"
+                        style={{ fontFamily: f.stack }}
+                      >
+                        Hello! How are you?
+                      </span>
+                    </button>
+                  )
+                })}
+              </div>
+              <p className="mt-2 text-[11px] leading-snug text-[#667781] dark:text-[#8696a0]">
+                Changes the typeface across the chat list and every
+                conversation.
               </p>
             </PopoverContent>
           </Popover>
@@ -598,9 +665,10 @@ export function WhatsAppApp() {
                 — days with messages show a green dot, plus one-tap{' '}
                 <b>Oldest / Latest</b> shortcuts. Personalize each chat with
                 its own <b>wallpaper</b> (palette icon) and adjust the reading{' '}
-                <b>text size</b> from the Aa menu in the top bar. Links in
-                messages are tappable and emoji-only messages render big, just
-                like WhatsApp.
+                <b>text size</b> and <b>chat font</b> — Default, Modern,
+                Rounded, Serif, Elegant, Mono or Handwriting — from the Aa menu
+                in the top bar. Links in messages are tappable and emoji-only
+                messages render big, just like WhatsApp.
               </p>
             </div>
             <div>
@@ -613,6 +681,20 @@ export function WhatsAppApp() {
                 flash. Voice notes play in a <b>waveform player</b>: tap the
                 waveform to seek, and the <b>1×</b> pill to switch to
                 1.5× / 2× speed.
+              </p>
+            </div>
+            <div>
+              <h4 className="mb-1.5 font-semibold">Insights &amp; analytics</h4>
+              <p>
+                The <b>Insights</b> dashboard (bar-chart icon in the chat list
+                header) crunches every chat locally: a weekday × hour{' '}
+                <b>activity heatmap</b>, the <b>most active hours</b> with a
+                night-owl/early-bird read, top <b>words</b> and <b>emojis</b>,
+                message <b>streaks</b>, links &amp; questions, the{' '}
+                <b>longest message</b>, per-person word/emoji counts and media
+                storage per chat. Open a chat&apos;s <b>info panel</b> for the
+                same deep-dive on just that conversation — including each
+                participant&apos;s <b>median reply speed</b>.
               </p>
             </div>
             <div>

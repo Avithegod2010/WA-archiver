@@ -57,11 +57,38 @@ export interface StatsData {
     firstAt: string | null
     lastAt: string | null
     busiestDay: { date: string; count: number } | null
+    activeDays: number
+    daysSpanned: number
+    avgPerDay: number
+  }
+  streak: {
+    longest: number
+    longestEnd: string | null
+    current: number
+  }
+  fun: {
+    links: number
+    questions: number
+    longest: {
+      sender: string
+      chatTitle: string
+      chars: number
+      preview: string
+    } | null
   }
   types: { type: string; count: number }[]
   weekdays: { weekday: string; count: number }[]
+  hours: { hour: number; count: number }[]
+  heatmap: number[][]
   months: { month: string; count: number }[]
-  participants: { sender: string; count: number }[]
+  topWords: { word: string; count: number }[]
+  topEmojis: { emoji: string; count: number }[]
+  participants: {
+    sender: string
+    count: number
+    words: number
+    emojis: number
+  }[]
   perChat: {
     id: string
     title: string

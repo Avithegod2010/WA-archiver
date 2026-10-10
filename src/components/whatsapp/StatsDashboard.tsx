@@ -3,7 +3,11 @@
 import { useEffect, useState } from 'react'
 import {
   BarChart3,
+  CalendarCheck2,
   CalendarDays,
+  Flame,
+  HelpCircle,
+  Link2,
   Loader2,
   MessageSquare,
   Images,
@@ -12,6 +16,8 @@ import {
   Smile,
   Type,
   HardDrive,
+  Quote,
+  Trash2,
 } from 'lucide-react'
 import {
   Dialog,
@@ -23,6 +29,7 @@ import {
 import { Input } from '@/components/ui/input'
 import { Avatar } from './Avatar'
 import type { StatsData } from './types'
+import { colorForName } from './types'
 import { cn } from '@/lib/utils'
 
 const TYPE_LABELS: Record<string, string> = {
@@ -41,6 +48,8 @@ const TYPE_LABELS: Record<string, string> = {
   deleted: 'Deleted',
   media: 'Other media',
 }
+
+const WEEKDAY_FULL = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
 
 function Kpi({
   icon,
@@ -75,14 +84,17 @@ function Kpi({
 
 function Section({
   title,
+  icon,
   children,
 }: {
   title: string
+  icon?: React.ReactNode
   children: React.ReactNode
 }) {
   return (
     <section>
-      <h4 className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-[#667781] dark:text-[#8696a0]">
+      <h4 className="mb-2 flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wider text-[#667781] dark:text-[#8696a0]">
+        {icon}
         {title}
       </h4>
       {children}
@@ -141,12 +153,185 @@ function monthLabel(ym: string): string {
   })
 }
 
+function hourLabel(h: number): string {
+  const suffix = h < 12 ? 'am' : 'pm'
+  const base = h % 12 === 0 ? 12 : h % 12
+  return `${base}${suffix}`
+}
+
 function formatBytes(n: number): string {
   if (n < 1024) return `${n} B`
   if (n < 1024 * 1024) return `${(n / 1024).toFixed(0)} KB`
   if (n < 1024 * 1024 * 1024) return `${(n / (1024 * 1024)).toFixed(1)} MB`
   return `${(n / (1024 * 1024 * 1024)).toFixed(2)} GB`
 }
+
+/* ------------------------------- Heatmap ------------------------------- */
+
+function Heatmap({ grid, total }: { grid: number[][]; total: number }) {
+  const max = Math.max(...grid.flat(), 1)
+  const level = (v: number) => {
+    if (v === 0) return 0
+    const r = v / max
+    if (r <= 0.25) return 1
+    if (r <= 0.5) return 2
+    if (r <= 0.75) return 3
+    return 4
+  }
+  const CELL = [
+    'bg-black/[0.06] dark:bg-white/[0.06]',
+    'bg-[#00a884]/25',
+    'bg-[#00a884]/50',
+    'bg-[#00a884]/75',
+    'bg-[#00a884]',
+  ]
+  return (
+    <div className="rounded-xl bg-[#f0f2f5]/60 p-3 dark:bg-[#202c33]/60">
+      <div className="flex flex-col gap-[3px]">
+        {/* hour ruler */}
+        <div
+          className="grid gap-[3px]"
+          style={{ gridTemplateColumns: '30px repeat(24, minmax(0, 1fr))' }}
+        >
+          <span />
+          {Array.from({ length: 24 }, (_, h) => (
+            <span
+              key={h}
+              className="text-center text-[7.5px] leading-none text-[#667781] dark:text-[#8696a0]"
+            >
+              {h % 6 === 0 ? hourLabel(h) : ''}
+            </span>
+          ))}
+        </div>
+        {grid.map((row, day) => (
+          <div
+            key={day}
+            className="grid gap-[3px]"
+            style={{ gridTemplateColumns: '30px repeat(24, minmax(0, 1fr))' }}
+          >
+            <span className="text-[9px] leading-[14px] text-[#667781] dark:text-[#8696a0]">
+              {WEEKDAY_FULL[day]}
+            </span>
+            {row.map((count, hour) => (
+              <div
+                key={hour}
+                title={`${WEEKDAY_FULL[day]} ${hourLabel(hour)} — ${count.toLocaleString()} message${count === 1 ? '' : 's'}`}
+                className={cn(
+                  'h-[14px] rounded-[2.5px] transition-transform hover:scale-125',
+                  CELL[level(count)]
+                )}
+              />
+            ))}
+          </div>
+        ))}
+      </div>
+      <div className="mt-2 flex items-center justify-between text-[10px] text-[#667781] dark:text-[#8696a0]">
+        <span>Rows = weekdays · columns = hours</span>
+        <span className="flex items-center gap-1">
+          less
+          {CELL.map((c, i) => (
+            <span key={i} className={cn('h-2.5 w-2.5 rounded-[2px]', c)} />
+          ))}
+          more
+        </span>
+      </div>
+      <p className="mt-1 text-right text-[10px] tabular-nums text-[#667781] dark:text-[#8696a0]">
+        {total.toLocaleString()} messages mapped
+      </p>
+    </div>
+  )
+}
+
+/* --------------------------- Active hours chart -------------------------- */
+
+function HoursChart({ hours }: { hours: StatsData['hours'] }) {
+  const max = Math.max(...hours.map((h) => h.count), 1)
+  const peak = hours.reduce((a, b) => (b.count > a.count ? b : a), hours[0])
+  const total = hours.reduce((s, h) => s + h.count, 0)
+  const nightShare =
+    total > 0
+      ? Math.round(
+          (hours
+            .filter((h) => h.hour >= 20 || h.hour < 4)
+            .reduce((s, h) => s + h.count, 0) /
+            total) *
+            100
+        )
+      : 0
+  return (
+    <div>
+      <div className="flex h-24 items-end gap-[3px] rounded-xl bg-[#f0f2f5]/60 p-3 dark:bg-[#202c33]/60">
+        {hours.map((h) => (
+          <div
+            key={h.hour}
+            className="group relative flex h-full min-w-0 flex-1 flex-col justify-end"
+            title={`${hourLabel(h.hour)}: ${h.count.toLocaleString()}`}
+          >
+            <div
+              className={cn(
+                'w-full rounded-t-[3px] transition-colors',
+                h.hour === peak.hour && peak.count > 0
+                  ? 'bg-[#f2a33c]'
+                  : 'bg-[#00a884]/70 group-hover:bg-[#00a884]'
+              )}
+              style={{
+                height: `${Math.max((h.count / max) * 100, h.count > 0 ? 4 : 1.5)}%`,
+              }}
+            />
+          </div>
+        ))}
+      </div>
+      <div className="mt-1 flex justify-between px-1 text-[8.5px] text-[#667781] dark:text-[#8696a0]">
+        {[0, 6, 12, 18, 23].map((h) => (
+          <span key={h}>{hourLabel(h)}</span>
+        ))}
+      </div>
+      <p className="mt-1.5 text-[12px] text-[#667781] dark:text-[#8696a0]">
+        Busiest hour <b className="text-[#3b4a54] dark:text-[#d1d7db]">{hourLabel(peak.hour)}</b>
+        {nightShare >= 25 ? (
+          <> — night owls: {nightShare}% of messages after 8pm.</>
+        ) : (
+          <> — early birds: {100 - nightShare}% land before 8pm.</>
+        )}
+      </p>
+    </div>
+  )
+}
+
+/* ------------------------------ Fun facts ------------------------------- */
+
+function FunFact({
+  icon,
+  value,
+  label,
+  accent,
+}: {
+  icon: React.ReactNode
+  value: string
+  label: string
+  accent: string
+}) {
+  return (
+    <div className="flex items-center gap-2.5 rounded-xl border border-black/5 bg-[#f0f2f5]/60 p-2.5 dark:border-white/5 dark:bg-[#202c33]/60">
+      <div
+        className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg"
+        style={{ backgroundColor: `${accent}1f`, color: accent }}
+      >
+        {icon}
+      </div>
+      <div className="min-w-0">
+        <p className="truncate text-[15px] font-semibold leading-tight text-[#111b21] dark:text-[#e9edef]">
+          {value}
+        </p>
+        <p className="truncate text-[11px] text-[#667781] dark:text-[#8696a0]">
+          {label}
+        </p>
+      </div>
+    </div>
+  )
+}
+
+/* ------------------------------ Main dialog ----------------------------- */
 
 export function StatsDashboard({
   open,
@@ -197,16 +382,18 @@ export function StatsDashboard({
   const filteredChatMax = Math.max(...filteredChats.map((c) => c.count), 1)
   const filteredStorageMax = Math.max(...filteredStorage.map((c) => c.bytes), 1)
 
+  const deletedCount = data?.types.find((t) => t.type === 'deleted')?.count ?? 0
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="flex max-h-[85vh] flex-col overflow-hidden sm:max-w-xl">
+      <DialogContent className="flex max-h-[85vh] flex-col overflow-hidden sm:max-w-2xl">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <BarChart3 className="h-5 w-5 text-[#00a884]" />
             Insights
           </DialogTitle>
           <DialogDescription>
-            Activity across all your imported chats — computed locally.
+            Deep analytics across all your imported chats — computed locally.
           </DialogDescription>
         </DialogHeader>
 
@@ -267,6 +454,18 @@ export function StatsDashboard({
                   accent="#ef6c6c"
                 />
                 <Kpi
+                  icon={<CalendarCheck2 className="h-4 w-4" />}
+                  label="Active days"
+                  value={data.range.activeDays.toLocaleString()}
+                  accent="#12b886"
+                />
+                <Kpi
+                  icon={<Flame className="h-4 w-4" />}
+                  label="Longest streak"
+                  value={`${data.streak.longest} day${data.streak.longest === 1 ? '' : 's'}`}
+                  accent="#ef8c6c"
+                />
+                <Kpi
                   icon={<HardDrive className="h-4 w-4" />}
                   label={`Media storage (${data.storage.files} file${data.storage.files === 1 ? '' : 's'})`}
                   value={
@@ -298,8 +497,18 @@ export function StatsDashboard({
                         })}
                       </b>{' '}
                       with {data.range.busiestDay.count.toLocaleString()} messages
+                      {data.range.avgPerDay > 0 && (
+                        <> · {data.range.avgPerDay}/day on active days</>
+                      )}
                     </p>
                   )}
+
+                  <Section
+                    title="Activity heatmap"
+                    icon={<CalendarDays className="h-3 w-3" />}
+                  >
+                    <Heatmap grid={data.heatmap} total={data.totals.messages} />
+                  </Section>
 
                   <Section title="Messages per month">
                     <div className="flex h-28 items-end gap-1.5 rounded-xl bg-[#f0f2f5]/60 p-3 dark:bg-[#202c33]/60">
@@ -332,6 +541,13 @@ export function StatsDashboard({
                     </div>
                   </Section>
 
+                  <Section
+                    title="Most active hours"
+                    icon={<CalendarCheck2 className="h-3 w-3" />}
+                  >
+                    <HoursChart hours={data.hours} />
+                  </Section>
+
                   <Section title="Activity by weekday">
                     <div className="space-y-1.5">
                       {data.weekdays.map((w) => (
@@ -344,6 +560,114 @@ export function StatsDashboard({
                         />
                       ))}
                     </div>
+                  </Section>
+
+                  {/* Words + emojis side by side */}
+                  {(data.topWords.length > 0 || data.topEmojis.length > 0) && (
+                    <div className="grid gap-5 sm:grid-cols-2">
+                      {data.topWords.length > 0 && (
+                        <Section title="Top words">
+                          <div className="flex flex-wrap gap-1.5">
+                            {data.topWords.map((w) => (
+                              <span
+                                key={w.word}
+                                className="rounded-full border border-black/5 bg-[#f0f2f5]/70 px-2.5 py-1 text-[12px] text-[#3b4a54] dark:border-white/5 dark:bg-[#202c33]/70 dark:text-[#d1d7db]"
+                              >
+                                {w.word}
+                                <b className="ml-1.5 tabular-nums text-[#00a884]">
+                                  {w.count.toLocaleString()}
+                                </b>
+                              </span>
+                            ))}
+                          </div>
+                        </Section>
+                      )}
+                      {data.topEmojis.length > 0 && (
+                        <Section title="Top emojis">
+                          <div className="flex flex-wrap gap-2">
+                            {data.topEmojis.map((e, i) => (
+                              <div
+                                key={e.emoji}
+                                className="flex w-[68px] flex-col items-center rounded-lg border border-black/5 bg-[#f0f2f5]/70 py-2 dark:border-white/5 dark:bg-[#202c33]/70"
+                              >
+                                <span className="text-[22px] leading-none">
+                                  {e.emoji}
+                                </span>
+                                <span className="mt-1 text-[11px] font-medium tabular-nums text-[#667781] dark:text-[#8696a0]">
+                                  ×{e.count.toLocaleString()}
+                                </span>
+                                {i === 0 && (
+                                  <span className="text-[9px] uppercase tracking-wide text-[#00a884]">
+                                    favorite
+                                  </span>
+                                )}
+                              </div>
+                            ))}
+                          </div>
+                        </Section>
+                      )}
+                    </div>
+                  )}
+
+                  <Section title="Fun facts">
+                    <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+                      <FunFact
+                        icon={<Flame className="h-4 w-4" />}
+                        value={`${data.streak.current} day${data.streak.current === 1 ? '' : 's'}`}
+                        label="Current streak"
+                        accent="#ef8c6c"
+                      />
+                      <FunFact
+                        icon={<Link2 className="h-4 w-4" />}
+                        value={data.fun.links.toLocaleString()}
+                        label="Links shared"
+                        accent="#0ea5a4"
+                      />
+                      <FunFact
+                        icon={<HelpCircle className="h-4 w-4" />}
+                        value={data.fun.questions.toLocaleString()}
+                        label="Questions asked"
+                        accent="#f2a33c"
+                      />
+                      <FunFact
+                        icon={<Trash2 className="h-4 w-4" />}
+                        value={deletedCount.toLocaleString()}
+                        label="Deleted messages"
+                        accent="#ef6c6c"
+                      />
+                      <FunFact
+                        icon={<CalendarCheck2 className="h-4 w-4" />}
+                        value={`${data.range.avgPerDay.toLocaleString()}`}
+                        label="Avg msgs / active day"
+                        accent="#12b886"
+                      />
+                      <FunFact
+                        icon={<Type className="h-4 w-4" />}
+                        value={
+                          data.fun.longest
+                            ? data.fun.longest.chars.toLocaleString()
+                            : '—'
+                        }
+                        label="Longest message (chars)"
+                        accent="#b06ad4"
+                      />
+                    </div>
+                    {data.fun.longest && (
+                      <div className="mt-2 flex gap-2.5 rounded-xl border border-black/5 bg-[#f0f2f5]/60 p-3 dark:border-white/5 dark:bg-[#202c33]/60">
+                        <Quote className="h-4 w-4 shrink-0 text-[#00a884]" />
+                        <div className="min-w-0">
+                          <p className="line-clamp-2 text-[12.5px] italic leading-snug text-[#3b4a54] dark:text-[#d1d7db]">
+                            “{data.fun.longest.preview}”
+                          </p>
+                          <p className="mt-1 text-[11px] text-[#667781] dark:text-[#8696a0]">
+                            <b style={{ color: colorForName(data.fun.longest.sender) }}>
+                              {data.fun.longest.sender}
+                            </b>{' '}
+                            in {data.fun.longest.chatTitle}
+                          </p>
+                        </div>
+                      </div>
+                    )}
                   </Section>
 
                   <Section title="Top chats">
@@ -385,21 +709,40 @@ export function StatsDashboard({
 
                   {data.participants.length > 0 && (
                     <Section title="Most active people">
-                      <div className="space-y-1.5">
+                      <div className="space-y-2.5">
                         {data.participants.map((p) => (
-                          <BarRow
-                            key={p.sender}
-                            label={p.sender}
-                            value={p.count}
-                            max={maxParticipant}
-                            total={data.totals.messages}
-                            accent="#f2a33c"
-                            leading={
-                              <span className="shrink-0">
-                                <Avatar name={p.sender} size={24} />
-                              </span>
-                            }
-                          />
+                          <div key={p.sender} className="flex items-center gap-2.5">
+                            <span className="shrink-0">
+                              <Avatar name={p.sender} size={26} />
+                            </span>
+                            <div className="min-w-0 flex-1">
+                              <div className="mb-1 flex items-baseline justify-between gap-2">
+                                <span className="truncate text-[12.5px] font-medium text-[#3b4a54] dark:text-[#d1d7db]">
+                                  {p.sender}
+                                </span>
+                                <span className="shrink-0 text-[11px] tabular-nums text-[#667781] dark:text-[#8696a0]">
+                                  {p.count.toLocaleString()} ·{' '}
+                                  {Math.round(
+                                    (p.count / Math.max(1, data.totals.messages)) * 100
+                                  )}
+                                  %
+                                </span>
+                              </div>
+                              <div className="h-2 min-w-0 overflow-hidden rounded-full bg-black/5 dark:bg-white/10">
+                                <div
+                                  className="h-full rounded-full transition-[width] duration-500"
+                                  style={{
+                                    width: `${Math.max((p.count / maxParticipant) * 100, 3)}%`,
+                                    backgroundColor: colorForName(p.sender),
+                                  }}
+                                />
+                              </div>
+                              <p className="mt-0.5 text-[10.5px] tabular-nums text-[#667781] dark:text-[#8696a0]">
+                                {p.words.toLocaleString()} words ·{' '}
+                                {p.emojis.toLocaleString()} emojis
+                              </p>
+                            </div>
+                          </div>
                         ))}
                       </div>
                     </Section>
