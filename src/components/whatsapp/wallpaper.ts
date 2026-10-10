@@ -12,17 +12,31 @@
 export interface WallpaperConfig {
   /** Preset key, or 'custom' when a photo is set */
   k: string
-  /** Darkness overlay 0..0.75 — boosts contrast/legibility on any wallpaper */
+  /** Darkness overlay 0..0.75 — boosts legibility on any wallpaper */
   dim: number
   /** Blur in px 0..12 — applied to custom photo wallpapers */
   blur: number
+  /** CSS contrast multiplier 0.6..1.6 (1 = normal) */
+  contrast: number
+  /** CSS brightness multiplier 0.6..1.3 (1 = normal) */
+  brightness: number
+  /** CSS saturation multiplier 0..2 (1 = normal) */
+  saturation: number
   /** URL of the uploaded photo (when k === 'custom') */
   photo: string | null
 }
 
 export const WALLPAPER_EVENT = 'wa-wallpaper'
 export const GLOBAL_WALLPAPER_KEY = 'wa-viewer:wallpaper'
-const DEFAULT_CONFIG: WallpaperConfig = { k: 'doodle', dim: 0, blur: 0, photo: null }
+const DEFAULT_CONFIG: WallpaperConfig = {
+  k: 'doodle',
+  dim: 0,
+  blur: 0,
+  contrast: 1,
+  brightness: 1,
+  saturation: 1,
+  photo: null,
+}
 
 export interface WallpaperPreset {
   key: string
@@ -199,9 +213,16 @@ export function presetByKey(k: string): WallpaperPreset {
   return WALLPAPER_PRESETS.find((p) => p.key === k) ?? WALLPAPER_PRESETS[0]
 }
 
-function clamp01(v: number, max: number): number {
-  if (!Number.isFinite(v)) return 0
-  return Math.min(Math.max(v, 0), max)
+function clampNum(v: unknown, def: number, min: number, max: number): number {
+  const n = Number(v)
+  if (!Number.isFinite(n)) return def
+  return Math.min(Math.max(n, min), max)
+}
+
+function clamp01(v: unknown, max: number): number {
+  const n = Number(v)
+  if (!Number.isFinite(n)) return 0
+  return Math.min(Math.max(n, 0), max)
 }
 
 function parseConfig(raw: string | null): WallpaperConfig | null {
@@ -213,8 +234,11 @@ function parseConfig(raw: string | null): WallpaperConfig | null {
       const k = typeof o.k === 'string' && o.k ? o.k : photo ? 'custom' : 'doodle'
       return {
         k,
-        dim: clamp01(Number(o.dim ?? 0), 0.75),
-        blur: clamp01(Number(o.blur ?? 0), 12),
+        dim: clamp01(o.dim, 0.75),
+        blur: clamp01(o.blur, 12),
+        contrast: clampNum(o.contrast, 1, 0.6, 1.6),
+        brightness: clampNum(o.brightness, 1, 0.6, 1.3),
+        saturation: clampNum(o.saturation, 1, 0, 2),
         photo,
       }
     } catch {

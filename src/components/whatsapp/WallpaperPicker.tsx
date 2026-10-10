@@ -8,6 +8,7 @@ import {
   Loader2,
   Palette,
   RotateCcw,
+  SlidersHorizontal,
   Trash2,
   Layers,
 } from 'lucide-react'
@@ -32,6 +33,57 @@ import {
 } from './wallpaper'
 
 /**
+ * A self-tracking slider: while the pointer drags, the thumb follows local
+ * state 1:1 (immune to any storage round-trip hiccup), then resyncs with the
+ * store on release (onValueCommit). Slider values are plain integers on BOTH
+ * sides (value and onChange) — never mix unit scales.
+ */
+function FineSlider({
+  label,
+  value,
+  min,
+  max,
+  step,
+  format,
+  onChange,
+  disabled,
+}: {
+  label: string
+  /** Current display value, e.g. 35 meaning 35% */
+  value: number
+  min: number
+  max: number
+  step: number
+  format: (v: number) => string
+  onChange: (v: number) => void
+  disabled?: boolean
+}) {
+  const [drag, setDrag] = useState<number | null>(null)
+  const shown = Math.min(Math.max(drag ?? value, min), max)
+  return (
+    <div className={cn(disabled && 'pointer-events-none opacity-40')}>
+      <div className="mb-1 flex items-center justify-between text-[12px] text-(--wa-text)">
+        <span className="font-medium">{label}</span>
+        <span className="tabular-nums text-(--wa-text-2)">{format(shown)}</span>
+      </div>
+      <Slider
+        value={[shown]}
+        min={min}
+        max={max}
+        step={step}
+        disabled={disabled}
+        onValueChange={([v]) => {
+          setDrag(v)
+          onChange(v)
+        }}
+        onValueCommit={() => setDrag(null)}
+        aria-label={label}
+      />
+    </div>
+  )
+}
+
+/**
  * Wallpaper studio popover — presets, custom photo upload and dim/blur
  * controls, per chat or app-wide. Also exposed on mobile via ChatInfo-less
  * header button (hidden on the narrowest headers to save space).
@@ -52,7 +104,6 @@ export function WallpaperPicker({
 }) {
   const fileRef = useRef<HTMLInputElement>(null)
   const [uploading, setUploading] = useState(false)
-  const [isCustomOverride, setIsCustomOverride] = useState(false)
 
   const raw = useSyncExternalStore(
     subscribeWallpaper,
@@ -62,16 +113,8 @@ export function WallpaperPicker({
       '',
     () => ''
   )
-  const cfg = useMemo<WallpaperConfig>(
-    () => readWallpaper(chatId),
-     
-    [chatId, raw]
-  )
-  const override = useMemo(
-    () => hasWallpaperOverride(chatId),
-     
-    [chatId, raw]
-  )
+  const cfg = useMemo<WallpaperConfig>(() => readWallpaper(chatId), [chatId, raw])
+  const override = useMemo(() => hasWallpaperOverride(chatId), [chatId, raw])
   const preset = presetByKey(cfg.k)
   const isPhoto = cfg.k === 'custom' && !!cfg.photo
 
@@ -111,13 +154,10 @@ export function WallpaperPicker({
   return (
     <Popover
       open={open}
-      onOpenChange={(v) => {
-        setIsCustomOverride(hasWallpaperOverride(chatId))
-        onOpenChange(v)
-      }}
+      onOpenChange={onOpenChange}
     >
       <PopoverTrigger asChild>{children}</PopoverTrigger>
-      <PopoverContent align="end" side="bottom" className="wa-scroll max-h-[min(560px,80vh)] w-[304px] overflow-y-auto p-3.5">
+      <PopoverContent align="end" side="bottom" className="wa-scroll max-h-[min(640px,85vh)] w-[304px] overflow-y-auto p-3.5">
         <div className="mb-0.5 flex items-center justify-between">
           <p className="flex items-center gap-1.5 text-[13.5px] font-semibold text-(--wa-text)">
             <Palette className="h-4 w-4 text-(--wa-accent)" />
@@ -247,42 +287,83 @@ export function WallpaperPicker({
 
         {/* Controls */}
         <div className="mt-3 space-y-2.5 rounded-xl bg-black/[0.035] p-3 dark:bg-white/[0.04]">
-          <p className="flex items-center gap-1.5 text-[11.5px] font-semibold uppercase tracking-wide text-(--wa-text-2)">
-            <Layers className="h-3.5 w-3.5" /> Fine-tuning
-          </p>
-
-          <div>
-            <div className="mb-1 flex items-center justify-between text-[12px] text-(--wa-text)">
-              <span className="font-medium">Dim (contrast)</span>
-              <span className="tabular-nums text-(--wa-text-2)">
-                {Math.round(cfg.dim * 100)}%
-              </span>
-            </div>
-            <Slider
-              value={[cfg.dim]}
-              min={0}
-              max={75}
-              step={5}
-              onValueChange={([v]) => writeWallpaper(chatId, { dim: v / 100 })}
-              aria-label="Wallpaper dim level"
-            />
+          <div className="flex items-center justify-between">
+            <p className="flex items-center gap-1.5 text-[11.5px] font-semibold uppercase tracking-wide text-(--wa-text-2)">
+              <Layers className="h-3.5 w-3.5" /> Fine-tuning
+            </p>
+            <button
+              className="flex items-center gap-1 rounded-full px-1.5 py-0.5 text-[10.5px] font-medium text-(--wa-text-2) transition-colors hover:bg-black/5 hover:text-(--wa-text) dark:hover:bg-white/10"
+              onClick={() => {
+                writeWallpaper(chatId, {
+                  dim: 0,
+                  blur: 0,
+                  contrast: 1,
+                  brightness: 1,
+                  saturation: 1,
+                })
+                toast.info('Fine-tuning reset')
+              }}
+              title="Reset dim, contrast, brightness & saturation"
+            >
+              <SlidersHorizontal className="h-3 w-3" />
+              Reset
+            </button>
           </div>
 
-          <div className={cn(!isPhoto && 'pointer-events-none opacity-40')}>
-            <div className="mb-1 flex items-center justify-between text-[12px] text-(--wa-text)">
-              <span className="font-medium">Blur {isPhoto ? '' : '(photos)'}</span>
-              <span className="tabular-nums text-(--wa-text-2)">{cfg.blur}px</span>
-            </div>
-            <Slider
-              value={[cfg.blur]}
-              min={0}
-              max={12}
-              step={1}
-              onValueChange={([v]) => writeWallpaper(chatId, { blur: v })}
-              aria-label="Wallpaper blur level"
-              disabled={!isPhoto}
-            />
-          </div>
+          {/* NOTE: every slider works in whole-percent integers on BOTH the
+              value and the onChange side. The old dim slider fed a 0–0.75
+              fraction into a 0–75 track, pinning the thumb at the far left —
+              that is why it appeared to never move. */}
+          <FineSlider
+            label="Dim overlay"
+            value={Math.round(cfg.dim * 100)}
+            min={0}
+            max={75}
+            step={5}
+            format={(v) => `${v}%`}
+            onChange={(v) => writeWallpaper(chatId, { dim: v / 100 })}
+          />
+
+          <FineSlider
+            label="Contrast"
+            value={Math.round(cfg.contrast * 100)}
+            min={60}
+            max={160}
+            step={5}
+            format={(v) => `${v}%`}
+            onChange={(v) => writeWallpaper(chatId, { contrast: v / 100 })}
+          />
+
+          <FineSlider
+            label="Brightness"
+            value={Math.round(cfg.brightness * 100)}
+            min={60}
+            max={130}
+            step={5}
+            format={(v) => `${v}%`}
+            onChange={(v) => writeWallpaper(chatId, { brightness: v / 100 })}
+          />
+
+          <FineSlider
+            label="Saturation"
+            value={Math.round(cfg.saturation * 100)}
+            min={0}
+            max={200}
+            step={10}
+            format={(v) => `${v}%`}
+            onChange={(v) => writeWallpaper(chatId, { saturation: v / 100 })}
+          />
+
+          <FineSlider
+            label={`Blur${isPhoto ? '' : ' (photos)'}`}
+            value={cfg.blur}
+            min={0}
+            max={12}
+            step={1}
+            format={(v) => `${v}px`}
+            disabled={!isPhoto}
+            onChange={(v) => writeWallpaper(chatId, { blur: v })}
+          />
         </div>
 
         {/* Scope actions */}

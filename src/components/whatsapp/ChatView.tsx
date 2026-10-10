@@ -248,6 +248,17 @@ export function ChatView({
   const wallpaperCfg = useWallpaperConfig(chatId)
   const wallpaperPreset = presetByKey(wallpaperCfg.k)
   const wallpaperIsPhoto = wallpaperCfg.k === 'custom' && !!wallpaperCfg.photo
+  /** CSS filter for the wallpaper stack — contrast/brightness/saturation tuning. */
+  const wallpaperFilter = useMemo(() => {
+    const parts: string[] = []
+    if (Math.abs(wallpaperCfg.contrast - 1) > 0.001)
+      parts.push(`contrast(${wallpaperCfg.contrast})`)
+    if (Math.abs(wallpaperCfg.brightness - 1) > 0.001)
+      parts.push(`brightness(${wallpaperCfg.brightness})`)
+    if (Math.abs(wallpaperCfg.saturation - 1) > 0.001)
+      parts.push(`saturate(${wallpaperCfg.saturation})`)
+    return parts.length > 0 ? parts.join(' ') : undefined
+  }, [wallpaperCfg.contrast, wallpaperCfg.brightness, wallpaperCfg.saturation])
   const textSizeKey: TextSizeKey = useSyncExternalStore(
     subscribeTextSize,
     getTextSize,
@@ -845,8 +856,14 @@ export function ChatView({
 
   return (
     <div className="anim-fade-up relative flex min-h-0 flex-1 flex-col">
-      {/* Wallpaper stack (base color/gradient → photo → doodles → dim overlay) */}
-      <div aria-hidden className="pointer-events-none absolute inset-0 overflow-hidden">
+      {/* Wallpaper stack (base color/gradient → photo → doodles → dim overlay).
+          The whole stack gets the contrast/brightness/saturation filter so
+          bubbles and text stay untouched. */}
+      <div
+        aria-hidden
+        className="pointer-events-none absolute inset-0 overflow-hidden"
+        style={wallpaperFilter ? { filter: wallpaperFilter } : undefined}
+      >
         <div
           className={cn(
             'absolute inset-0 transition-[background-color,background-image] duration-300',
