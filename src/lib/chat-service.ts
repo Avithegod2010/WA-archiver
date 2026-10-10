@@ -159,6 +159,7 @@ export async function persistParsedChat(opts: PersistOptions): Promise<string> {
       mediaPath,
       mediaName: mediaName ? mediaName.slice(0, 255) : null,
       isMedia: MEDIA_TYPES.has(m.type) && !!mediaPath,
+      pollOptions: m.pollOptions?.length ? JSON.stringify(m.pollOptions) : null,
     }
   })
 

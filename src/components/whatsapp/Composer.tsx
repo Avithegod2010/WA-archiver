@@ -145,7 +145,7 @@ export function Composer({
   const canSend = text.trim().length > 0 && !busy
 
   return (
-    <div className="relative z-10 border-t border-black/5 bg-[#f0f2f5] px-2 py-2 dark:border-black/30 dark:bg-[#202c33]">
+    <div className="relative z-10 border-t border-black/5 bg-(--wa-panel-2) px-2 py-2 dark:bg-(--wa-panel-2)">
       {/* Hidden inputs for attachments */}
       <input
         ref={mediaInputRef}
@@ -171,7 +171,7 @@ export function Composer({
               variant="ghost"
               size="icon"
               disabled={busy}
-              className="h-10 w-10 shrink-0 rounded-full text-[#54656f] hover:bg-black/5 dark:text-[#aebac1] dark:hover:bg-white/10"
+              className="h-10 w-10 shrink-0 rounded-full text-(--wa-text-2) hover:bg-black/5 dark:text-(--wa-text-2) dark:hover:bg-white/10"
               aria-label="Attach"
               title="Attach photo, video, document or poll"
             >
@@ -220,7 +220,7 @@ export function Composer({
               variant="ghost"
               size="icon"
               disabled={busy}
-              className="h-10 w-10 shrink-0 rounded-full text-[#54656f] hover:bg-black/5 dark:text-[#aebac1] dark:hover:bg-white/10"
+              className="h-10 w-10 shrink-0 rounded-full text-(--wa-text-2) hover:bg-black/5 dark:text-(--wa-text-2) dark:hover:bg-white/10"
               aria-label="Emoji"
               title="Emoji"
             >
@@ -250,6 +250,7 @@ export function Composer({
 
         {/* Text input */}
         <Input
+          suppressHydrationWarning
           value={text}
           onChange={(e) => setText(e.target.value)}
           onKeyDown={(e) => {
@@ -260,7 +261,7 @@ export function Composer({
           }}
           disabled={busy}
           placeholder="Type a message"
-          className="h-10 flex-1 rounded-full border-none bg-white px-4 text-[14.5px] text-[#111b21] shadow-sm dark:bg-[#2a3942] dark:text-[#e9edef] dark:placeholder:text-[#8696a0]"
+          className="h-10 flex-1 rounded-full border-none bg-white px-4 text-[14.5px] text-(--wa-text) shadow-sm dark:bg-(--wa-row-active) dark:text-(--wa-text) dark:placeholder:text-(--wa-text-2)"
           aria-label="Message text"
         />
 
@@ -273,7 +274,7 @@ export function Composer({
             'h-10 w-10 shrink-0 rounded-full text-white shadow-md transition-all',
             canSend || busy
               ? 'bg-(--wa-accent) hover:bg-(--wa-accent-strong)'
-              : 'bg-[#8696a0]/60'
+              : 'bg-(--wa-text-2)/60'
           )}
           aria-label="Send message"
           title="Send"

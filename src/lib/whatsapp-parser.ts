@@ -31,6 +31,8 @@ export interface ParsedMessage {
   body: string
   type: MessageType
   mediaName: string | null
+  /** For polls: option labels detected from `Option: N votes` lines. */
+  pollOptions?: string[] | null
 }
 
 export interface ParseResult {
@@ -155,6 +157,7 @@ function classifySenderMessage(body: string): {
   type: MessageType
   mediaName: string | null
   body: string
+  pollOptions?: string[] | null
 } {
   let text = body.trim()
 
@@ -168,9 +171,21 @@ function classifySenderMessage(body: string): {
     return { type: 'call', mediaName: null, body: text }
   }
 
-  // Polls
+  // Polls — real exports embed the options as `Option name: N votes` lines
   if (/^poll:/i.test(text)) {
-    return { type: 'poll', mediaName: null, body: text.replace(/^poll:\s*/i, '') }
+    const [firstLine, ...restLines] = text.split(/\n/)
+    const body = firstLine.replace(/^poll:\s*/i, '')
+    const options: string[] = []
+    for (const line of restLines) {
+      const m = line.match(/^(.+?):\s*\d+\s*votes?$/i)
+      if (m) options.push(m[1].trim().slice(0, 100))
+    }
+    return {
+      type: 'poll',
+      mediaName: null,
+      body,
+      pollOptions: options.length >= 2 ? options.slice(0, 12) : null,
+    }
   }
 
   // Location
@@ -265,6 +280,7 @@ export function parseWhatsAppText(raw: string): ParseResult {
       body: cls.body,
       type: cls.type,
       mediaName: cls.mediaName,
+      pollOptions: cls.pollOptions ?? null,
     })
   }
 

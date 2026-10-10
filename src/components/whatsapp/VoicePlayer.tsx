@@ -149,10 +149,10 @@ export function VoicePlayer({
   if (failed) {
     return (
       <div className="flex min-w-[200px] items-center gap-2">
-        <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-black/10 text-[#8696a0] dark:bg-white/10">
+        <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-black/10 text-(--wa-text-2) dark:bg-white/10">
           <Play className="h-3.5 w-3.5" />
         </span>
-        <span className="text-[13px] text-[#667781] dark:text-[#8696a0]">
+        <span className="text-[13px] text-(--wa-text-2)">
           Voice message — media unavailable
         </span>
       </div>
@@ -201,13 +201,13 @@ export function VoicePlayer({
                   'w-[3px] shrink-0 rounded-full transition-colors duration-100',
                   played
                     ? 'bg-(--wa-accent)'
-                    : 'bg-[#8696a0]/45 dark:bg-white/30'
+                    : 'bg-(--wa-text-2)/45 dark:bg-white/30'
                 )}
               />
             )
           })}
         </div>
-        <div className="flex items-center justify-between text-[10.5px] font-medium tabular-nums text-[#667781] dark:text-[#8696a0]">
+        <div className="flex items-center justify-between text-[10.5px] font-medium tabular-nums text-(--wa-text-2)">
           <span>{fmtTime(current)}</span>
           <span>{duration > 0 ? fmtTime(duration) : 'voice message'}</span>
         </div>
@@ -218,7 +218,7 @@ export function VoicePlayer({
         onClick={cycleRate}
         aria-label={`Playback speed ${rate}× — tap to change`}
         title="Playback speed"
-        className="h-6 shrink-0 rounded-full bg-black/5 px-1.5 text-[10.5px] font-bold tabular-nums text-[#54656f] transition-colors hover:bg-black/10 dark:bg-white/10 dark:text-[#aebac1] dark:hover:bg-white/15"
+        className="h-6 shrink-0 rounded-full bg-black/5 px-1.5 text-[10.5px] font-bold tabular-nums text-(--wa-text-2) transition-colors hover:bg-black/10 dark:bg-white/10 dark:text-(--wa-text-2) dark:hover:bg-white/15"
       >
         {rate}×
       </button>

@@ -69,11 +69,11 @@ export function PollBubble({
   if (options.length === 0) {
     return (
       <div className="min-w-[200px]">
-        <p className="flex items-center gap-1.5 font-medium text-[#111b21] dark:text-[#e9edef]">
+        <p className="flex items-center gap-1.5 font-medium text-(--wa-text)">
           <BarChart3 className="h-4 w-4 shrink-0" />
           POLL: {msg.body}
         </p>
-        <p className="mt-1 text-[12px] text-[#667781] dark:text-[#8696a0]">
+        <p className="mt-1 text-[12px] text-(--wa-text-2)">
           Poll options are not included in exports
         </p>
       </div>
@@ -84,7 +84,7 @@ export function PollBubble({
 
   return (
     <div className="min-w-[230px]">
-      <p className="flex items-start gap-1.5 font-medium text-[#111b21] dark:text-[#e9edef]">
+      <p className="flex items-start gap-1.5 font-medium text-(--wa-text)">
         <BarChart3 className="mt-0.5 h-4 w-4 shrink-0 text-(--wa-accent)" />
         <span className="whitespace-pre-wrap break-words">{msg.body}</span>
       </p>
@@ -107,7 +107,7 @@ export function PollBubble({
               />
               <span className="relative z-10 flex h-full items-center justify-between px-1.5 text-[13.5px] leading-none">
                 <span className="truncate">{opt}</span>
-                <span className="ml-2 flex shrink-0 items-center gap-1 text-[11.5px] font-semibold tabular-nums text-[#667781] dark:text-[#d1d7db]">
+                <span className="ml-2 flex shrink-0 items-center gap-1 text-[11.5px] font-semibold tabular-nums text-(--wa-text-2)">
                   {isVoted && '100%'}
                   {isVoted && <Check className="h-3.5 w-3.5 text-(--wa-accent)" />}
                 </span>
@@ -126,7 +126,7 @@ export function PollBubble({
                   'flex h-[18px] w-[18px] shrink-0 items-center justify-center rounded-full border-2 transition-colors',
                   isVoted
                     ? 'border-(--wa-accent) bg-(--wa-accent)'
-                    : 'border-[#8696a0] group-hover/opt:border-(--wa-accent)'
+                    : 'border-(--wa-text-2) group-hover/opt:border-(--wa-accent)'
                 )}
               >
                 {isVoted && <Check className="h-3 w-3 text-white" />}
@@ -139,7 +139,7 @@ export function PollBubble({
         })}
       </div>
 
-      <div className="mt-1.5 flex items-center justify-between text-[11.5px] text-[#667781] dark:text-[#8696a0]">
+      <div className="mt-1.5 flex items-center justify-between text-[11.5px] text-(--wa-text-2)">
         <span>{voted >= 0 ? '1 vote' : 'No votes yet'}</span>
         {voted >= 0 ? (
           <button

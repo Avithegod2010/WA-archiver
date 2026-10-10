@@ -91,11 +91,12 @@ export function PollDialog({
           <div>
             <label
               htmlFor="poll-question"
-              className="mb-1 block text-[12.5px] font-medium text-[#3b4a54] dark:text-[#d1d7db]"
+              className="mb-1 block text-[12.5px] font-medium text-(--wa-text)"
             >
               Question
             </label>
             <Input
+              suppressHydrationWarning
               id="poll-question"
               autoFocus
               value={question}
@@ -112,13 +113,14 @@ export function PollDialog({
           </div>
 
           <div>
-            <label className="mb-1 block text-[12.5px] font-medium text-[#3b4a54] dark:text-[#d1d7db]">
+            <label className="mb-1 block text-[12.5px] font-medium text-(--wa-text)">
               Options
             </label>
             <div className="flex flex-col gap-2">
               {options.map((opt, i) => (
                 <div key={i} className="flex items-center gap-1.5">
                   <Input
+                    suppressHydrationWarning
                     value={opt}
                     maxLength={100}
                     placeholder={`Option ${i + 1}`}
@@ -134,7 +136,7 @@ export function PollDialog({
                     <Button
                       variant="ghost"
                       size="icon"
-                      className="h-9 w-9 shrink-0 text-[#8696a0] hover:text-rose-500"
+                      className="h-9 w-9 shrink-0 text-(--wa-text-2) hover:text-rose-500"
                       aria-label={`Remove option ${i + 1}`}
                       onClick={() =>
                         setOptions((opts) => opts.filter((_, j) => j !== i))

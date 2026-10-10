@@ -126,10 +126,10 @@ function ChatRow({
     <button
       data-chat-idx={index}
       className={cn(
-        'group relative flex w-full items-center gap-3 px-3 py-2.5 text-left transition-colors hover:bg-[#f5f6f6] dark:hover:bg-[#202c33]',
-        activeId === chat.id && 'bg-[#f0f2f5] dark:bg-[#2a3942]',
+        'group relative flex w-full items-center gap-3 px-3 py-2.5 text-left transition-colors hover:bg-(--wa-row-hover)',
+        activeId === chat.id && 'bg-(--wa-row-active)',
         cursor === index &&
-          'ring-1 ring-inset ring-(--wa-accent)/70 bg-(--wa-accent)/[0.04] dark:bg-[#202c33]'
+          'ring-1 ring-inset ring-(--wa-accent)/70 bg-(--wa-accent)/[0.04] dark:bg-(--wa-panel-2)'
       )}
       onClick={() => onSelect(chat.id)}
     >
@@ -145,15 +145,15 @@ function ChatRow({
           <span className="flex min-w-0 items-center gap-1">
             <span
               className={cn(
-                'truncate text-[16px] leading-tight text-[#111b21] dark:text-[#e9edef]',
-                isArchived && 'text-[#54656f] dark:text-[#8696a0]'
+                'truncate text-[16px] leading-tight text-(--wa-text)',
+                isArchived && 'text-(--wa-text-2) dark:text-(--wa-text-2)'
               )}
             >
               {chat.title}
             </span>
             {chat.pinned && !isSaved && (
               <Pin
-                className="h-3 w-3 shrink-0 fill-[#8696a0] text-[#8696a0]"
+                className="h-3 w-3 shrink-0 fill-[#8696a0] text-(--wa-text-2)"
                 aria-label="Pinned"
               />
             )}
@@ -161,21 +161,21 @@ function ChatRow({
           <span
             className={cn(
               'shrink-0 text-[12px]',
-              'text-[#667781] dark:text-[#8696a0]'
+              'text-(--wa-text-2)'
             )}
           >
             {formatListTime(chat.lastAt)}
           </span>
         </div>
         <div className="mt-0.5 flex items-center justify-between gap-2">
-          <div className="min-w-0 flex-1 text-[#667781] dark:text-[#8696a0]">
+          <div className="min-w-0 flex-1 text-(--wa-text-2)">
             {chat.isGroup && chat.lastSender ? (
               <span className="text-[13.5px]">
                 {chat.lastSender === 'You' ? (
                   'You: '
                 ) : (
                   <>
-                    <span className="text-[#111b21] dark:text-[#d1d7db]">
+                    <span className="text-(--wa-text)">
                       {chat.lastSender}
                     </span>
                     {': '}
@@ -196,7 +196,7 @@ function ChatRow({
                   chat.pinned ? `Unpin ${chat.title}` : `Pin ${chat.title}`
                 }
                 title={chat.pinned ? 'Unpin chat' : 'Pin chat'}
-                className="rounded p-1 text-[#8696a0] hover:bg-black/10 hover:text-(--wa-accent) dark:hover:bg-white/10"
+                className="rounded p-1 text-(--wa-text-2) hover:bg-black/10 hover:text-(--wa-accent) dark:hover:bg-white/10"
                 onClick={(e) => {
                   e.stopPropagation()
                   onTogglePin(chat.id, !chat.pinned)
@@ -223,7 +223,7 @@ function ChatRow({
                   isArchived ? `Unarchive ${chat.title}` : `Archive ${chat.title}`
                 }
                 title={isArchived ? 'Unarchive chat' : 'Archive chat'}
-                className="rounded p-1 text-[#8696a0] hover:bg-black/10 hover:text-(--wa-accent) dark:hover:bg-white/10"
+                className="rounded p-1 text-(--wa-text-2) hover:bg-black/10 hover:text-(--wa-accent) dark:hover:bg-white/10"
                 onClick={(e) => {
                   e.stopPropagation()
                   onToggleArchive(chat.id, !isArchived)
@@ -247,7 +247,7 @@ function ChatRow({
                 role="button"
                 tabIndex={0}
                 aria-label={`Delete ${chat.title}`}
-                className="rounded p-1 text-[#8696a0] hover:bg-black/10 hover:text-rose-500 dark:hover:bg-white/10"
+                className="rounded p-1 text-(--wa-text-2) hover:bg-black/10 hover:text-rose-500 dark:hover:bg-white/10"
                 onClick={(e) => {
                   e.stopPropagation()
                   onDelete(chat)
@@ -282,6 +282,7 @@ export function ChatList({
   onToggleArchive,
   onOpenInsights,
   onOpenGlobalSearch,
+  bindImportTrigger,
 }: {
   chats: ChatSummary[]
   activeId: string | null
@@ -295,6 +296,8 @@ export function ChatList({
   onToggleArchive: (id: string, archived: boolean) => void
   onOpenInsights: () => void
   onOpenGlobalSearch: (query: string) => void
+  /** Lets the parent (guide) open the hidden import file picker. */
+  bindImportTrigger?: (fn: () => void) => void
 }) {
   const [query, setQuery] = useState('')
   const [pendingDelete, setPendingDelete] = useState<ChatSummary | null>(null)
@@ -304,6 +307,11 @@ export function ChatList({
   const fileInputRef = useRef<HTMLInputElement>(null)
   const searchInputRef = useRef<HTMLInputElement>(null)
   const asideRef = useRef<HTMLElement>(null)
+
+  // Expose the hidden file picker to the parent (interactive guide)
+  useEffect(() => {
+    bindImportTrigger?.(() => fileInputRef.current?.click())
+  }, [bindImportTrigger])
 
   const filtered = useMemo(() => {
     const base = query.trim()
@@ -396,7 +404,7 @@ export function ChatList({
     <aside
       ref={asideRef}
       className={cn(
-        'min-h-0 w-full flex-col border-r border-black/10 bg-white dark:border-black/30 dark:bg-[#111b21]',
+        'min-h-0 w-full flex-col border-r border-black/10 bg-white dark:bg-(--wa-panel)',
         'md:flex md:w-[400px] md:shrink-0',
         'flex'
       )}
@@ -424,14 +432,14 @@ export function ChatList({
       {/* List header */}
       <div className="bg-(--wa-appbar) px-4 pb-2 pt-3">
         <div className="flex items-center justify-between">
-          <h1 className="text-[19px] font-semibold text-white dark:text-[#e9edef]">
+          <h1 className="text-[19px] font-semibold text-white dark:text-(--wa-text)">
             Chats
           </h1>
           <div className="flex items-center gap-1">
             <Button
               size="icon"
               variant="ghost"
-              className="h-9 w-9 rounded-full bg-white/10 text-white hover:bg-white/20 dark:text-[#e9edef]"
+              className="h-9 w-9 rounded-full bg-white/10 text-white hover:bg-white/20 dark:text-(--wa-text)"
               onClick={onOpenInsights}
               disabled={importing}
               title="Insights across all chats"
@@ -442,7 +450,7 @@ export function ChatList({
             <Button
               size="sm"
               variant="ghost"
-              className="h-9 gap-1.5 rounded-full bg-white/10 px-3 text-[12.5px] font-medium text-white hover:bg-white/20 dark:text-[#e9edef]"
+              className="h-9 gap-1.5 rounded-full bg-white/10 px-3 text-[12.5px] font-medium text-white hover:bg-white/20 dark:text-(--wa-text)"
               onClick={onDemo}
               disabled={importing}
             >
@@ -452,7 +460,7 @@ export function ChatList({
             <Button
               size="sm"
               variant="ghost"
-              className="h-9 gap-1.5 rounded-full bg-white/10 px-3 text-[12.5px] font-medium text-white hover:bg-white/20 dark:text-[#e9edef]"
+              className="h-9 gap-1.5 rounded-full bg-white/10 px-3 text-[12.5px] font-medium text-white hover:bg-white/20 dark:text-(--wa-text)"
               onClick={() => fileInputRef.current?.click()}
               disabled={importing}
             >
@@ -466,8 +474,9 @@ export function ChatList({
           </div>
         </div>
         <div className="relative mt-2">
-          <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[#8696a0]" />
+          <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-(--wa-text-2)" />
           <Input
+            suppressHydrationWarning
             ref={searchInputRef}
             value={query}
             onChange={(e) => setQuery(e.target.value)}
@@ -481,7 +490,7 @@ export function ChatList({
               }
             }}
             placeholder="Search or start a new chat"
-            className="h-9 rounded-lg border-none bg-[#f0f2f5] pl-9 text-[14px] text-[#111b21] dark:bg-[#2a3942] dark:text-[#e9edef] dark:placeholder:text-[#8696a0]"
+            className="h-9 rounded-lg border-none bg-(--wa-panel-2) pl-9 text-[14px] text-(--wa-text) dark:bg-(--wa-row-active) dark:text-(--wa-text) dark:placeholder:text-(--wa-text-2)"
           />
         </div>
       </div>
@@ -515,10 +524,10 @@ export function ChatList({
                   <div className="mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-(--wa-accent)/10">
                     <Upload className="h-7 w-7 text-(--wa-accent)" />
                   </div>
-                  <p className="text-[15px] font-medium text-[#111b21] dark:text-[#e9edef]">
+                  <p className="text-[15px] font-medium text-(--wa-text)">
                     Import your chats
                   </p>
-                  <p className="mt-2 max-w-[260px] text-[13px] leading-relaxed text-[#667781] dark:text-[#8696a0]">
+                  <p className="mt-2 max-w-[260px] text-[13px] leading-relaxed text-(--wa-text-2)">
                     Drop WhatsApp export <b>.zip</b> (with media) or <b>.txt</b>{' '}
                     files here — several at once works too — or use the Import
                     button above.
@@ -532,14 +541,14 @@ export function ChatList({
                     Try demo chats
                   </Button>
                 </div>
-                <p className="mt-6 text-[12px] leading-relaxed text-[#8696a0]">
+                <p className="mt-6 text-[12px] leading-relaxed text-(--wa-text-2)">
                   Open WhatsApp &gt; a chat &gt; menu &gt; More &gt; Export chat to
                   create an export file.
                 </p>
               </>
             ) : (
               <div className="flex h-full flex-col items-center justify-center gap-4 px-8 py-10 text-center">
-                <p className="text-[13.5px] text-[#667781] dark:text-[#8696a0]">
+                <p className="text-[13.5px] text-(--wa-text-2)">
                   No chats match &quot;{query}&quot;
                 </p>
                 <Button
@@ -559,27 +568,27 @@ export function ChatList({
             {query.trim() && (
               <button
                 onClick={() => onOpenGlobalSearch(query.trim())}
-                className="group flex w-full items-center gap-3 border-b border-black/5 px-4 py-2.5 text-left transition-colors hover:bg-[#f5f6f6] dark:border-white/5 dark:hover:bg-[#202c33]"
+                className="group flex w-full items-center gap-3 border-b border-black/5 px-4 py-2.5 text-left transition-colors hover:bg-(--wa-row-hover) dark:border-white/5 dark:hover:bg-(--wa-row-hover)"
                 title={`Search messages for "${query.trim()}"`}
               >
                 <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-(--wa-accent)/10 text-(--wa-accent-strong) transition-colors group-hover:bg-(--wa-accent) group-hover:text-white dark:bg-(--wa-accent)/20 dark:text-(--wa-accent) dark:group-hover:text-white">
                   <TextSearch className="h-4 w-4" />
                 </span>
                 <span className="min-w-0 flex-1">
-                  <span className="block text-[14.5px] font-medium text-[#111b21] dark:text-[#e9edef]">
+                  <span className="block text-[14.5px] font-medium text-(--wa-text)">
                     Search messages for &quot;{query.trim()}&quot;
                   </span>
-                  <span className="block truncate text-[12.5px] text-[#667781] dark:text-[#8696a0]">
+                  <span className="block truncate text-[12.5px] text-(--wa-text-2)">
                     Find this text inside every chat
                   </span>
                 </span>
-                <ChevronRight className="h-4 w-4 shrink-0 text-[#8696a0] transition-transform group-hover:translate-x-0.5" />
+                <ChevronRight className="h-4 w-4 shrink-0 text-(--wa-text-2) transition-transform group-hover:translate-x-0.5" />
               </button>
             )}
             <ul role="list">
               {activeChats.length === 0 && (
                 <li className="px-4 pb-1 pt-4 text-center">
-                  <p className="text-[13px] text-[#667781] dark:text-[#8696a0]">
+                  <p className="text-[13px] text-(--wa-text-2)">
                     All chats are archived
                   </p>
                 </li>
@@ -593,8 +602,8 @@ export function ChatList({
                 return (
                   <li key={chat.id}>
                     {(showPinnedDivider || showAllDivider) && (
-                      <div className="flex items-center gap-3 bg-[#f5f6f6]/80 px-4 pb-1 pt-2.5 dark:bg-[#111b21]/60">
-                        <span className="text-[11px] font-semibold uppercase tracking-wider text-[#667781] dark:text-[#8696a0]">
+                      <div className="flex items-center gap-3 bg-(--wa-row-hover)/80 px-4 pb-1 pt-2.5 dark:bg-(--wa-panel)/60">
+                        <span className="text-[11px] font-semibold uppercase tracking-wider text-(--wa-text-2)">
                           {showPinnedDivider ? 'Pinned' : 'All chats'}
                         </span>
                         <span className="h-px flex-1 bg-black/5 dark:bg-white/5" />
@@ -622,20 +631,20 @@ export function ChatList({
                 <button
                   onClick={() => setArchivedOpen((v) => !v)}
                   aria-expanded={archivedOpen}
-                  className="flex w-full items-center gap-3 border-t border-black/10 bg-white px-4 py-2.5 text-left transition-colors hover:bg-[#f5f6f6] dark:border-white/5 dark:bg-[#111b21] dark:hover:bg-[#202c33]"
+                  className="flex w-full items-center gap-3 border-t border-(--wa-line) bg-(--wa-panel) px-4 py-2.5 text-left transition-colors hover:bg-(--wa-row-hover) dark:border-white/5 dark:bg-(--wa-panel) dark:hover:bg-(--wa-row-hover)"
                 >
-                  <span className="flex h-9 w-9 items-center justify-center rounded-full bg-black/5 text-[#667781] dark:bg-white/10 dark:text-[#8696a0]">
+                  <span className="flex h-9 w-9 items-center justify-center rounded-full bg-black/5 text-(--wa-text-2) dark:bg-white/10 dark:text-(--wa-text-2)">
                     <Archive className="h-4 w-4" />
                   </span>
-                  <span className="flex-1 text-[14.5px] font-medium text-[#111b21] dark:text-[#e9edef]">
+                  <span className="flex-1 text-[14.5px] font-medium text-(--wa-text)">
                     Archived
                   </span>
-                  <span className="rounded-full bg-black/5 px-2 py-0.5 text-[11.5px] font-semibold tabular-nums text-[#667781] dark:bg-white/10 dark:text-[#8696a0]">
+                  <span className="rounded-full bg-black/5 px-2 py-0.5 text-[11.5px] font-semibold tabular-nums text-(--wa-text-2) dark:bg-white/10 dark:text-(--wa-text-2)">
                     {archivedChats.length}
                   </span>
                   <ChevronDown
                     className={cn(
-                      'h-4 w-4 text-[#8696a0] transition-transform duration-200',
+                      'h-4 w-4 text-(--wa-text-2) transition-transform duration-200',
                       archivedOpen && 'rotate-180'
                     )}
                   />
@@ -671,9 +680,9 @@ export function ChatList({
       {/* Drag overlay */}
       {dragOver && chats.length > 0 && (
         <div className="pointer-events-none absolute inset-0 z-20 flex items-center justify-center bg-(--wa-accent)/10 backdrop-blur-[1px]">
-          <div className="rounded-2xl border-2 border-dashed border-(--wa-accent) bg-white/95 px-8 py-6 text-center dark:bg-[#111b21]/95">
+          <div className="rounded-2xl border-2 border-dashed border-(--wa-accent) bg-white/95 px-8 py-6 text-center dark:bg-(--wa-panel)/95">
             <Upload className="mx-auto mb-2 h-8 w-8 text-(--wa-accent)" />
-            <p className="text-[14px] font-medium text-[#111b21] dark:text-[#e9edef]">
+            <p className="text-[14px] font-medium text-(--wa-text)">
               Drop to import chat export
             </p>
           </div>

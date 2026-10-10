@@ -63,7 +63,7 @@ function Kpi({
   accent: string
 }) {
   return (
-    <div className="flex items-center gap-3 rounded-xl border border-black/5 bg-[#f0f2f5]/60 p-3 dark:border-white/5 dark:bg-[#202c33]/60">
+    <div className="flex items-center gap-3 rounded-xl border border-black/5 bg-(--wa-panel-2)/60 p-3 dark:border-white/5 dark:bg-(--wa-panel-2)/60">
       <div
         className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg"
         style={{ backgroundColor: `${accent}1f`, color: accent }}
@@ -71,10 +71,10 @@ function Kpi({
         {icon}
       </div>
       <div className="min-w-0">
-        <p className="truncate text-[17px] font-semibold leading-tight text-[#111b21] dark:text-[#e9edef]">
+        <p className="truncate text-[17px] font-semibold leading-tight text-(--wa-text)">
           {value}
         </p>
-        <p className="truncate text-[11.5px] text-[#667781] dark:text-[#8696a0]">
+        <p className="truncate text-[11.5px] text-(--wa-text-2)">
           {label}
         </p>
       </div>
@@ -93,7 +93,7 @@ function Section({
 }) {
   return (
     <section>
-      <h4 className="mb-2 flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wider text-[#667781] dark:text-[#8696a0]">
+      <h4 className="mb-2 flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wider text-(--wa-text-2)">
         {icon}
         {title}
       </h4>
@@ -123,7 +123,7 @@ function BarRow({
   return (
     <div className="flex items-center gap-2.5">
       {leading}
-      <span className="w-24 shrink-0 truncate text-[12.5px] text-[#3b4a54] dark:text-[#d1d7db]">
+      <span className="w-24 shrink-0 truncate text-[12.5px] text-(--wa-text)">
         {label}
       </span>
       <div className="h-2.5 min-w-0 flex-1 overflow-hidden rounded-full bg-black/5 dark:bg-white/10">
@@ -132,7 +132,7 @@ function BarRow({
           style={{ width: `${pct}%`, backgroundColor: accent }}
         />
       </div>
-      <span className="w-14 shrink-0 text-right text-[11.5px] tabular-nums text-[#667781] dark:text-[#8696a0]">
+      <span className="w-14 shrink-0 text-right text-[11.5px] tabular-nums text-(--wa-text-2)">
         {formatValue ? formatValue(value) : value.toLocaleString()}
         {total > 0 && (
           <span className="text-[10px] opacity-70">
@@ -186,7 +186,7 @@ function Heatmap({ grid, total }: { grid: number[][]; total: number }) {
     'bg-(--wa-accent)',
   ]
   return (
-    <div className="rounded-xl bg-[#f0f2f5]/60 p-3 dark:bg-[#202c33]/60">
+    <div className="rounded-xl bg-(--wa-panel-2)/60 p-3 dark:bg-(--wa-panel-2)/60">
       <div className="flex flex-col gap-[3px]">
         {/* hour ruler */}
         <div
@@ -197,7 +197,7 @@ function Heatmap({ grid, total }: { grid: number[][]; total: number }) {
           {Array.from({ length: 24 }, (_, h) => (
             <span
               key={h}
-              className="text-center text-[7.5px] leading-none text-[#667781] dark:text-[#8696a0]"
+              className="text-center text-[7.5px] leading-none text-(--wa-text-2)"
             >
               {h % 6 === 0 ? hourLabel(h) : ''}
             </span>
@@ -209,7 +209,7 @@ function Heatmap({ grid, total }: { grid: number[][]; total: number }) {
             className="grid gap-[3px]"
             style={{ gridTemplateColumns: '30px repeat(24, minmax(0, 1fr))' }}
           >
-            <span className="text-[9px] leading-[14px] text-[#667781] dark:text-[#8696a0]">
+            <span className="text-[9px] leading-[14px] text-(--wa-text-2)">
               {WEEKDAY_FULL[day]}
             </span>
             {row.map((count, hour) => (
@@ -225,7 +225,7 @@ function Heatmap({ grid, total }: { grid: number[][]; total: number }) {
           </div>
         ))}
       </div>
-      <div className="mt-2 flex items-center justify-between text-[10px] text-[#667781] dark:text-[#8696a0]">
+      <div className="mt-2 flex items-center justify-between text-[10px] text-(--wa-text-2)">
         <span>Rows = weekdays · columns = hours</span>
         <span className="flex items-center gap-1">
           less
@@ -235,7 +235,7 @@ function Heatmap({ grid, total }: { grid: number[][]; total: number }) {
           more
         </span>
       </div>
-      <p className="mt-1 text-right text-[10px] tabular-nums text-[#667781] dark:text-[#8696a0]">
+      <p className="mt-1 text-right text-[10px] tabular-nums text-(--wa-text-2)">
         {total.toLocaleString()} messages mapped
       </p>
     </div>
@@ -260,7 +260,7 @@ function HoursChart({ hours }: { hours: StatsData['hours'] }) {
       : 0
   return (
     <div>
-      <div className="flex h-24 items-end gap-[3px] rounded-xl bg-[#f0f2f5]/60 p-3 dark:bg-[#202c33]/60">
+      <div className="flex h-24 items-end gap-[3px] rounded-xl bg-(--wa-panel-2)/60 p-3 dark:bg-(--wa-panel-2)/60">
         {hours.map((h) => (
           <div
             key={h.hour}
@@ -281,13 +281,13 @@ function HoursChart({ hours }: { hours: StatsData['hours'] }) {
           </div>
         ))}
       </div>
-      <div className="mt-1 flex justify-between px-1 text-[8.5px] text-[#667781] dark:text-[#8696a0]">
+      <div className="mt-1 flex justify-between px-1 text-[8.5px] text-(--wa-text-2)">
         {[0, 6, 12, 18, 23].map((h) => (
           <span key={h}>{hourLabel(h)}</span>
         ))}
       </div>
-      <p className="mt-1.5 text-[12px] text-[#667781] dark:text-[#8696a0]">
-        Busiest hour <b className="text-[#3b4a54] dark:text-[#d1d7db]">{hourLabel(peak.hour)}</b>
+      <p className="mt-1.5 text-[12px] text-(--wa-text-2)">
+        Busiest hour <b className="text-(--wa-text)">{hourLabel(peak.hour)}</b>
         {nightShare >= 25 ? (
           <> — night owls: {nightShare}% of messages after 8pm.</>
         ) : (
@@ -312,7 +312,7 @@ function FunFact({
   accent: string
 }) {
   return (
-    <div className="flex items-center gap-2.5 rounded-xl border border-black/5 bg-[#f0f2f5]/60 p-2.5 dark:border-white/5 dark:bg-[#202c33]/60">
+    <div className="flex items-center gap-2.5 rounded-xl border border-black/5 bg-(--wa-panel-2)/60 p-2.5 dark:border-white/5 dark:bg-(--wa-panel-2)/60">
       <div
         className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg"
         style={{ backgroundColor: `${accent}1f`, color: accent }}
@@ -320,10 +320,10 @@ function FunFact({
         {icon}
       </div>
       <div className="min-w-0">
-        <p className="truncate text-[15px] font-semibold leading-tight text-[#111b21] dark:text-[#e9edef]">
+        <p className="truncate text-[15px] font-semibold leading-tight text-(--wa-text)">
           {value}
         </p>
-        <p className="truncate text-[11px] text-[#667781] dark:text-[#8696a0]">
+        <p className="truncate text-[11px] text-(--wa-text-2)">
           {label}
         </p>
       </div>
@@ -399,12 +399,12 @@ export function StatsDashboard({
 
         <div className="wa-scroll -mx-1 min-h-0 flex-1 space-y-5 overflow-y-auto px-1 pb-1">
           {loading && !data ? (
-            <div className="flex h-40 items-center justify-center gap-2 text-[13.5px] text-[#667781] dark:text-[#8696a0]">
+            <div className="flex h-40 items-center justify-center gap-2 text-[13.5px] text-(--wa-text-2)">
               <Loader2 className="h-4 w-4 animate-spin" />
               Crunching numbers...
             </div>
           ) : !data ? (
-            <p className="py-10 text-center text-[13.5px] text-[#667781] dark:text-[#8696a0]">
+            <p className="py-10 text-center text-[13.5px] text-(--wa-text-2)">
               Could not load statistics.
             </p>
           ) : (
@@ -478,7 +478,7 @@ export function StatsDashboard({
               </div>
 
               {data.totals.messages === 0 ? (
-                <p className="py-6 text-center text-[13px] text-[#667781] dark:text-[#8696a0]">
+                <p className="py-6 text-center text-[13px] text-(--wa-text-2)">
                   No messages yet — import a chat to see insights.
                 </p>
               ) : (
@@ -511,9 +511,9 @@ export function StatsDashboard({
                   </Section>
 
                   <Section title="Messages per month">
-                    <div className="flex h-28 items-end gap-1.5 rounded-xl bg-[#f0f2f5]/60 p-3 dark:bg-[#202c33]/60">
+                    <div className="flex h-28 items-end gap-1.5 rounded-xl bg-(--wa-panel-2)/60 p-3 dark:bg-(--wa-panel-2)/60">
                       {data.months.length === 0 ? (
-                        <p className="w-full text-center text-[12px] text-[#8696a0]">
+                        <p className="w-full text-center text-[12px] text-(--wa-text-2)">
                           No dated messages
                         </p>
                       ) : (
@@ -523,7 +523,7 @@ export function StatsDashboard({
                             className="group flex h-full min-w-0 flex-1 flex-col items-center justify-end gap-1"
                             title={`${monthLabel(m.month)}: ${m.count.toLocaleString()}`}
                           >
-                            <span className="text-[9px] font-medium tabular-nums text-[#667781] opacity-0 transition-opacity group-hover:opacity-100 dark:text-[#8696a0]">
+                            <span className="text-[9px] font-medium tabular-nums text-(--wa-text-2) opacity-0 transition-opacity group-hover:opacity-100 dark:text-(--wa-text-2)">
                               {m.count}
                             </span>
                             <div
@@ -532,7 +532,7 @@ export function StatsDashboard({
                                 height: `${Math.max((m.count / maxMonth) * 100, 3)}%`,
                               }}
                             />
-                            <span className="w-full truncate text-center text-[8.5px] text-[#667781] dark:text-[#8696a0]">
+                            <span className="w-full truncate text-center text-[8.5px] text-(--wa-text-2)">
                               {monthLabel(m.month)}
                             </span>
                           </div>
@@ -571,7 +571,7 @@ export function StatsDashboard({
                             {data.topWords.map((w) => (
                               <span
                                 key={w.word}
-                                className="rounded-full border border-black/5 bg-[#f0f2f5]/70 px-2.5 py-1 text-[12px] text-[#3b4a54] dark:border-white/5 dark:bg-[#202c33]/70 dark:text-[#d1d7db]"
+                                className="rounded-full border border-black/5 bg-(--wa-panel-2)/70 px-2.5 py-1 text-[12px] text-(--wa-text) dark:border-white/5 dark:bg-(--wa-panel-2)/70 dark:text-(--wa-text)"
                               >
                                 {w.word}
                                 <b className="ml-1.5 tabular-nums text-(--wa-accent)">
@@ -588,12 +588,12 @@ export function StatsDashboard({
                             {data.topEmojis.map((e, i) => (
                               <div
                                 key={e.emoji}
-                                className="flex w-[68px] flex-col items-center rounded-lg border border-black/5 bg-[#f0f2f5]/70 py-2 dark:border-white/5 dark:bg-[#202c33]/70"
+                                className="flex w-[68px] flex-col items-center rounded-lg border border-black/5 bg-(--wa-panel-2)/70 py-2 dark:border-white/5 dark:bg-(--wa-panel-2)/70"
                               >
                                 <span className="text-[22px] leading-none">
                                   {e.emoji}
                                 </span>
-                                <span className="mt-1 text-[11px] font-medium tabular-nums text-[#667781] dark:text-[#8696a0]">
+                                <span className="mt-1 text-[11px] font-medium tabular-nums text-(--wa-text-2)">
                                   ×{e.count.toLocaleString()}
                                 </span>
                                 {i === 0 && (
@@ -653,13 +653,13 @@ export function StatsDashboard({
                       />
                     </div>
                     {data.fun.longest && (
-                      <div className="mt-2 flex gap-2.5 rounded-xl border border-black/5 bg-[#f0f2f5]/60 p-3 dark:border-white/5 dark:bg-[#202c33]/60">
+                      <div className="mt-2 flex gap-2.5 rounded-xl border border-black/5 bg-(--wa-panel-2)/60 p-3 dark:border-white/5 dark:bg-(--wa-panel-2)/60">
                         <Quote className="h-4 w-4 shrink-0 text-(--wa-accent)" />
                         <div className="min-w-0">
-                          <p className="line-clamp-2 text-[12.5px] italic leading-snug text-[#3b4a54] dark:text-[#d1d7db]">
+                          <p className="line-clamp-2 text-[12.5px] italic leading-snug text-(--wa-text)">
                             “{data.fun.longest.preview}”
                           </p>
-                          <p className="mt-1 text-[11px] text-[#667781] dark:text-[#8696a0]">
+                          <p className="mt-1 text-[11px] text-(--wa-text-2)">
                             <b style={{ color: colorForName(data.fun.longest.sender) }}>
                               {data.fun.longest.sender}
                             </b>{' '}
@@ -673,17 +673,18 @@ export function StatsDashboard({
                   <Section title="Top chats">
                     {(data.perChat.length > 2 || q) && (
                       <div className="relative mb-2">
-                        <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-[#667781] dark:text-[#8696a0]" />
+                        <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-(--wa-text-2)" />
                         <Input
+                          suppressHydrationWarning
                           value={chatQuery}
                           onChange={(e) => setChatQuery(e.target.value)}
                           placeholder="Filter chats by name…"
-                          className="h-8 rounded-lg bg-white pl-8 text-[12.5px] dark:bg-[#2a3942] dark:text-[#e9edef] dark:placeholder:text-[#8696a0]"
+                          className="h-8 rounded-lg bg-white pl-8 text-[12.5px] dark:bg-(--wa-row-active) dark:text-(--wa-text) dark:placeholder:text-(--wa-text-2)"
                         />
                       </div>
                     )}
                     {q && filteredChats.length === 0 ? (
-                      <p className="py-3 text-center text-[12.5px] text-[#667781] dark:text-[#8696a0]">
+                      <p className="py-3 text-center text-[12.5px] text-(--wa-text-2)">
                         No chats match &quot;{chatQuery.trim()}&quot;
                       </p>
                     ) : (
@@ -717,10 +718,10 @@ export function StatsDashboard({
                             </span>
                             <div className="min-w-0 flex-1">
                               <div className="mb-1 flex items-baseline justify-between gap-2">
-                                <span className="truncate text-[12.5px] font-medium text-[#3b4a54] dark:text-[#d1d7db]">
+                                <span className="truncate text-[12.5px] font-medium text-(--wa-text)">
                                   {p.sender}
                                 </span>
-                                <span className="shrink-0 text-[11px] tabular-nums text-[#667781] dark:text-[#8696a0]">
+                                <span className="shrink-0 text-[11px] tabular-nums text-(--wa-text-2)">
                                   {p.count.toLocaleString()} ·{' '}
                                   {Math.round(
                                     (p.count / Math.max(1, data.totals.messages)) * 100
@@ -737,7 +738,7 @@ export function StatsDashboard({
                                   }}
                                 />
                               </div>
-                              <p className="mt-0.5 text-[10.5px] tabular-nums text-[#667781] dark:text-[#8696a0]">
+                              <p className="mt-0.5 text-[10.5px] tabular-nums text-(--wa-text-2)">
                                 {p.words.toLocaleString()} words ·{' '}
                                 {p.emojis.toLocaleString()} emojis
                               </p>
@@ -754,8 +755,8 @@ export function StatsDashboard({
                         <span
                           key={t.type}
                           className={cn(
-                            'rounded-full border border-black/5 bg-[#f0f2f5]/70 px-2.5 py-1 text-[11.5px]',
-                            'text-[#3b4a54] dark:border-white/5 dark:bg-[#202c33]/70 dark:text-[#d1d7db]'
+                            'rounded-full border border-black/5 bg-(--wa-panel-2)/70 px-2.5 py-1 text-[11.5px]',
+                            'text-(--wa-text) dark:border-white/5 dark:bg-(--wa-panel-2)/70 dark:text-(--wa-text)'
                           )}
                         >
                           {TYPE_LABELS[t.type] ?? t.type}
@@ -786,7 +787,7 @@ export function StatsDashboard({
                             }
                           />
                         ))}
-                        <p className="pt-0.5 text-right text-[10.5px] text-[#667781] dark:text-[#8696a0]">
+                        <p className="pt-0.5 text-right text-[10.5px] text-(--wa-text-2)">
                           Bars show file sizes · total{' '}
                           <b>{formatBytes(data.storage.totalBytes)}</b> on disk
                         </p>

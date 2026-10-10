@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useEffect, useState, useSyncExternalStore } from 'react'
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import { useTheme } from 'next-themes'
 import { toast } from 'sonner'
 import {
@@ -30,13 +30,6 @@ import {
 } from './font-family'
 import { Button } from '@/components/ui/button'
 import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog'
-import {
   Popover,
   PopoverContent,
   PopoverTrigger,
@@ -52,17 +45,11 @@ import { ChatList } from './ChatList'
 import { ChatView } from './ChatView'
 import { StatsDashboard } from './StatsDashboard'
 import { GlobalSearch } from './GlobalSearch'
+import { GuideDialog } from './GuideDialog'
+import { DemoPickerDialog } from './DemoPickerDialog'
 import { WhatsAppLogo } from './icons'
 import type { ChatDetail, ChatSummary } from './types'
 import { cn } from '@/lib/utils'
-
-function Kbd({ children }: { children: React.ReactNode }) {
-  return (
-    <kbd className="inline-flex h-6 min-w-6 items-center justify-center rounded-md border border-black/15 bg-[#f0f2f5] px-1.5 font-sans text-[11px] font-semibold text-[#3b4a54] shadow-[0_1.5px_0_rgba(11,20,26,0.15)] dark:border-white/15 dark:bg-[#2a3942] dark:text-[#d1d7db] dark:shadow-[0_1.5px_0_rgba(0,0,0,0.4)]">
-      {children}
-    </kbd>
-  )
-}
 
 export function WhatsAppApp() {
   const { resolvedTheme, setTheme } = useTheme()
@@ -76,6 +63,8 @@ export function WhatsAppApp() {
   const [deleting, setDeleting] = useState(false)
   const [aboutOpen, setAboutOpen] = useState(false)
   const [statsOpen, setStatsOpen] = useState(false)
+  const [demoPickerOpen, setDemoPickerOpen] = useState(false)
+  const importTriggerRef = useRef<(() => void) | null>(null)
   const [textSizeOpen, setTextSizeOpen] = useState(false)
   const [globalSearchOpen, setGlobalSearchOpen] = useState(false)
   const [globalSearchQuery, setGlobalSearchQuery] = useState('')
@@ -98,9 +87,40 @@ export function WhatsAppApp() {
 
   useEffect(() => setMounted(true), [])
 
-  // Mirror the persisted theme onto <html> for the CSS variable cascade
+  // First visit: auto-open the interactive guide once
   useEffect(() => {
+    if (!mounted) return
+    let seen = false
+    try {
+      seen = localStorage.getItem('wa-viewer:guide-seen') === '1'
+    } catch {
+      return
+    }
+    if (!seen) {
+      const t = setTimeout(() => setAboutOpen(true), 700)
+      return () => clearTimeout(t)
+    }
+  }, [mounted])
+
+  const closeGuide = useCallback((v: boolean) => {
+    setAboutOpen(v)
+    if (!v) {
+      try {
+        localStorage.setItem('wa-viewer:guide-seen', '1')
+      } catch {
+        /* ignore */
+      }
+    }
+  }, [])
+
+  // Mirror the persisted theme onto <html>; animate the repaint while the
+  // new palette cascades through every surface
+  useEffect(() => {
+    const root = document.documentElement
+    root.classList.add('theme-switching')
     applyThemeAttribute(themeKey)
+    const t = setTimeout(() => root.classList.remove('theme-switching'), 320)
+    return () => clearTimeout(t)
   }, [themeKey])
 
   const refreshChats = useCallback(async () => {
@@ -238,30 +258,18 @@ export function WhatsAppApp() {
     [refreshChats, openChat]
   )
 
-  const loadDemo = useCallback(async () => {
-    setImporting(true)
-    const toastId = toast.loading('Creating demo chats...')
-    try {
-      const res = await fetch('/api/demo', { method: 'POST' })
-      const data = await res.json()
-      if (!res.ok) throw new Error(data.error ?? 'Failed')
-      toast.success(
-        data.skipped
-          ? 'Demo chats already loaded'
-          : data.created?.length === 1
-            ? `Demo chat restored: ${data.created[0]}`
-            : 'Demo chats ready',
-        { id: toastId }
-      )
+  const loadDemo = useCallback(() => {
+    setDemoPickerOpen(true)
+  }, [])
+
+  /** After the picker creates chats, refresh and open the first one. */
+  const handleDemoLoaded = useCallback(
+    async (created: { id: string; title: string }[]) => {
       await refreshChats()
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : 'Failed', {
-        id: toastId,
-      })
-    } finally {
-      setImporting(false)
-    }
-  }, [refreshChats])
+      if (created.length > 0) await openChat(created[0].id)
+    },
+    [refreshChats, openChat]
+  )
 
   const deleteChat = useCallback(
     async (id: string) => {
@@ -383,7 +391,7 @@ export function WhatsAppApp() {
 
   return (
     <div
-      className="flex h-dvh min-h-0 flex-col bg-[#efeae2] dark:bg-[#0b141a]"
+      className="flex h-dvh min-h-0 flex-col bg-(--wa-chat-bg)"
       style={{ fontFamily: FONT_FAMILIES[fontKey].stack }}
     >
       {/* Top app bar */}
@@ -417,7 +425,7 @@ export function WhatsAppApp() {
               align="end"
               className="wa-scroll max-h-[80vh] w-72 overflow-y-auto p-3"
             >
-              <p className="mb-2 text-[13px] font-medium text-[#111b21] dark:text-[#e9edef]">
+              <p className="mb-2 text-[13px] font-medium text-(--wa-text)">
                 Reading text size
               </p>
               <div className="grid grid-cols-3 gap-2">
@@ -436,12 +444,12 @@ export function WhatsAppApp() {
                       )}
                     >
                       <span
-                        className="font-semibold leading-none text-[#111b21] dark:text-[#e9edef]"
+                        className="font-semibold leading-none text-(--wa-text)"
                         style={{ fontSize: TEXT_SIZES[k].px + 3 }}
                       >
                         Aa
                       </span>
-                      <span className="flex items-center gap-0.5 text-[11px] font-medium text-[#3b4a54] dark:text-[#d1d7db]">
+                      <span className="flex items-center gap-0.5 text-[11px] font-medium text-(--wa-text)">
                         {active && <Check className="h-3 w-3 text-(--wa-accent)" />}
                         {TEXT_SIZES[k].label}
                       </span>
@@ -449,13 +457,13 @@ export function WhatsAppApp() {
                   )
                 })}
               </div>
-              <p className="mt-2 text-[11px] leading-snug text-[#667781] dark:text-[#8696a0]">
+              <p className="mt-2 text-[11px] leading-snug text-(--wa-text-2)">
                 Applies to message text in every chat.
               </p>
 
               <div className="my-3 h-px bg-black/10 dark:bg-white/10" />
 
-              <p className="mb-2 flex items-center gap-1.5 text-[13px] font-medium text-[#111b21] dark:text-[#e9edef]">
+              <p className="mb-2 flex items-center gap-1.5 text-[13px] font-medium text-(--wa-text)">
                 <Paintbrush className="h-3.5 w-3.5 text-(--wa-accent)" />
                 App theme
               </p>
@@ -486,7 +494,7 @@ export function WhatsAppApp() {
                           className="h-2.5 w-full shrink-0"
                           style={{ background: t.swatch.appbar }}
                         />
-                        <span className="flex flex-1 items-center justify-center gap-0.5 bg-[#efeae2] pb-0.5">
+                        <span className="flex flex-1 items-center justify-center gap-0.5 bg-(--wa-chat-bg) pb-0.5">
                           <i
                             className="block h-2 w-4 rounded-sm rounded-bl-none"
                             style={{ background: t.swatch.bubble }}
@@ -507,7 +515,7 @@ export function WhatsAppApp() {
                           'w-full truncate text-center text-[10px] font-medium',
                           active
                             ? 'text-(--wa-accent-strong) dark:text-(--wa-accent)'
-                            : 'text-[#3b4a54] dark:text-[#d1d7db]'
+                            : 'text-(--wa-text)'
                         )}
                       >
                         {t.label}
@@ -516,14 +524,14 @@ export function WhatsAppApp() {
                   )
                 })}
               </div>
-              <p className="mt-2 text-[11px] leading-snug text-[#667781] dark:text-[#8696a0]">
+              <p className="mt-2 text-[11px] leading-snug text-(--wa-text-2)">
                 Recolors the whole app — header, bubbles, buttons and charts.
                 Works with light &amp; dark mode.
               </p>
 
               <div className="my-3 h-px bg-black/10 dark:bg-white/10" />
 
-              <p className="mb-2 text-[13px] font-medium text-[#111b21] dark:text-[#e9edef]">
+              <p className="mb-2 text-[13px] font-medium text-(--wa-text)">
                 Chat font
               </p>
               <div className="grid grid-cols-2 gap-2">
@@ -544,7 +552,7 @@ export function WhatsAppApp() {
                       )}
                     >
                       <span
-                        className="flex w-full items-center gap-1 text-[15px] font-semibold leading-tight text-[#111b21] dark:text-[#e9edef]"
+                        className="flex w-full items-center gap-1 text-[15px] font-semibold leading-tight text-(--wa-text)"
                         style={{ fontFamily: f.stack }}
                       >
                         <span className="truncate">Aa</span>
@@ -552,11 +560,11 @@ export function WhatsAppApp() {
                           <Check className="ml-auto h-3.5 w-3.5 shrink-0 text-(--wa-accent)" />
                         )}
                       </span>
-                      <span className="truncate text-[11px] font-medium text-[#3b4a54] dark:text-[#d1d7db]">
+                      <span className="truncate text-[11px] font-medium text-(--wa-text)">
                         {f.label}
                       </span>
                       <span
-                        className="w-full truncate text-[10.5px] leading-tight text-[#667781] dark:text-[#8696a0]"
+                        className="w-full truncate text-[10.5px] leading-tight text-(--wa-text-2)"
                         style={{ fontFamily: f.stack }}
                       >
                         Hello! How are you?
@@ -565,7 +573,7 @@ export function WhatsAppApp() {
                   )
                 })}
               </div>
-              <p className="mt-2 text-[11px] leading-snug text-[#667781] dark:text-[#8696a0]">
+              <p className="mt-2 text-[11px] leading-snug text-(--wa-text-2)">
                 Changes the typeface across the chat list and every
                 conversation.
               </p>
@@ -617,6 +625,9 @@ export function WhatsAppApp() {
               setGlobalSearchQuery(q)
               setGlobalSearchOpen(true)
             }}
+            bindImportTrigger={(fn) => {
+              importTriggerRef.current = fn
+            }}
           />
         </div>
         <div className={cn('flex min-h-0 min-w-0 flex-1 flex-col', activeId ? 'flex' : 'hidden md:flex')}>
@@ -643,9 +654,9 @@ export function WhatsAppApp() {
         </div>
         {importing && (
           <div className="absolute inset-0 z-30 flex items-center justify-center bg-black/20 backdrop-blur-[2px]">
-            <div className="flex items-center gap-3 rounded-xl bg-white px-5 py-4 shadow-xl dark:bg-[#202c33]">
+            <div className="flex items-center gap-3 rounded-xl bg-white px-5 py-4 shadow-xl dark:bg-(--wa-panel-2)">
               <Loader2 className="h-5 w-5 animate-spin text-(--wa-accent)" />
-              <span className="text-[14px] font-medium text-[#111b21] dark:text-[#e9edef]">
+              <span className="text-[14px] font-medium text-(--wa-text)">
                 Working on it...
               </span>
             </div>
@@ -654,7 +665,7 @@ export function WhatsAppApp() {
       </div>
 
       {/* Sticky footer */}
-      <footer className="mt-auto flex items-center justify-center gap-2 border-t border-black/10 bg-[#f0f2f5] px-4 py-1.5 text-[11.5px] text-[#667781] dark:border-black/30 dark:bg-[#202c33] dark:text-[#8696a0]">
+      <footer className="mt-auto flex items-center justify-center gap-2 border-t border-(--wa-line) bg-(--wa-panel-2) px-4 py-1.5 text-[11.5px] text-(--wa-text-2) dark:bg-(--wa-panel-2) dark:text-(--wa-text-2)">
         <Upload className="h-3 w-3" />
         {chats.length} chat{chats.length === 1 ? '' : 's'} ·{' '}
         {totalMessages.toLocaleString()} messages · all data stays on this device
@@ -671,165 +682,24 @@ export function WhatsAppApp() {
         onOpenMessage={openFromSearch}
       />
 
-      {/* About / help dialog */}
-      <Dialog open={aboutOpen} onOpenChange={setAboutOpen}>
-        <DialogContent className="sm:max-w-lg">
-          <DialogHeader>
-            <DialogTitle>How to import your WhatsApp chats</DialogTitle>
-            <DialogDescription>
-              This viewer reads official WhatsApp chat exports. Nothing is sent to
-              any server — chats and media stay in your local database.
-            </DialogDescription>
-          </DialogHeader>
-          <div className="space-y-4 text-[13.5px] leading-relaxed text-[#3b4a54] dark:text-[#d1d7db]">
-            <div>
-              <h4 className="mb-1 font-semibold">On Android</h4>
-              <ol className="ml-4 list-decimal space-y-0.5">
-                <li>Open the chat, tap the menu (three dots)</li>
-                <li>Choose More &gt; Export chat</li>
-                <li>Pick <b>with media</b> (a .zip) or <b>without media</b> (a .txt)</li>
-                <li>Save/share the file, then upload it here</li>
-              </ol>
-            </div>
-            <div>
-              <h4 className="mb-1 font-semibold">On iPhone</h4>
-              <ol className="ml-4 list-decimal space-y-0.5">
-                <li>Open the chat, tap the contact name</li>
-                <li>Scroll down and choose Export Chat</li>
-                <li>Select <b>Attach Media</b> for photos and videos, or without</li>
-                <li>Save the .zip and upload it here</li>
-              </ol>
-            </div>
-            <div className="rounded-lg bg-(--wa-accent)/10 p-3 text-[13px] text-(--wa-accent-strong)">
-              <b>Tip:</b> Choose &quot;with media&quot; to see photos, videos and
-              voice messages inside the viewer. Exports without media still show
-              message text, dates and senders.
-            </div>
-            <div>
-              <h4 className="mb-1 font-semibold">Install like an app</h4>
-              <p>
-                On Android, open the Chrome menu and choose <b>Add to Home
-                Screen</b> (iPhone: Share &gt; Add to Home Screen). The viewer
-                installs as a full-screen app with its own icon.
-              </p>
-            </div>
-            <div>
-              <h4 className="mb-1.5 font-semibold">Keyboard shortcuts</h4>
-              <div className="grid grid-cols-[auto_1fr] items-center gap-x-3 gap-y-1.5 text-[13px]">
-                <Kbd>/</Kbd>
-                <span>Focus chat search</span>
-                <div className="flex gap-1">
-                  <Kbd>J</Kbd>
-                  <Kbd>K</Kbd>
-                </div>
-                <span>Move up / down the chat list</span>
-                <Kbd>Enter</Kbd>
-                <span>Open highlighted chat</span>
-                <Kbd>Esc</Kbd>
-                <span>Clear search / close panels / back</span>
-              </div>
-            </div>
-            <div>
-              <h4 className="mb-1.5 font-semibold">Organize the list</h4>
-              <p>
-                <b>Hover a chat row</b> (or long-press actions appear on the
-                right) to <b>pin</b>, <b>archive</b> or delete it. Archived
-                chats slide into the <b>Archived</b> drawer at the bottom of
-                the list — open it any time and unarchive from there. Pinned
-                chats always sort first.
-              </p>
-            </div>
-            <div>
-              <h4 className="mb-1.5 font-semibold">Saved Messages & local editing</h4>
-              <p>
-                <b>Saved Messages (You)</b> is always pinned at the top of the
-                chat list — a private chat with yourself. Hover any message and
-                tap the <b>bookmark button</b> (or right-click → <b>Forward to
-                Saved Messages</b>) to send it there, media included. Tap the{' '}
-                <b>pencil icon</b> in a chat to enable local editing: tap
-                messages to <b>multi-select</b>, then forward, star, copy or{' '}
-                <b>delete for everyone</b>; edit your own text with the{' '}
-                <b>Edit</b> action (an “edited” mark appears); and use the{' '}
-                <b>composer</b> to send messages, photos, videos, documents and{' '}
-                <b>polls</b> — complete with emoji picker and attach menu,
-                exactly like WhatsApp.
-              </p>
-            </div>
-            <div>
-              <h4 className="mb-1.5 font-semibold">Themes &amp; fonts</h4>
-              <p>
-                Open the <b>Aa menu</b> in the top bar to pick an <b>app
-                theme</b> — WhatsApp, Telegram, Sunset, Violet, Rose, Ocean,
-                Graphite or Midnight — recoloring the header, bubbles, buttons
-                and charts in both light and dark mode, alongside the{' '}
-                <b>reading text size</b> and the seven <b>chat fonts</b>.
-              </p>
-            </div>
-            <div>
-              <h4 className="mb-1.5 font-semibold">Message actions</h4>
-              <p>
-                <b>Right-click</b> a message (or <b>long-press</b> on touch) to
-                star it or copy it — starred messages are collected under the
-                star icon in the chat header, and the <b>Starred</b> chip in the
-                search panel filters the chat down to just those. Search
-                highlights every match inside the bubbles and shows a{' '}
-                <b>n/m counter</b> — press <b>Enter</b> (or the arrows) to hop
-                between matches, <b>Shift+Enter</b> to go back. The <b>.*</b>{' '}
-                chip treats your query as a <b>regular expression</b> for
-                power searches. Tap the <b>calendar icon</b> to jump to any day
-                — days with messages show a green dot, plus one-tap{' '}
-                <b>Oldest / Latest</b> shortcuts. Personalize each chat with
-                its own <b>wallpaper</b> (palette icon) and adjust the reading{' '}
-                <b>text size</b> and <b>chat font</b> — Default, Modern,
-                Rounded, Serif, Elegant, Mono or Handwriting — from the Aa menu
-                in the top bar. Links in messages are tappable and emoji-only
-                messages render big, just like WhatsApp.
-              </p>
-            </div>
-            <div>
-              <h4 className="mb-1.5 font-semibold">Search everywhere</h4>
-              <p>
-                While filtering the chat list, tap <b>Search messages for
-                “…”</b> to look <i>inside every chat</i> at once — matches are
-                grouped per chat with a count badge, and clicking a hit opens
-                that chat and jumps straight to the message with a highlight
-                flash. Voice notes play in a <b>waveform player</b>: tap the
-                waveform to seek, and the <b>1×</b> pill to switch to
-                1.5× / 2× speed.
-              </p>
-            </div>
-            <div>
-              <h4 className="mb-1.5 font-semibold">Insights &amp; analytics</h4>
-              <p>
-                The <b>Insights</b> dashboard (bar-chart icon in the chat list
-                header) crunches every chat locally: a weekday × hour{' '}
-                <b>activity heatmap</b>, the <b>most active hours</b> with a
-                night-owl/early-bird read, top <b>words</b> and <b>emojis</b>,
-                message <b>streaks</b>, links &amp; questions, the{' '}
-                <b>longest message</b>, per-person word/emoji counts and media
-                storage per chat. Open a chat&apos;s <b>info panel</b> for the
-                same deep-dive on just that conversation — including each
-                participant&apos;s <b>median reply speed</b>.
-              </p>
-            </div>
-            <div>
-              <h4 className="mb-1.5 font-semibold">Media gallery</h4>
-              <p>
-                The gallery button opens every photo, video, voice note and
-                document in the chat. Click <b>Select</b> to tick items and{' '}
-                <b>Download</b> just those as a .zip, or grab everything with{' '}
-                <b>Download all</b> (includes the .txt transcript). Inside a
-                photo, use <b>← →</b> or swipe to browse.
-              </p>
-            </div>
-            <p className="text-[12px] text-[#667781] dark:text-[#8696a0]">
-              Supported: Android &amp; iOS exports (.zip with media or .txt only).
-              End-to-end encryption notices, group events, deleted messages,
-              polls and locations are detected automatically.
-            </p>
-          </div>
-        </DialogContent>
-      </Dialog>
+      {/* Interactive animated guide */}
+      <GuideDialog
+        open={aboutOpen}
+        onOpenChange={closeGuide}
+        onImportFiles={() => importTriggerRef.current?.()}
+        onDemo={() => setDemoPickerOpen(true)}
+        onSelectChat={(id) => {
+          openChat(id)
+        }}
+        onOpenInsights={() => setStatsOpen(true)}
+      />
+
+      {/* Demo chat picker */}
+      <DemoPickerDialog
+        open={demoPickerOpen}
+        onOpenChange={setDemoPickerOpen}
+        onLoaded={handleDemoLoaded}
+      />
     </div>
   )
 }

@@ -87,16 +87,16 @@ const PAGE_SIZE = 300
 const WALLPAPERS = {
   doodle: {
     label: 'Classic',
-    bg: 'bg-[#efeae2] dark:bg-[#0b141a]',
-    doodle: 'text-black/[0.05] dark:text-white/[0.05]',
-    swatch: 'bg-[#efeae2] dark:bg-[#0b141a]',
+    bg: 'bg-(--wa-chat-bg)',
+    doodle: 'text-(--wa-doodle)',
+    swatch: 'bg-(--wa-chat-bg)',
     swatchDot: 'bg-black/20 dark:bg-white/20',
   },
   plain: {
     label: 'Plain',
-    bg: 'bg-[#efeae2] dark:bg-[#0b141a]',
+    bg: 'bg-(--wa-chat-bg)',
     doodle: null,
-    swatch: 'bg-[#efeae2] dark:bg-[#0b141a]',
+    swatch: 'bg-(--wa-chat-bg)',
     swatchDot: null,
   },
   sage: {
@@ -782,7 +782,7 @@ export function ChatView({
         <Button
           variant="ghost"
           size="sm"
-          className="h-7 flex-1 gap-1 rounded-full text-[12px] text-[#54656f] dark:text-[#aebac1]"
+          className="h-7 flex-1 gap-1 rounded-full text-[12px] text-(--wa-text-2)"
           disabled={!messages.length}
           onClick={() => {
             jumpToMessageId(messages[0].id)
@@ -794,7 +794,7 @@ export function ChatView({
         <Button
           variant="ghost"
           size="sm"
-          className="h-7 flex-1 gap-1 rounded-full text-[12px] text-[#54656f] dark:text-[#aebac1]"
+          className="h-7 flex-1 gap-1 rounded-full text-[12px] text-(--wa-text-2)"
           disabled={!messages.length}
           onClick={() => {
             jumpToMessageId(messages[messages.length - 1].id)
@@ -817,7 +817,7 @@ export function ChatView({
 
   if (loading) {
     return (
-      <div className="flex flex-1 items-center justify-center bg-[#efeae2] dark:bg-[#0b141a]">
+      <div className="flex flex-1 items-center justify-center bg-(--wa-chat-bg)">
         <Loader2 className="h-8 w-8 animate-spin text-(--wa-accent)" />
       </div>
     )
@@ -825,7 +825,7 @@ export function ChatView({
 
   if (!detail) {
     return (
-      <div className="relative hidden flex-1 flex-col items-center justify-center bg-[#222e35] px-6 text-center text-white/[0.08] md:flex">
+      <div className="relative hidden flex-1 flex-col items-center justify-center bg-(--wa-deep) px-6 text-center text-white/[0.08] md:flex">
         <DoodleBackground />
         <div className="relative z-10 max-w-md">
           <div className="mx-auto mb-6 flex h-24 w-24 items-center justify-center rounded-full bg-white/10">
@@ -834,13 +834,13 @@ export function ChatView({
               <path d="M8 21h8M12 17v4" />
             </svg>
           </div>
-          <h2 className="text-[32px] font-light text-[#e9edef]">WhatsApp Viewer</h2>
-          <p className="mt-4 text-sm leading-relaxed text-[#8696a0]">
+          <h2 className="text-[32px] font-light text-(--wa-text)">WhatsApp Viewer</h2>
+          <p className="mt-4 text-sm leading-relaxed text-(--wa-text-2)">
             Import a WhatsApp chat export (.zip or .txt) to read your conversations
             here. Everything is stored locally in your own database — nothing leaves
             this device.
           </p>
-          <p className="mt-6 text-[12px] uppercase tracking-wide text-[#8696a0]">
+          <p className="mt-6 text-[12px] uppercase tracking-wide text-(--wa-text-2)">
             Select a chat on the left to start reading
           </p>
         </div>
@@ -866,7 +866,7 @@ export function ChatView({
       {wallpaper.doodle && <DoodleBackground />}
 
       {/* Header */}
-      <header className="relative z-10 flex items-center gap-3 border-l border-black/10 bg-[#f0f2f5] px-3 py-2 dark:border-black/30 dark:bg-[#202c33]">
+      <header className="relative z-10 flex items-center gap-3 border-l border-(--wa-line) bg-(--wa-panel-2) px-3 py-2 dark:bg-(--wa-panel-2)">
         <Button
           variant="ghost"
           size="icon"
@@ -874,7 +874,7 @@ export function ChatView({
           onClick={onBack}
           aria-label="Back to chats"
         >
-          <ArrowLeft className="h-5 w-5 text-[#54656f] dark:text-[#aebac1]" />
+          <ArrowLeft className="h-5 w-5 text-(--wa-text-2)" />
         </Button>
         <button
           className="flex min-w-0 flex-1 items-center gap-3 text-left"
@@ -886,10 +886,10 @@ export function ChatView({
             <Avatar name={chat.title} size={40} />
           )}
           <div className="min-w-0">
-            <h2 className="truncate text-[16px] font-medium leading-tight text-[#111b21] dark:text-[#e9edef]">
+            <h2 className="truncate text-[16px] font-medium leading-tight text-(--wa-text)">
               {chat.title}
             </h2>
-            <p className="truncate text-[12.5px] text-[#667781] dark:text-[#8696a0]">
+            <p className="truncate text-[12.5px] text-(--wa-text-2)">
               {subtitle}
             </p>
           </div>
@@ -928,7 +928,7 @@ export function ChatView({
             aria-label="Media gallery"
             title="Media gallery"
           >
-            <Images className="h-5 w-5 text-[#54656f] dark:text-[#aebac1]" />
+            <Images className="h-5 w-5 text-(--wa-text-2)" />
           </Button>
           <Button
             variant="ghost"
@@ -938,7 +938,7 @@ export function ChatView({
             aria-label="Search in chat"
             title="Search in chat"
           >
-            <Search className="h-5 w-5 text-[#54656f] dark:text-[#aebac1]" />
+            <Search className="h-5 w-5 text-(--wa-text-2)" />
           </Button>
           <Button
             variant="ghost"
@@ -953,7 +953,7 @@ export function ChatView({
                 'h-5 w-5',
                 starredCount > 0
                   ? 'fill-[#f2a33c] text-[#f2a33c]'
-                  : 'text-[#54656f] dark:text-[#aebac1]'
+                  : 'text-(--wa-text-2)'
               )}
             />
             {starredCount > 0 && (
@@ -972,7 +972,7 @@ export function ChatView({
                   aria-label="Jump to date"
                   title="Jump to date"
                 >
-                  <CalendarDays className="h-5 w-5 text-[#54656f] dark:text-[#aebac1]" />
+                  <CalendarDays className="h-5 w-5 text-(--wa-text-2)" />
                 </Button>
               </PopoverTrigger>
               <PopoverContent align="end" className="w-auto p-0">
@@ -989,12 +989,12 @@ export function ChatView({
                 aria-label="Chat wallpaper"
                 title="Chat wallpaper"
               >
-                <Palette className="h-5 w-5 text-[#54656f] dark:text-[#aebac1]" />
+                <Palette className="h-5 w-5 text-(--wa-text-2)" />
               </Button>
             </PopoverTrigger>
             <PopoverContent align="end" className="w-56 p-3">
               <div className="mb-0.5 flex items-center justify-between">
-                <p className="text-[13px] font-medium text-[#111b21] dark:text-[#e9edef]">
+                <p className="text-[13px] font-medium text-(--wa-text)">
                   Wallpaper for this chat
                 </p>
                 {wallpaperIsCustom && (
@@ -1003,7 +1003,7 @@ export function ChatView({
                   </span>
                 )}
               </div>
-              <p className="mb-2 text-[11px] leading-snug text-[#667781] dark:text-[#8696a0]">
+              <p className="mb-2 text-[11px] leading-snug text-(--wa-text-2)">
                 Applies only to {chat.title} — other chats keep the default.
               </p>
               <div className="grid grid-cols-2 gap-2">
@@ -1041,7 +1041,7 @@ export function ChatView({
                           </span>
                         )}
                       </span>
-                      <span className="text-[11.5px] font-medium text-[#3b4a54] dark:text-[#d1d7db]">
+                      <span className="text-[11.5px] font-medium text-(--wa-text)">
                         {w.label}
                       </span>
                     </button>
@@ -1052,7 +1052,7 @@ export function ChatView({
                 <Button
                   variant="ghost"
                   size="sm"
-                  className="mt-2 h-7 w-full gap-1 rounded-full text-[12px] text-[#667781] hover:text-rose-500 dark:text-[#8696a0]"
+                  className="mt-2 h-7 w-full gap-1 rounded-full text-[12px] text-(--wa-text-2) hover:text-rose-500 dark:text-(--wa-text-2)"
                   onClick={() => resetStoredWallpaper(chatId)}
                 >
                   <RotateCcw className="h-3 w-3" /> Use app default
@@ -1068,7 +1068,7 @@ export function ChatView({
             aria-label="Export chat as text"
             title="Export chat as .txt"
           >
-            <Download className="h-5 w-5 text-[#54656f] dark:text-[#aebac1]" />
+            <Download className="h-5 w-5 text-(--wa-text-2)" />
           </Button>
           <Button
             variant="ghost"
@@ -1078,7 +1078,7 @@ export function ChatView({
             aria-label="Chat info"
             title="Chat info"
           >
-            <Info className="h-5 w-5 text-[#54656f] dark:text-[#aebac1]" />
+            <Info className="h-5 w-5 text-(--wa-text-2)" />
           </Button>
           {!isSavedChat && (
             <Button
@@ -1097,9 +1097,10 @@ export function ChatView({
 
       {/* In-chat search (text + optional date range) */}
       {searchOpen && (
-        <div className="relative z-10 border-b border-black/10 bg-[#f0f2f5] px-3 py-2 dark:border-black/30 dark:bg-[#202c33]">
+        <div className="relative z-10 border-b border-black/10 bg-(--wa-panel-2) px-3 py-2 dark:bg-(--wa-panel-2)">
           <div className="flex items-center gap-2">
             <Input
+              suppressHydrationWarning
               autoFocus
               value={query}
               onChange={(e) => setQuery(e.target.value)}
@@ -1113,14 +1114,14 @@ export function ChatView({
                 regexMode ? 'Regular expression...' : `Search in ${chat.title}...`
               }
               className={cn(
-                'h-9 min-w-0 flex-1 rounded-lg bg-white text-[14px] dark:bg-[#2a3942] dark:text-[#e9edef] dark:placeholder:text-[#8696a0]',
+                'h-9 min-w-0 flex-1 rounded-lg bg-(--wa-in) text-[14px] dark:bg-(--wa-row-active) dark:text-(--wa-text) dark:placeholder:text-(--wa-text-2)',
                 regexInvalid && 'ring-1 ring-rose-400 dark:ring-rose-500/60'
               )}
             />
             {/* Match navigation (query only) */}
             {query.trim() && matchCount > 0 && (
               <span className="flex h-9 shrink-0 items-center gap-0.5 rounded-full bg-black/5 px-1 dark:bg-white/10">
-                <span className="px-1.5 text-[11.5px] font-medium tabular-nums text-[#667781] dark:text-[#8696a0]">
+                <span className="px-1.5 text-[11.5px] font-medium tabular-nums text-(--wa-text-2)">
                   {safeMatchIdx + 1}/{matchCount}
                 </span>
                 <button
@@ -1128,7 +1129,7 @@ export function ChatView({
                   onClick={() => goToMatch(-1)}
                   aria-label="Previous match"
                   title="Previous match (Shift+Enter)"
-                  className="flex h-7 w-7 items-center justify-center rounded-full text-[#667781] transition-colors hover:bg-black/10 hover:text-[#111b21] dark:text-[#8696a0] dark:hover:bg-white/10 dark:hover:text-[#e9edef]"
+                  className="flex h-7 w-7 items-center justify-center rounded-full text-(--wa-text-2) transition-colors hover:bg-black/10 hover:text-(--wa-text) dark:text-(--wa-text-2) dark:hover:bg-white/10 dark:hover:text-(--wa-text)"
                 >
                   <ChevronUp className="h-4 w-4" />
                 </button>
@@ -1137,7 +1138,7 @@ export function ChatView({
                   onClick={() => goToMatch(1)}
                   aria-label="Next match"
                   title="Next match (Enter)"
-                  className="flex h-7 w-7 items-center justify-center rounded-full text-[#667781] transition-colors hover:bg-black/10 hover:text-[#111b21] dark:text-[#8696a0] dark:hover:bg-white/10 dark:hover:text-[#e9edef]"
+                  className="flex h-7 w-7 items-center justify-center rounded-full text-(--wa-text-2) transition-colors hover:bg-black/10 hover:text-(--wa-text) dark:text-(--wa-text-2) dark:hover:bg-white/10 dark:hover:text-(--wa-text)"
                 >
                   <ChevronDown className="h-4 w-4" />
                 </button>
@@ -1172,7 +1173,7 @@ export function ChatView({
                 'flex h-9 shrink-0 items-center gap-1.5 rounded-full px-3 text-[12.5px] font-medium transition-colors',
                 starredOnly
                   ? 'bg-[#f2a33c]/20 text-[#a16a08] ring-1 ring-[#f2a33c]/50 dark:bg-[#f2a33c]/25 dark:text-[#f5c877]'
-                  : 'bg-black/5 text-[#667781] hover:bg-black/10 dark:bg-white/5 dark:text-[#8696a0] dark:hover:bg-white/10'
+                  : 'bg-black/5 text-(--wa-text-2) hover:bg-black/10 dark:bg-white/5 dark:text-(--wa-text-2) dark:hover:bg-white/10'
               )}
             >
               <Star
@@ -1192,7 +1193,7 @@ export function ChatView({
                 'flex h-9 shrink-0 items-center gap-1 rounded-full px-2.5 text-[12.5px] font-medium transition-colors',
                 regexMode
                   ? 'bg-(--wa-accent)/15 text-(--wa-accent-strong) ring-1 ring-(--wa-accent)/40 dark:bg-(--wa-accent)/25 dark:text-(--wa-accent)'
-                  : 'bg-black/5 text-[#667781] hover:bg-black/10 dark:bg-white/5 dark:text-[#8696a0] dark:hover:bg-white/10'
+                  : 'bg-black/5 text-(--wa-text-2) hover:bg-black/10 dark:bg-white/5 dark:text-(--wa-text-2) dark:hover:bg-white/10'
               )}
             >
               <Regex className="h-3.5 w-3.5" />
@@ -1222,7 +1223,7 @@ export function ChatView({
                     aria-label="Jump to date"
                     title="Jump to date"
                   >
-                    <CalendarDays className="h-4 w-4 text-[#54656f] dark:text-[#aebac1]" />
+                    <CalendarDays className="h-4 w-4 text-(--wa-text-2)" />
                   </Button>
                 </PopoverTrigger>
                 <PopoverContent align="end" className="w-auto p-0">
@@ -1231,7 +1232,7 @@ export function ChatView({
               </Popover>
             )}
             {(query || hasDateFilter || starredOnly) && (
-              <span className="ml-auto shrink-0 text-[12px] text-[#667781] dark:text-[#8696a0]">
+              <span className="ml-auto shrink-0 text-[12px] text-(--wa-text-2)">
                 {filtered?.length ?? 0} result{(filtered?.length ?? 0) === 1 ? '' : 's'}
               </span>
             )}
@@ -1244,31 +1245,33 @@ export function ChatView({
           )}
           {dateFilterOpen && (
             <div className="mt-2 flex flex-wrap items-center gap-2">
-              <span className="text-[11.5px] font-medium uppercase tracking-wide text-[#667781] dark:text-[#8696a0]">
+              <span className="text-[11.5px] font-medium uppercase tracking-wide text-(--wa-text-2)">
                 From
               </span>
               <Input
+                suppressHydrationWarning
                 type="date"
                 value={fromDate}
                 max={toDate || undefined}
                 onChange={(e) => setFromDate(e.target.value)}
-                className="h-8 w-[150px] rounded-lg bg-white text-[13px] [color-scheme:light] dark:bg-[#2a3942] dark:text-[#e9edef] dark:[color-scheme:dark]"
+                className="h-8 w-[150px] rounded-lg bg-(--wa-in) text-[13px] [color-scheme:light] dark:bg-(--wa-row-active) dark:text-(--wa-text) dark:[color-scheme:dark]"
               />
-              <span className="text-[11.5px] font-medium uppercase tracking-wide text-[#667781] dark:text-[#8696a0]">
+              <span className="text-[11.5px] font-medium uppercase tracking-wide text-(--wa-text-2)">
                 To
               </span>
               <Input
+                suppressHydrationWarning
                 type="date"
                 value={toDate}
                 min={fromDate || undefined}
                 onChange={(e) => setToDate(e.target.value)}
-                className="h-8 w-[150px] rounded-lg bg-white text-[13px] [color-scheme:light] dark:bg-[#2a3942] dark:text-[#e9edef] dark:[color-scheme:dark]"
+                className="h-8 w-[150px] rounded-lg bg-(--wa-in) text-[13px] [color-scheme:light] dark:bg-(--wa-row-active) dark:text-(--wa-text) dark:[color-scheme:dark]"
               />
               {hasDateFilter && (
                 <Button
                   variant="ghost"
                   size="sm"
-                  className="h-8 gap-1 rounded-full px-2.5 text-[12px] text-[#667781] hover:text-rose-500 dark:text-[#8696a0]"
+                  className="h-8 gap-1 rounded-full px-2.5 text-[12px] text-(--wa-text-2) hover:text-rose-500 dark:text-(--wa-text-2)"
                   onClick={() => {
                     setFromDate('')
                     setToDate('')
@@ -1299,7 +1302,7 @@ export function ChatView({
             <Button
               size="sm"
               variant="secondary"
-              className="rounded-full bg-white text-[12.5px] font-medium shadow-md hover:bg-white dark:bg-[#233138] dark:text-[#e9edef]"
+              className="rounded-full bg-(--wa-in) text-[12.5px] font-medium shadow-md hover:bg-(--wa-in) dark:bg-(--wa-panel-2) dark:text-(--wa-text)"
               onClick={handleLoadEarlier}
             >
               Load earlier messages
@@ -1308,7 +1311,7 @@ export function ChatView({
         )}
 
         {filtered && filtered.length === 0 && (
-          <div className="mt-10 text-center text-[13px] text-[#667781] dark:text-[#8696a0]">
+          <div className="mt-10 text-center text-[13px] text-(--wa-text-2)">
             {query ? (
               regexInvalid ? (
                 'Invalid regular expression — fix the pattern in the search bar'
@@ -1335,7 +1338,7 @@ export function ChatView({
           if (item.kind === 'date') {
             return (
               <div key={item.key} className="animate-in fade-in my-3 flex justify-center duration-300">
-                <span className="rounded-lg bg-white/95 px-3 py-1 text-[12.2px] font-medium uppercase tracking-wide text-[#54656f] shadow-[0_1px_1px_rgba(11,20,26,0.12)] backdrop-blur-sm dark:bg-[#182229]/95 dark:text-[#8696a0]">
+                <span className="rounded-lg bg-(--wa-in)/95 px-3 py-1 text-[12.2px] font-medium uppercase tracking-wide text-(--wa-text-2) shadow-[0_1px_1px_rgba(11,20,26,0.12)] backdrop-blur-sm dark:bg-(--wa-panel-2)/95 dark:text-(--wa-text-2)">
                   {item.label}
                 </span>
               </div>
@@ -1352,7 +1355,7 @@ export function ChatView({
                     'bg-amber-200/50 ring-1 ring-amber-400/60 dark:bg-amber-500/20'
                 )}
               >
-                <span className="flex max-w-lg items-center justify-center gap-1.5 rounded-md bg-[#ffeecd] px-3 py-1.5 text-center text-[12.5px] leading-snug text-[#54656f] shadow-sm dark:bg-[#182229] dark:text-[#ffd279]">
+                <span className="flex max-w-lg items-center justify-center gap-1.5 rounded-md bg-[#ffeecd] px-3 py-1.5 text-center text-[12.5px] leading-snug text-(--wa-text-2) shadow-sm dark:bg-(--wa-panel-2) dark:text-[#ffd279]">
                   {/encrypted/i.test(item.body) && <Lock className="h-3 w-3 shrink-0" />}
                   {item.body}
                 </span>
@@ -1399,7 +1402,7 @@ export function ChatView({
         <button
           onClick={handleScrollToBottom}
           aria-label="Scroll to latest messages"
-          className="absolute bottom-[68px] right-4 z-20 flex h-10 w-10 items-center justify-center rounded-full bg-white text-[#54656f] shadow-[0_1px_3px_rgba(11,20,26,0.3)] transition-transform hover:scale-105 active:scale-95 dark:bg-[#233138] dark:text-[#aebac1]"
+          className="absolute bottom-[68px] right-4 z-20 flex h-10 w-10 items-center justify-center rounded-full bg-(--wa-in) text-(--wa-text-2) shadow-[0_1px_3px_rgba(11,20,26,0.3)] transition-transform hover:scale-105 active:scale-95 dark:bg-(--wa-panel-2) dark:text-(--wa-text-2)"
         >
           <ChevronDown className="h-6 w-6" />
         </button>
@@ -1407,7 +1410,7 @@ export function ChatView({
 
       {/* Selection toolbar (edit mode with active selection) */}
       {editMode && selectedCount > 0 ? (
-        <div className="relative z-10 flex items-center gap-1 border-t border-black/5 bg-[#f0f2f5] px-3 py-2 dark:border-black/30 dark:bg-[#202c33]">
+        <div className="relative z-10 flex items-center gap-1 border-t border-black/5 bg-(--wa-panel-2) px-3 py-2 dark:bg-(--wa-panel-2)">
           <Button
             variant="ghost"
             size="icon"
@@ -1416,9 +1419,9 @@ export function ChatView({
             aria-label="Clear selection"
             title="Clear selection"
           >
-            <X className="h-5 w-5 text-[#54656f] dark:text-[#aebac1]" />
+            <X className="h-5 w-5 text-(--wa-text-2)" />
           </Button>
-          <span className="min-w-0 flex-1 truncate text-[13.5px] font-medium text-[#111b21] dark:text-[#e9edef]">
+          <span className="min-w-0 flex-1 truncate text-[13.5px] font-medium text-(--wa-text)">
             {selectedCount} selected
           </span>
           <Button
@@ -1429,7 +1432,7 @@ export function ChatView({
             aria-label="Copy selected"
             title="Copy selected messages"
           >
-            <Copy className="h-5 w-5 text-[#54656f] dark:text-[#aebac1]" />
+            <Copy className="h-5 w-5 text-(--wa-text-2)" />
           </Button>
           <Button
             variant="ghost"
@@ -1460,7 +1463,7 @@ export function ChatView({
               aria-label="Edit message"
               title="Edit message"
             >
-              <Pencil className="h-5 w-5 text-[#54656f] dark:text-[#aebac1]" />
+              <Pencil className="h-5 w-5 text-(--wa-text-2)" />
             </Button>
           )}
           <Button
@@ -1483,8 +1486,8 @@ export function ChatView({
         />
       ) : (
         /* Read-only notice (mimics the WhatsApp composer) */
-        <div className="relative z-10 bg-[#f0f2f5] px-3 py-2.5 dark:bg-[#202c33]">
-          <div className="flex items-center justify-center gap-2 rounded-lg bg-[#8696a0]/10 px-4 py-2.5 text-[13px] text-[#667781] dark:bg-white/5 dark:text-[#8696a0]">
+        <div className="relative z-10 bg-(--wa-panel-2) px-3 py-2.5 dark:bg-(--wa-panel-2)">
+          <div className="flex items-center justify-center gap-2 rounded-lg bg-(--wa-text-2)/10 px-4 py-2.5 text-[13px] text-(--wa-text-2) dark:bg-white/5 dark:text-(--wa-text-2)">
             <Lock className="h-3.5 w-3.5" />
             Read-only — tap the pencil to edit, select &amp; send
           </div>
@@ -1544,6 +1547,7 @@ export function ChatView({
             </DialogDescription>
           </DialogHeader>
           <Textarea
+            suppressHydrationWarning
             autoFocus
             value={editBody}
             rows={4}

@@ -54,14 +54,14 @@ function formatStamp(iso: string): string {
 function Preview({ msg }: { msg: ChatMessage }) {
   if (msg.type === 'deleted') {
     return (
-      <span className="flex items-center gap-1 italic text-[#667781] dark:text-[#8696a0]">
+      <span className="flex items-center gap-1 italic text-(--wa-text-2)">
         <Ban className="h-3 w-3" /> {msg.body || 'This message was deleted'}
       </span>
     )
   }
   if (msg.type === 'call') {
     return (
-      <span className="flex items-center gap-1 text-[#667781] dark:text-[#8696a0]">
+      <span className="flex items-center gap-1 text-(--wa-text-2)">
         <PhoneMissed className="h-3 w-3 text-rose-500" /> {msg.body || 'Missed call'}
       </span>
     )
@@ -175,7 +175,7 @@ export function StarredMessages({
 
         <div className="wa-scroll -mx-1 min-h-0 flex-1 overflow-y-auto px-1">
           {items === undefined && (
-            <div className="flex h-32 items-center justify-center gap-2 text-[13.5px] text-[#667781] dark:text-[#8696a0]">
+            <div className="flex h-32 items-center justify-center gap-2 text-[13.5px] text-(--wa-text-2)">
               <Loader2 className="h-4 w-4 animate-spin" /> Loading…
             </div>
           )}
@@ -184,10 +184,10 @@ export function StarredMessages({
               <span className="flex h-14 w-14 items-center justify-center rounded-full bg-[#f2a33c]/10">
                 <Star className="h-6 w-6 text-[#f2a33c]" />
               </span>
-              <p className="text-[14px] font-medium text-[#111b21] dark:text-[#e9edef]">
+              <p className="text-[14px] font-medium text-(--wa-text)">
                 No starred messages yet
               </p>
-              <p className="max-w-[260px] text-[12.5px] leading-relaxed text-[#667781] dark:text-[#8696a0]">
+              <p className="max-w-[260px] text-[12.5px] leading-relaxed text-(--wa-text-2)">
                 Right-click or long-press a message and choose <b>Star</b> to
                 bookmark it here.
               </p>
@@ -211,8 +211,8 @@ export function StarredMessages({
                       }
                     }}
                     className={cn(
-                      'group flex w-full cursor-pointer items-start gap-2.5 rounded-lg border border-black/5 bg-[#f0f2f5]/60 p-2.5 text-left transition-colors',
-                      'hover:bg-(--wa-accent)/10 hover:ring-1 hover:ring-(--wa-accent)/40 dark:border-white/5 dark:bg-[#202c33]/60 dark:hover:bg-(--wa-accent)/15'
+                      'group flex w-full cursor-pointer items-start gap-2.5 rounded-lg border border-black/5 bg-(--wa-panel-2)/60 p-2.5 text-left transition-colors',
+                      'hover:bg-(--wa-accent)/10 hover:ring-1 hover:ring-(--wa-accent)/40 dark:border-white/5 dark:bg-(--wa-panel-2)/60 dark:hover:bg-(--wa-accent)/15'
                     )}
                   >
                     {isGroup && m.sender ? (
@@ -228,14 +228,14 @@ export function StarredMessages({
                     )}
                     <span className="min-w-0 flex-1">
                       <span className="flex items-baseline gap-2">
-                        <span className="truncate text-[12.5px] font-semibold text-[#111b21] dark:text-[#e9edef]">
+                        <span className="truncate text-[12.5px] font-semibold text-(--wa-text)">
                           {m.sender ?? 'System'}
                         </span>
-                        <span className="ml-auto shrink-0 text-[10.5px] tabular-nums text-[#667781] dark:text-[#8696a0]">
+                        <span className="ml-auto shrink-0 text-[10.5px] tabular-nums text-(--wa-text-2)">
                           {formatStamp(m.ts)}
                         </span>
                       </span>
-                      <span className="mt-0.5 line-clamp-2 block text-[13px] leading-snug text-[#3b4a54] dark:text-[#d1d7db]">
+                      <span className="mt-0.5 line-clamp-2 block text-[13px] leading-snug text-(--wa-text)">
                         <Preview msg={m} />
                       </span>
                     </span>
@@ -246,7 +246,7 @@ export function StarredMessages({
                       }}
                       aria-label="Unstar message"
                       title="Unstar"
-                      className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-[#667781] opacity-0 transition-all hover:bg-rose-500/10 hover:text-rose-500 focus-visible:opacity-100 group-hover:opacity-100 dark:text-[#8696a0]"
+                      className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-(--wa-text-2) opacity-0 transition-all hover:bg-rose-500/10 hover:text-rose-500 focus-visible:opacity-100 group-hover:opacity-100 dark:text-(--wa-text-2)"
                     >
                       <StarOff className="h-3.5 w-3.5" />
                     </button>

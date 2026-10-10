@@ -235,13 +235,13 @@ export function MediaGallery({
       }}
     >
       {/* Gallery header */}
-      <div className="flex items-center gap-3 border-b border-white/10 bg-[#111b21] px-4 py-3">
+      <div className="flex items-center gap-3 border-b border-white/10 bg-(--wa-panel) px-4 py-3">
         <Avatar name={chatTitle} size={36} />
         <div className="min-w-0 flex-1">
-          <h2 className="truncate text-[15px] font-semibold text-[#e9edef]">
+          <h2 className="truncate text-[15px] font-semibold text-(--wa-text)">
             {chatTitle} · media
           </h2>
-          <p className="text-[11.5px] text-[#8696a0]">
+          <p className="text-[11.5px] text-(--wa-text-2)">
             {items == null
               ? 'Loading…'
               : `${counts.all} item${counts.all === 1 ? '' : 's'}${
@@ -273,8 +273,8 @@ export function MediaGallery({
             className={cn(
               'flex h-9 items-center gap-1.5 rounded-full px-3.5 text-[12.5px] font-medium transition-colors',
               selectMode
-                ? 'bg-white text-[#111b21]'
-                : 'bg-white/10 text-[#e9edef] hover:bg-white/20'
+                ? 'bg-white text-(--wa-text)'
+                : 'bg-white/10 text-(--wa-text) hover:bg-white/20'
             )}
           >
             <ListChecks className="h-4 w-4" />
@@ -303,7 +303,7 @@ export function MediaGallery({
                 'flex shrink-0 items-center gap-1.5 rounded-full px-3.5 py-1.5 text-[12.5px] font-medium transition-colors',
                 filter === t.key
                   ? 'bg-(--wa-accent) text-white'
-                  : 'bg-white/10 text-[#aebac1] hover:bg-white/20'
+                  : 'bg-white/10 text-(--wa-text-2) hover:bg-white/20'
               )}
             >
               {t.icon}
@@ -326,19 +326,19 @@ export function MediaGallery({
       {/* Grid body */}
       <div className="wa-scroll flex-1 overflow-y-auto p-4">
         {items === undefined && (
-          <div className="flex h-40 items-center justify-center gap-2 text-[13.5px] text-[#8696a0]">
+          <div className="flex h-40 items-center justify-center gap-2 text-[13.5px] text-(--wa-text-2)">
             <Loader2 className="h-4 w-4 animate-spin" /> Loading media…
           </div>
         )}
         {items !== undefined && shown.length === 0 && (
           <div className="flex h-64 flex-col items-center justify-center gap-3 text-center">
             <div className="flex h-16 w-16 items-center justify-center rounded-full bg-white/5">
-              <ImageIcon className="h-7 w-7 text-[#8696a0]" />
+              <ImageIcon className="h-7 w-7 text-(--wa-text-2)" />
             </div>
-            <p className="text-[14px] font-medium text-[#e9edef]">
+            <p className="text-[14px] font-medium text-(--wa-text)">
               {items.length === 0 ? 'No media in this chat' : `No ${filter === 'doc' ? 'documents' : filter + 's'} here`}
             </p>
-            <p className="max-w-[280px] text-[12.5px] leading-relaxed text-[#8696a0]">
+            <p className="max-w-[280px] text-[12.5px] leading-relaxed text-(--wa-text-2)">
               Media appears here when the chat was exported <b>with media</b>.
             </p>
           </div>
@@ -373,24 +373,24 @@ export function MediaGallery({
 
       {/* Selection action bar */}
       {selectMode && (
-        <div className="animate-in slide-in-from-bottom-2 flex items-center gap-2 border-t border-white/10 bg-[#111b21] px-4 py-2.5 duration-200">
+        <div className="animate-in slide-in-from-bottom-2 flex items-center gap-2 border-t border-white/10 bg-(--wa-panel) px-4 py-2.5 duration-200">
           <button
             onClick={() =>
               setSelected(new Set(shown.filter((m) => m.mediaPath).map((m) => m.id)))
             }
             disabled={shown.length === 0}
-            className="flex h-8 items-center rounded-full bg-white/10 px-3 text-[12px] font-medium text-[#e9edef] transition-colors hover:bg-white/20 disabled:opacity-50"
+            className="flex h-8 items-center rounded-full bg-white/10 px-3 text-[12px] font-medium text-(--wa-text) transition-colors hover:bg-white/20 disabled:opacity-50"
           >
             Select all
           </button>
           <button
             onClick={() => setSelected(new Set())}
             disabled={selected.size === 0}
-            className="flex h-8 items-center rounded-full bg-white/10 px-3 text-[12px] font-medium text-[#e9edef] transition-colors hover:bg-white/20 disabled:opacity-50"
+            className="flex h-8 items-center rounded-full bg-white/10 px-3 text-[12px] font-medium text-(--wa-text) transition-colors hover:bg-white/20 disabled:opacity-50"
           >
             Clear
           </button>
-          <span className="flex-1 text-center text-[12.5px] tabular-nums text-[#8696a0]">
+          <span className="flex-1 text-center text-[12.5px] tabular-nums text-(--wa-text-2)">
             {selected.size} selected
           </span>
           <button
@@ -522,7 +522,7 @@ function MediaTile({
           <span className="flex h-12 w-12 items-center justify-center rounded-full bg-(--wa-accent)/15">
             <Mic className="h-6 w-6" />
           </span>
-          <span className="max-w-[85%] truncate px-2 text-[11px] text-[#aebac1]">
+          <span className="max-w-[85%] truncate px-2 text-[11px] text-(--wa-text-2)">
             {item.mediaName ?? 'Voice message'}
           </span>
         </span>
@@ -530,17 +530,17 @@ function MediaTile({
       {src && kind === 'doc' && (
         <span className="flex h-full w-full flex-col items-center justify-center gap-2 text-[#f2a33c]">
           <FileText className="h-10 w-10" />
-          <span className="max-w-[85%] truncate px-2 text-[11px] text-[#aebac1]">
+          <span className="max-w-[85%] truncate px-2 text-[11px] text-(--wa-text-2)">
             {item.mediaName ?? 'Document'}
           </span>
         </span>
       )}
       {!src && (
         <span className="flex h-full w-full flex-col items-center justify-center gap-1.5 px-2 text-center">
-          <i className="flex h-9 w-9 items-center justify-center rounded bg-white/10 text-[10px] font-bold tracking-wide text-[#8696a0]">
+          <i className="flex h-9 w-9 items-center justify-center rounded bg-white/10 text-[10px] font-bold tracking-wide text-(--wa-text-2)">
             {kind === 'image' ? 'IMG' : kind === 'video' ? 'VID' : kind === 'audio' ? 'AUD' : 'DOC'}
           </i>
-          <span className="line-clamp-2 text-[10.5px] leading-tight text-[#8696a0]">
+          <span className="line-clamp-2 text-[10.5px] leading-tight text-(--wa-text-2)">
             {item.mediaName ?? 'Not in export'}
           </span>
         </span>

@@ -271,10 +271,10 @@ function Meta({ msg, outgoing, onMedia }: MetaProps) {
         outgoing
           ? onMedia
             ? 'text-white/80'
-            : 'text-[#667781] dark:text-[#8696a0]'
+            : 'text-(--wa-text-2)'
           : onMedia
             ? 'text-white/80'
-            : 'text-[#667781] dark:text-[#8696a0]'
+            : 'text-(--wa-text-2)'
       )}
     >
       <span className="whitespace-nowrap">{formatTime(msg.ts)}</span>
@@ -300,10 +300,10 @@ function MediaPlaceholder({
     <div className="flex items-center gap-2 rounded-md bg-black/5 px-3 py-2 dark:bg-white/5">
       {icon}
       <div className="min-w-0">
-        <p className="truncate text-[13px] font-medium text-[#3b4a54] dark:text-[#d1d7db]">
+        <p className="truncate text-[13px] font-medium text-(--wa-text)">
           {label}
         </p>
-        <p className="text-[11px] text-[#667781] dark:text-[#8696a0]">
+        <p className="text-[11px] text-(--wa-text-2)">
           Media not included in this export
         </p>
       </div>
@@ -318,10 +318,10 @@ function DocumentChip({ name, src }: { name: string; src: string | null }) {
         <FileText className="h-5 w-5" />
       </div>
       <div className="min-w-0">
-        <p className="max-w-[200px] truncate text-[13.5px] font-medium text-[#111b21] dark:text-[#e9edef]">
+        <p className="max-w-[200px] truncate text-[13.5px] font-medium text-(--wa-text)">
           {name}
         </p>
-        <p className="text-[11px] text-[#667781] dark:text-[#8696a0]">
+        <p className="text-[11px] text-(--wa-text-2)">
           {src ? 'Tap to open' : 'Not included in this export'}
         </p>
       </div>
@@ -465,13 +465,29 @@ interface HoverActionsProps {
   msg: ChatMessage
   onToggleStar?: (id: string, starred: boolean) => void
   onForwardSaved?: (msg: ChatMessage) => void
+  /** Which side of the bubble the actions sit on — drives slide direction. */
+  side: 'in' | 'out'
 }
 
-function HoverActions({ msg, onToggleStar, onForwardSaved }: HoverActionsProps) {
-  const cls = cn(
-    'mb-1 hidden h-7 w-7 shrink-0 items-center justify-center rounded-full bg-white text-[#54656f] shadow-md transition-opacity sm:flex',
-    'opacity-0 group-hover/msg:opacity-100 focus-visible:opacity-100 dark:bg-[#233138] dark:text-[#aebac1]'
-  )
+const ACTION_STAGGER = ['delay-[0ms]', 'delay-[50ms]', 'delay-[100ms]']
+
+function HoverActions({
+  msg,
+  onToggleStar,
+  onForwardSaved,
+  side,
+}: HoverActionsProps) {
+  const btn = (stagger: string) =>
+    cn(
+      'mb-1 hidden h-7 w-7 shrink-0 items-center justify-center rounded-full bg-(--wa-in) text-(--wa-text-2) shadow-md sm:flex',
+      'opacity-0 scale-75 will-change-transform',
+      side === 'in' ? '-translate-x-2' : 'translate-x-2',
+      'transition-[opacity,transform] duration-250 ease-out motion-reduce:transition-none',
+      '[transition-timing-function:cubic-bezier(0.34,1.56,0.64,1)]',
+      'group-hover/msg:translate-x-0 group-hover/msg:scale-100 group-hover/msg:opacity-100',
+      'focus-visible:translate-x-0 focus-visible:scale-100 focus-visible:opacity-100',
+      stagger
+    )
   return (
     <>
       {onForwardSaved && (
@@ -482,9 +498,9 @@ function HoverActions({ msg, onToggleStar, onForwardSaved }: HoverActionsProps) 
           }}
           aria-label="Forward to Saved Messages"
           title="Forward to Saved Messages"
-          className={cls}
+          className={btn(ACTION_STAGGER[0])}
         >
-          <BookmarkPlus className="h-3.5 w-3.5 transition-colors hover:text-(--wa-accent)" />
+          <BookmarkPlus className="h-3.5 w-3.5 transition-[color,transform] duration-150 hover:scale-125 hover:text-(--wa-accent)" />
         </button>
       )}
       {onToggleStar && (
@@ -495,11 +511,11 @@ function HoverActions({ msg, onToggleStar, onForwardSaved }: HoverActionsProps) 
           }}
           aria-label={msg.starred ? 'Unstar message' : 'Star message'}
           title={msg.starred ? 'Unstar message' : 'Star message'}
-          className={cls}
+          className={btn(ACTION_STAGGER[1])}
         >
           <Star
             className={cn(
-              'h-3.5 w-3.5 transition-colors',
+              'h-3.5 w-3.5 transition-[color,transform] duration-150 hover:scale-125',
               msg.starred
                 ? 'fill-[#f2a33c] text-[#f2a33c]'
                 : 'hover:fill-[#f2a33c]/40 hover:text-[#f2a33c]'
@@ -514,9 +530,9 @@ function HoverActions({ msg, onToggleStar, onForwardSaved }: HoverActionsProps) 
         }}
         aria-label="Copy message"
         title="Copy message"
-        className={cls}
+        className={btn(ACTION_STAGGER[2])}
       >
-        <Copy className="h-3.5 w-3.5" />
+        <Copy className="h-3.5 w-3.5 transition-transform duration-150 hover:scale-125" />
       </button>
     </>
   )
@@ -530,7 +546,7 @@ function SelectCircle({ selected }: { selected: boolean }) {
         'flex h-6 w-6 shrink-0 items-center justify-center rounded-full border-2 transition-colors',
         selected
           ? 'border-(--wa-accent) bg-(--wa-accent)'
-          : 'border-[#8696a0] bg-white/70 dark:bg-black/30'
+          : 'border-(--wa-text-2) bg-white/70 dark:bg-black/30'
       )}
       aria-hidden
     >
@@ -628,13 +644,13 @@ export function MessageBubble({
           {showTail && (
             <BubbleTail
               side="left"
-              className="absolute -left-[7px] top-0 fill-white dark:fill-[#202c33]"
+              className="absolute -left-[7px] top-0 fill-(--wa-in)"
             />
           )}
           <div
             className={cn(
               'relative rounded-[7.5px] px-2.5 py-1.5 text-(length:--wa-msg-size,14.2px) leading-[1.34]',
-              'bg-white text-[#111b21] shadow-[0_1px_0.5px_rgba(11,20,26,0.13)] dark:bg-[#202c33] dark:text-[#e9edef] dark:shadow-[0_1px_0.5px_rgba(0,0,0,0.25)]',
+              'bg-(--wa-in) text-(--wa-text) shadow-[0_1px_0.5px_rgba(11,20,26,0.13)] dark:shadow-[0_1px_0.5px_rgba(0,0,0,0.25)]',
               !showTail && 'rounded-tl-none',
               selected && 'ring-2 ring-(--wa-accent)'
             )}
@@ -677,14 +693,14 @@ export function MessageBubble({
             {showTail && (
               <BubbleTail
                 side="left"
-                className="absolute -left-[7px] top-0 fill-white dark:fill-[#202c33]"
+                className="absolute -left-[7px] top-0 fill-(--wa-in)"
               />
             )}
             <div
               {...press.handlers}
               className={cn(
                 'relative rounded-[7.5px] px-2.5 py-1.5 text-(length:--wa-msg-size,14.2px) leading-[1.34] transition-[transform,box-shadow] duration-150',
-                'bg-white text-[#111b21] shadow-[0_1px_0.5px_rgba(11,20,26,0.13)] dark:bg-[#202c33] dark:text-[#e9edef] dark:shadow-[0_1px_0.5px_rgba(0,0,0,0.25)]',
+                'bg-(--wa-in) text-(--wa-text) shadow-[0_1px_0.5px_rgba(11,20,26,0.13)] dark:shadow-[0_1px_0.5px_rgba(0,0,0,0.25)]',
                 !showTail && 'rounded-tl-none',
                 press.pressing && 'scale-[0.98]'
               )}
@@ -719,6 +735,7 @@ export function MessageBubble({
       </ContextMenu>
       <HoverActions
         msg={msg}
+        side="in"
         onToggleStar={onToggleStar}
         onForwardSaved={onForwardSaved}
       />
@@ -769,7 +786,7 @@ function OutgoingBubble({
         {...(selectMode ? {} : press.handlers)}
         className={cn(
           'relative rounded-[7.5px] px-2.5 py-1.5 text-(length:--wa-msg-size,14.2px) leading-[1.34] transition-[transform,box-shadow] duration-150',
-          'bg-(--wa-out) text-[#111b21] shadow-[0_1px_0.5px_rgba(11,20,26,0.13)] dark:text-[#e9edef] dark:shadow-[0_1px_0.5px_rgba(0,0,0,0.25)]',
+          'bg-(--wa-out) text-(--wa-text) shadow-[0_1px_0.5px_rgba(11,20,26,0.13)] dark:text-(--wa-text) dark:shadow-[0_1px_0.5px_rgba(0,0,0,0.25)]',
           !showTail && 'rounded-tr-none',
           !selectMode && press.pressing && 'scale-[0.98]',
           selectMode && selected && 'ring-2 ring-(--wa-accent)'
@@ -817,6 +834,7 @@ function OutgoingBubble({
     <div className="group/msg flex justify-end gap-1.5 px-2 sm:px-4">
       <HoverActions
         msg={msg}
+        side="out"
         onToggleStar={onToggleStar}
         onForwardSaved={onForwardSaved}
       />
@@ -852,14 +870,14 @@ function Content({
   switch (msg.type) {
     case 'deleted':
       return (
-        <p className="flex items-center gap-1.5 italic text-[#667781] dark:text-[#8696a0]">
+        <p className="flex items-center gap-1.5 italic text-(--wa-text-2)">
           <Ban className="h-3.5 w-3.5 shrink-0" />
           {msg.body || 'This message was deleted'}
         </p>
       )
     case 'call':
       return (
-        <p className="flex items-center gap-1.5 text-[#667781] dark:text-[#8696a0]">
+        <p className="flex items-center gap-1.5 text-(--wa-text-2)">
           <PhoneMissed className="h-4 w-4 shrink-0 text-rose-500" />
           {msg.body || 'Missed call'}
         </p>
@@ -897,7 +915,7 @@ function Content({
             <p className="truncate text-[13.5px] font-medium">
               {msg.mediaName ?? 'Contact card'}
             </p>
-            <p className="text-[11px] text-[#667781] dark:text-[#8696a0]">
+            <p className="text-[11px] text-(--wa-text-2)">
               Contact card (vCard)
             </p>
           </div>
@@ -953,12 +971,12 @@ function Content({
                 <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-(--wa-accent)/15 text-(--wa-accent)">
                   <Mic className="h-4 w-4" />
                 </span>
-                <span className="text-[13px] text-[#667781] dark:text-[#8696a0]">
+                <span className="text-[13px] text-(--wa-text-2)">
                   Voice message
                 </span>
               </div>
               {msg.mediaName && (
-                <p className="mt-1 truncate text-[11px] text-[#667781] dark:text-[#8696a0]">
+                <p className="mt-1 truncate text-[11px] text-(--wa-text-2)">
                   {msg.mediaName} · not in export
                 </p>
               )}

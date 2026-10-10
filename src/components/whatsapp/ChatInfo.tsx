@@ -203,12 +203,12 @@ export function ChatInfo({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="wa-scroll max-h-[85vh] overflow-y-auto bg-[#f0f2f5] p-0 dark:bg-[#111b21] sm:max-w-md">
+      <DialogContent className="wa-scroll max-h-[85vh] overflow-y-auto bg-(--wa-panel-2) p-0 dark:bg-(--wa-panel) sm:max-w-md">
         <DialogHeader className="bg-(--wa-appbar) p-6">
           <div className="flex flex-col items-center gap-3 text-center">
             <Avatar name={chat.title} size={88} className="ring-4 ring-white/20" />
             <div>
-              <DialogTitle className="text-xl font-medium text-white dark:text-[#e9edef]">
+              <DialogTitle className="text-xl font-medium text-white dark:text-(--wa-text)">
                 {chat.title}
               </DialogTitle>
               <DialogDescription className="text-[13px] text-white/80">
@@ -222,7 +222,7 @@ export function ChatInfo({
         <div className="space-y-5 p-6">
           {/* Totals */}
           <section>
-            <h3 className="mb-2 text-[13px] font-semibold uppercase tracking-wide text-[#667781] dark:text-[#8696a0]">
+            <h3 className="mb-2 text-[13px] font-semibold uppercase tracking-wide text-(--wa-text-2)">
               Overview
             </h3>
             <div className="grid grid-cols-2 gap-2">
@@ -263,7 +263,7 @@ export function ChatInfo({
 
           {/* Media breakdown */}
           <section>
-            <h3 className="mb-2 text-[13px] font-semibold uppercase tracking-wide text-[#667781] dark:text-[#8696a0]">
+            <h3 className="mb-2 text-[13px] font-semibold uppercase tracking-wide text-(--wa-text-2)">
               Media
             </h3>
             <div className="grid grid-cols-4 gap-2">
@@ -297,10 +297,10 @@ export function ChatInfo({
           {/* Activity by hour */}
           {stats.total > 0 && (
             <section>
-              <h3 className="mb-2 text-[13px] font-semibold uppercase tracking-wide text-[#667781] dark:text-[#8696a0]">
+              <h3 className="mb-2 text-[13px] font-semibold uppercase tracking-wide text-(--wa-text-2)">
                 Activity by hour
               </h3>
-              <div className="rounded-lg bg-white p-3 shadow-sm dark:bg-[#202c33]">
+              <div className="rounded-lg bg-white p-3 shadow-sm dark:bg-(--wa-panel-2)">
                 <div className="flex h-16 items-end gap-[2px]">
                   {stats.hourCounts.map((h) => (
                     <div
@@ -322,16 +322,16 @@ export function ChatInfo({
                     </div>
                   ))}
                 </div>
-                <div className="mt-1 flex justify-between text-[8.5px] text-[#667781] dark:text-[#8696a0]">
+                <div className="mt-1 flex justify-between text-[8.5px] text-(--wa-text-2)">
                   <span>12am</span>
                   <span>6am</span>
                   <span>12pm</span>
                   <span>6pm</span>
                   <span>11pm</span>
                 </div>
-                <p className="mt-1.5 text-[11.5px] text-[#667781] dark:text-[#8696a0]">
+                <p className="mt-1.5 text-[11.5px] text-(--wa-text-2)">
                   Busiest hour:{' '}
-                  <b className="text-[#3b4a54] dark:text-[#d1d7db]">
+                  <b className="text-(--wa-text)">
                     {hourLabel(peakHour.hour)}
                   </b>{' '}
                   · {stats.avgPerDay}/day on active days
@@ -342,7 +342,7 @@ export function ChatInfo({
 
           {/* Participants */}
           <section>
-            <h3 className="mb-2 flex items-center gap-1.5 text-[13px] font-semibold uppercase tracking-wide text-[#667781] dark:text-[#8696a0]">
+            <h3 className="mb-2 flex items-center gap-1.5 text-[13px] font-semibold uppercase tracking-wide text-(--wa-text-2)">
               <Users className="h-3.5 w-3.5" />
               Participants ({stats.senders.length})
             </h3>
@@ -354,10 +354,10 @@ export function ChatInfo({
                     <Avatar name={name} size={32} />
                     <div className="min-w-0 flex-1">
                       <div className="mb-1 flex items-baseline justify-between gap-2">
-                        <span className="truncate text-[13.5px] font-medium text-[#111b21] dark:text-[#e9edef]">
+                        <span className="truncate text-[13.5px] font-medium text-(--wa-text)">
                           {name}
                         </span>
-                        <span className="shrink-0 text-[12px] text-[#667781] dark:text-[#8696a0]">
+                        <span className="shrink-0 text-[12px] text-(--wa-text-2)">
                           {count.toLocaleString()} ·{' '}
                           {Math.round((count / Math.max(1, stats.total)) * 100)}%
                         </span>
@@ -371,7 +371,7 @@ export function ChatInfo({
                           }}
                         />
                       </div>
-                      <p className="mt-0.5 flex flex-wrap items-center gap-x-2 text-[10.5px] tabular-nums text-[#667781] dark:text-[#8696a0]">
+                      <p className="mt-0.5 flex flex-wrap items-center gap-x-2 text-[10.5px] tabular-nums text-(--wa-text-2)">
                         <span>
                           {(stats.senderWords.get(name) ?? 0).toLocaleString()} words
                         </span>
@@ -395,17 +395,17 @@ export function ChatInfo({
           {/* Top emojis */}
           {emojis.length > 0 && (
             <section>
-              <h3 className="mb-2 text-[13px] font-semibold uppercase tracking-wide text-[#667781] dark:text-[#8696a0]">
+              <h3 className="mb-2 text-[13px] font-semibold uppercase tracking-wide text-(--wa-text-2)">
                 Most used emojis
               </h3>
               <div className="flex gap-2">
                 {emojis.map(([emoji, count], i) => (
                   <div
                     key={emoji}
-                    className="flex flex-1 flex-col items-center rounded-lg bg-white p-3 shadow-sm dark:bg-[#202c33]"
+                    className="flex flex-1 flex-col items-center rounded-lg bg-white p-3 shadow-sm dark:bg-(--wa-panel-2)"
                   >
                     <span className="text-2xl leading-none">{emoji}</span>
-                    <span className="mt-1.5 text-[12px] font-medium text-[#667781] dark:text-[#8696a0]">
+                    <span className="mt-1.5 text-[12px] font-medium text-(--wa-text-2)">
                       ×{count}
                     </span>
                     {i === 0 && (
@@ -422,14 +422,14 @@ export function ChatInfo({
           {/* Top words */}
           {stats.topWords.length > 0 && (
             <section>
-              <h3 className="mb-2 text-[13px] font-semibold uppercase tracking-wide text-[#667781] dark:text-[#8696a0]">
+              <h3 className="mb-2 text-[13px] font-semibold uppercase tracking-wide text-(--wa-text-2)">
                 Most used words
               </h3>
               <div className="flex flex-wrap gap-1.5">
                 {stats.topWords.map(([word, count]) => (
                   <span
                     key={word}
-                    className="rounded-full border border-black/5 bg-white px-2.5 py-1 text-[12px] text-[#3b4a54] shadow-sm dark:border-white/5 dark:bg-[#202c33] dark:text-[#d1d7db]"
+                    className="rounded-full border border-black/5 bg-white px-2.5 py-1 text-[12px] text-(--wa-text) shadow-sm dark:border-white/5 dark:bg-(--wa-panel-2) dark:text-(--wa-text)"
                   >
                     {word}
                     <b className="ml-1.5 tabular-nums text-(--wa-accent)">
@@ -444,7 +444,7 @@ export function ChatInfo({
           {/* Fun facts */}
           {stats.total > 0 && (
             <section>
-              <h3 className="mb-2 text-[13px] font-semibold uppercase tracking-wide text-[#667781] dark:text-[#8696a0]">
+              <h3 className="mb-2 text-[13px] font-semibold uppercase tracking-wide text-(--wa-text-2)">
                 Fun facts
               </h3>
               <div className="grid grid-cols-3 gap-2">
@@ -501,17 +501,17 @@ function MiniFact({
   accent: string
 }) {
   return (
-    <div className="flex flex-col items-center rounded-lg bg-white p-2.5 text-center shadow-sm dark:bg-[#202c33]">
+    <div className="flex flex-col items-center rounded-lg bg-white p-2.5 text-center shadow-sm dark:bg-(--wa-panel-2)">
       <span
         className="mb-1 flex h-6 w-6 items-center justify-center rounded-md"
         style={{ backgroundColor: `${accent}1f`, color: accent }}
       >
         {icon}
       </span>
-      <span className="text-[15px] font-semibold leading-none text-[#111b21] dark:text-[#e9edef]">
+      <span className="text-[15px] font-semibold leading-none text-(--wa-text)">
         {value}
       </span>
-      <span className="mt-0.5 text-[10.5px] text-[#667781] dark:text-[#8696a0]">
+      <span className="mt-0.5 text-[10.5px] text-(--wa-text-2)">
         {label}
       </span>
     </div>
@@ -534,13 +534,13 @@ function StatCard({
   return (
     <div
       className={cn(
-        'rounded-lg bg-white p-3 shadow-sm dark:bg-[#202c33]',
+        'rounded-lg bg-white p-3 shadow-sm dark:bg-(--wa-panel-2)',
         center && 'flex flex-col items-center text-center'
       )}
     >
       <p
         className={cn(
-          'flex items-center gap-1.5 text-[12px] text-[#667781] dark:text-[#8696a0]',
+          'flex items-center gap-1.5 text-[12px] text-(--wa-text-2)',
           center && 'justify-center'
         )}
       >
@@ -549,7 +549,7 @@ function StatCard({
       </p>
       <p
         className={cn(
-          'mt-1 font-semibold text-[#111b21] dark:text-[#e9edef]',
+          'mt-1 font-semibold text-(--wa-text)',
           small ? 'text-[13px]' : 'text-lg',
           center && 'text-lg'
         )}

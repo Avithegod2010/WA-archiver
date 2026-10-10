@@ -185,7 +185,7 @@ export function GlobalSearch({
             Search message text across all chats
           </DialogDescription>
           <div className="relative mt-3">
-            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[#8696a0]" />
+            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-(--wa-text-2)" />
             {loading && (
               <Loader2 className="absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 animate-spin text-(--wa-accent)" />
             )}
@@ -195,11 +195,11 @@ export function GlobalSearch({
               onChange={(e) => setQuery(e.target.value)}
               placeholder="Search all chats…"
               aria-label="Search all chats"
-              className="h-10 w-full rounded-lg border-none bg-[#f0f2f5] pl-9 pr-9 text-[14px] text-[#111b21] outline-none ring-(--wa-accent)/60 placeholder:text-[#8696a0] focus:ring-2 dark:bg-[#2a3942] dark:text-[#e9edef] dark:placeholder:text-[#8696a0]"
+              className="h-10 w-full rounded-lg border-none bg-(--wa-panel-2) pl-9 pr-9 text-[14px] text-(--wa-text) outline-none ring-(--wa-accent)/60 placeholder:text-(--wa-text-2) focus:ring-2 dark:bg-(--wa-row-active) dark:text-(--wa-text) dark:placeholder:text-(--wa-text-2)"
             />
           </div>
           {hint && (
-            <p className="mt-2 text-[12px] text-[#667781] dark:text-[#8696a0]">
+            <p className="mt-2 text-[12px] text-(--wa-text-2)">
               {hint}
             </p>
           )}
@@ -214,10 +214,10 @@ export function GlobalSearch({
               <div className="mb-3 flex h-14 w-14 items-center justify-center rounded-full bg-(--wa-accent)/10">
                 <TextSearch className="h-6 w-6 text-(--wa-accent)" />
               </div>
-              <p className="text-[14px] font-medium text-[#111b21] dark:text-[#e9edef]">
+              <p className="text-[14px] font-medium text-(--wa-text)">
                 Search every chat at once
               </p>
-              <p className="mt-1.5 max-w-[300px] text-[12.5px] leading-relaxed text-[#667781] dark:text-[#8696a0]">
+              <p className="mt-1.5 max-w-[300px] text-[12.5px] leading-relaxed text-(--wa-text-2)">
                 Type above to find messages across all your chats — matches are
                 grouped per chat. Click one to jump straight to it.
               </p>
@@ -225,12 +225,12 @@ export function GlobalSearch({
           ) : !loading && (!data || data.chats.length === 0) ? (
             <div className="flex flex-col items-center px-6 py-12 text-center">
               <div className="mb-3 flex h-14 w-14 items-center justify-center rounded-full bg-black/5 dark:bg-white/5">
-                <Search className="h-6 w-6 text-[#8696a0]" />
+                <Search className="h-6 w-6 text-(--wa-text-2)" />
               </div>
-              <p className="text-[14px] font-medium text-[#111b21] dark:text-[#e9edef]">
+              <p className="text-[14px] font-medium text-(--wa-text)">
                 No messages found
               </p>
-              <p className="mt-1.5 text-[12.5px] text-[#667781] dark:text-[#8696a0]">
+              <p className="mt-1.5 text-[12.5px] text-(--wa-text-2)">
                 Nothing matches &quot;{trimmed}&quot; in any chat.
               </p>
             </div>
@@ -239,13 +239,13 @@ export function GlobalSearch({
               {data?.chats.map((group) => (
                 <section key={group.id} aria-label={`Matches in ${group.title}`}>
                   {/* Sticky chat header */}
-                  <div className="sticky top-0 z-10 flex items-center gap-2.5 border-b border-black/5 bg-white/95 px-4 py-2 backdrop-blur-sm dark:border-white/5 dark:bg-[#111b21]/95">
+                  <div className="sticky top-0 z-10 flex items-center gap-2.5 border-b border-black/5 bg-white/95 px-4 py-2 backdrop-blur-sm dark:border-white/5 dark:bg-(--wa-panel)/95">
                     <Avatar name={group.title} size={30} />
-                    <span className="min-w-0 flex-1 truncate text-[14px] font-semibold text-[#111b21] dark:text-[#e9edef]">
+                    <span className="min-w-0 flex-1 truncate text-[14px] font-semibold text-(--wa-text)">
                       {group.title}
                     </span>
                     {group.isGroup && (
-                      <span className="rounded bg-black/5 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-[#667781] dark:bg-white/10 dark:text-[#8696a0]">
+                      <span className="rounded bg-black/5 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-(--wa-text-2) dark:bg-white/10 dark:text-(--wa-text-2)">
                         Group
                       </span>
                     )}
@@ -263,10 +263,10 @@ export function GlobalSearch({
                               onOpenChange(false)
                               onOpenMessage(group.id, hit.id)
                             }}
-                            className="group flex w-full items-start gap-3 px-4 py-2 text-left transition-colors hover:bg-[#f5f6f6] dark:hover:bg-[#202c33]"
+                            className="group flex w-full items-start gap-3 px-4 py-2 text-left transition-colors hover:bg-(--wa-row-hover)"
                           >
                             <span
-                              className="mt-1 w-[64px] shrink-0 text-right text-[11px] leading-snug text-[#8696a0]"
+                              className="mt-1 w-[64px] shrink-0 text-right text-[11px] leading-snug text-(--wa-text-2)"
                               aria-hidden
                             >
                               {formatHitTime(hit.ts)}
@@ -289,12 +289,12 @@ export function GlobalSearch({
                               )}
                               <span
                                 className={cn(
-                                  'text-[13.5px] leading-snug text-[#3b4a54] dark:text-[#d1d7db]',
+                                  'text-[13.5px] leading-snug text-(--wa-text)',
                                   hit.type === 'system' && 'italic'
                                 )}
                               >
                                 {meta && (
-                                  <span className="mr-1 inline-flex translate-y-[1px] items-center gap-0.5 rounded bg-black/5 px-1 py-px align-[1px] text-[10px] font-semibold uppercase tracking-wide text-[#667781] dark:bg-white/10 dark:text-[#8696a0]">
+                                  <span className="mr-1 inline-flex translate-y-[1px] items-center gap-0.5 rounded bg-black/5 px-1 py-px align-[1px] text-[10px] font-semibold uppercase tracking-wide text-(--wa-text-2) dark:bg-white/10 dark:text-(--wa-text-2)">
                                     {meta.icon}
                                     {meta.label}
                                   </span>
@@ -307,7 +307,7 @@ export function GlobalSearch({
                       )
                     })}
                     {group.count > group.hits.length && (
-                      <li className="px-4 pb-2 pt-0.5 text-[11.5px] text-[#8696a0]">
+                      <li className="px-4 pb-2 pt-0.5 text-[11.5px] text-(--wa-text-2)">
                         + {(group.count - group.hits.length).toLocaleString()}{' '}
                         more in this chat
                       </li>
