@@ -26,17 +26,20 @@ model Chat {
 }
 
 model Message {
-  id        String   @id @default(cuid())
-  chatId    String
-  chat      Chat     @relation(fields: [chatId], references: [id], onDelete: Cascade)
-  idx       Int
-  ts        DateTime
-  sender    String?
-  body      String   @default("")
-  type      String   @default("text")
-  mediaPath String?
-  mediaName String?
-  starred   Boolean  @default(false)
+  id            String   @id @default(cuid())
+  chatId        String
+  chat          Chat     @relation(fields: [chatId], references: [id], onDelete: Cascade)
+  idx           Int
+  ts            DateTime
+  sender        String?
+  body          String   @default("")
+  type          String   @default("text")
+  mediaPath     String?
+  mediaName     String?
+  starred       Boolean  @default(false)
+  edited        Boolean  @default(false)
+  forwardedFrom String?
+  pollOptions   String?
 
   @@index([chatId, idx])
   @@index([chatId, ts])

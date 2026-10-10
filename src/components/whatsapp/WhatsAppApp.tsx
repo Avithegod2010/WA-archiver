@@ -9,9 +9,18 @@ import {
   HelpCircle,
   Loader2,
   Moon,
+  Paintbrush,
   Sun,
   Upload,
 } from 'lucide-react'
+import {
+  APP_THEMES,
+  applyThemeAttribute,
+  getAppTheme,
+  setAppTheme,
+  subscribeAppTheme,
+  type AppThemeKey,
+} from './app-theme'
 import {
   FONT_FAMILIES,
   getFontFamily,
@@ -81,8 +90,18 @@ export function WhatsAppApp() {
     getFontFamily,
     () => 'default'
   )
+  const themeKey: AppThemeKey = useSyncExternalStore(
+    subscribeAppTheme,
+    getAppTheme,
+    () => 'classic'
+  )
 
   useEffect(() => setMounted(true), [])
+
+  // Mirror the persisted theme onto <html> for the CSS variable cascade
+  useEffect(() => {
+    applyThemeAttribute(themeKey)
+  }, [themeKey])
 
   const refreshChats = useCallback(async () => {
     try {
@@ -368,7 +387,7 @@ export function WhatsAppApp() {
       style={{ fontFamily: FONT_FAMILIES[fontKey].stack }}
     >
       {/* Top app bar */}
-      <div className="flex items-center justify-between bg-[#008069] px-4 py-2 dark:bg-[#1f2c33]">
+      <div className="flex items-center justify-between bg-(--wa-appbar) px-4 py-2">
         <div className="flex min-w-0 items-center gap-2.5">
           <WhatsAppLogo size={30} className="shrink-0 text-white" />
           <div className="min-w-0">
@@ -412,7 +431,7 @@ export function WhatsAppApp() {
                       className={cn(
                         'flex flex-col items-center gap-1 rounded-lg py-2 transition-colors',
                         active
-                          ? 'bg-[#00a884]/10 ring-1 ring-[#00a884]'
+                          ? 'bg-(--wa-accent)/10 ring-1 ring-(--wa-accent)'
                           : 'hover:bg-black/5 dark:hover:bg-white/5'
                       )}
                     >
@@ -423,7 +442,7 @@ export function WhatsAppApp() {
                         Aa
                       </span>
                       <span className="flex items-center gap-0.5 text-[11px] font-medium text-[#3b4a54] dark:text-[#d1d7db]">
-                        {active && <Check className="h-3 w-3 text-[#00a884]" />}
+                        {active && <Check className="h-3 w-3 text-(--wa-accent)" />}
                         {TEXT_SIZES[k].label}
                       </span>
                     </button>
@@ -432,6 +451,74 @@ export function WhatsAppApp() {
               </div>
               <p className="mt-2 text-[11px] leading-snug text-[#667781] dark:text-[#8696a0]">
                 Applies to message text in every chat.
+              </p>
+
+              <div className="my-3 h-px bg-black/10 dark:bg-white/10" />
+
+              <p className="mb-2 flex items-center gap-1.5 text-[13px] font-medium text-[#111b21] dark:text-[#e9edef]">
+                <Paintbrush className="h-3.5 w-3.5 text-(--wa-accent)" />
+                App theme
+              </p>
+              <div className="grid grid-cols-4 gap-2">
+                {(Object.keys(APP_THEMES) as AppThemeKey[]).map((k) => {
+                  const t = APP_THEMES[k]
+                  const active = themeKey === k
+                  return (
+                    <button
+                      key={k}
+                      onClick={() => setAppTheme(k)}
+                      aria-pressed={active}
+                      title={`${t.label} — ${t.hint}`}
+                      className={cn(
+                        'flex flex-col items-center gap-1 rounded-lg py-1.5 transition-colors',
+                        active
+                          ? 'bg-(--wa-accent)/10 ring-1 ring-(--wa-accent)'
+                          : 'hover:bg-black/5 dark:hover:bg-white/5'
+                      )}
+                    >
+                      <span
+                        className={cn(
+                          'relative flex h-9 w-full flex-col overflow-hidden rounded-md ring-1 ring-black/10 dark:ring-white/10',
+                          active && 'ring-2 ring-(--wa-accent)'
+                        )}
+                      >
+                        <span
+                          className="h-2.5 w-full shrink-0"
+                          style={{ background: t.swatch.appbar }}
+                        />
+                        <span className="flex flex-1 items-center justify-center gap-0.5 bg-[#efeae2] pb-0.5">
+                          <i
+                            className="block h-2 w-4 rounded-sm rounded-bl-none"
+                            style={{ background: t.swatch.bubble }}
+                          />
+                          <i
+                            className="block h-2 w-4 rounded-sm rounded-br-none"
+                            style={{ background: t.swatch.accent }}
+                          />
+                        </span>
+                        {active && (
+                          <span className="absolute inset-0 flex items-center justify-center">
+                            <Check className="h-3.5 w-3.5 text-white drop-shadow-[0_1px_1px_rgba(0,0,0,0.6)]" />
+                          </span>
+                        )}
+                      </span>
+                      <span
+                        className={cn(
+                          'w-full truncate text-center text-[10px] font-medium',
+                          active
+                            ? 'text-(--wa-accent-strong) dark:text-(--wa-accent)'
+                            : 'text-[#3b4a54] dark:text-[#d1d7db]'
+                        )}
+                      >
+                        {t.label}
+                      </span>
+                    </button>
+                  )
+                })}
+              </div>
+              <p className="mt-2 text-[11px] leading-snug text-[#667781] dark:text-[#8696a0]">
+                Recolors the whole app — header, bubbles, buttons and charts.
+                Works with light &amp; dark mode.
               </p>
 
               <div className="my-3 h-px bg-black/10 dark:bg-white/10" />
@@ -452,7 +539,7 @@ export function WhatsAppApp() {
                       className={cn(
                         'flex flex-col items-start gap-0.5 rounded-lg px-2.5 py-2 text-left transition-colors',
                         active
-                          ? 'bg-[#00a884]/10 ring-1 ring-[#00a884]'
+                          ? 'bg-(--wa-accent)/10 ring-1 ring-(--wa-accent)'
                           : 'hover:bg-black/5 dark:hover:bg-white/5'
                       )}
                     >
@@ -462,7 +549,7 @@ export function WhatsAppApp() {
                       >
                         <span className="truncate">Aa</span>
                         {active && (
-                          <Check className="ml-auto h-3.5 w-3.5 shrink-0 text-[#00a884]" />
+                          <Check className="ml-auto h-3.5 w-3.5 shrink-0 text-(--wa-accent)" />
                         )}
                       </span>
                       <span className="truncate text-[11px] font-medium text-[#3b4a54] dark:text-[#d1d7db]">
@@ -536,6 +623,7 @@ export function WhatsAppApp() {
           <ChatView
             key={activeId ?? 'empty'}
             detail={detail}
+            setDetail={setDetail}
             loading={detailLoading}
             onBack={() => {
               setActiveId(null)
@@ -550,12 +638,13 @@ export function WhatsAppApp() {
             deleting={deleting}
             onStarMessage={toggleStar}
             initialJumpMessageId={pendingJumpId}
+            onChatChanged={refreshChats}
           />
         </div>
         {importing && (
           <div className="absolute inset-0 z-30 flex items-center justify-center bg-black/20 backdrop-blur-[2px]">
             <div className="flex items-center gap-3 rounded-xl bg-white px-5 py-4 shadow-xl dark:bg-[#202c33]">
-              <Loader2 className="h-5 w-5 animate-spin text-[#00a884]" />
+              <Loader2 className="h-5 w-5 animate-spin text-(--wa-accent)" />
               <span className="text-[14px] font-medium text-[#111b21] dark:text-[#e9edef]">
                 Working on it...
               </span>
@@ -611,7 +700,7 @@ export function WhatsAppApp() {
                 <li>Save the .zip and upload it here</li>
               </ol>
             </div>
-            <div className="rounded-lg bg-[#00a884]/10 p-3 text-[13px] text-[#0b7a63] dark:text-[#6fd3b6]">
+            <div className="rounded-lg bg-(--wa-accent)/10 p-3 text-[13px] text-(--wa-accent-strong)">
               <b>Tip:</b> Choose &quot;with media&quot; to see photos, videos and
               voice messages inside the viewer. Exports without media still show
               message text, dates and senders.
@@ -648,6 +737,32 @@ export function WhatsAppApp() {
                 chats slide into the <b>Archived</b> drawer at the bottom of
                 the list — open it any time and unarchive from there. Pinned
                 chats always sort first.
+              </p>
+            </div>
+            <div>
+              <h4 className="mb-1.5 font-semibold">Saved Messages & local editing</h4>
+              <p>
+                <b>Saved Messages (You)</b> is always pinned at the top of the
+                chat list — a private chat with yourself. Hover any message and
+                tap the <b>bookmark button</b> (or right-click → <b>Forward to
+                Saved Messages</b>) to send it there, media included. Tap the{' '}
+                <b>pencil icon</b> in a chat to enable local editing: tap
+                messages to <b>multi-select</b>, then forward, star, copy or{' '}
+                <b>delete for everyone</b>; edit your own text with the{' '}
+                <b>Edit</b> action (an “edited” mark appears); and use the{' '}
+                <b>composer</b> to send messages, photos, videos, documents and{' '}
+                <b>polls</b> — complete with emoji picker and attach menu,
+                exactly like WhatsApp.
+              </p>
+            </div>
+            <div>
+              <h4 className="mb-1.5 font-semibold">Themes &amp; fonts</h4>
+              <p>
+                Open the <b>Aa menu</b> in the top bar to pick an <b>app
+                theme</b> — WhatsApp, Telegram, Sunset, Violet, Rose, Ocean,
+                Graphite or Midnight — recoloring the header, bubbles, buttons
+                and charts in both light and dark mode, alongside the{' '}
+                <b>reading text size</b> and the seven <b>chat fonts</b>.
               </p>
             </div>
             <div>

@@ -204,7 +204,7 @@ export function ChatInfo({
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="wa-scroll max-h-[85vh] overflow-y-auto bg-[#f0f2f5] p-0 dark:bg-[#111b21] sm:max-w-md">
-        <DialogHeader className="bg-[#008069] p-6 dark:bg-[#202c33]">
+        <DialogHeader className="bg-(--wa-appbar) p-6">
           <div className="flex flex-col items-center gap-3 text-center">
             <Avatar name={chat.title} size={88} className="ring-4 ring-white/20" />
             <div>
@@ -313,7 +313,7 @@ export function ChatInfo({
                           'w-full rounded-t-[2px] transition-colors',
                           h.hour === peakHour.hour && peakHour.count > 0
                             ? 'bg-[#f2a33c]'
-                            : 'bg-[#00a884]/70'
+                            : 'bg-(--wa-accent)/70'
                         )}
                         style={{
                           height: `${Math.max((h.count / maxHour) * 100, h.count > 0 ? 5 : 2)}%`,
@@ -409,7 +409,7 @@ export function ChatInfo({
                       ×{count}
                     </span>
                     {i === 0 && (
-                      <span className="mt-0.5 text-[10px] uppercase tracking-wide text-[#00a884]">
+                      <span className="mt-0.5 text-[10px] uppercase tracking-wide text-(--wa-accent)">
                         favorite
                       </span>
                     )}
@@ -432,7 +432,7 @@ export function ChatInfo({
                     className="rounded-full border border-black/5 bg-white px-2.5 py-1 text-[12px] text-[#3b4a54] shadow-sm dark:border-white/5 dark:bg-[#202c33] dark:text-[#d1d7db]"
                   >
                     {word}
-                    <b className="ml-1.5 tabular-nums text-[#00a884]">
+                    <b className="ml-1.5 tabular-nums text-(--wa-accent)">
                       {count.toLocaleString()}
                     </b>
                   </span>
@@ -472,7 +472,7 @@ export function ChatInfo({
 
           {/* Busiest day */}
           {stats.busiestDay && (
-            <section className="flex items-center gap-2 rounded-lg bg-[#008069]/10 px-3 py-2.5 text-[13px] text-[#008069] dark:bg-[#00a884]/10 dark:text-[#00a884]">
+            <section className="flex items-center gap-2 rounded-lg bg-(--wa-accent)/10 px-3 py-2.5 text-[13px] text-(--wa-accent-strong) dark:text-(--wa-accent)">
               <BarChart3 className="h-4 w-4 shrink-0" />
               Busiest day:{' '}
               {new Date(stats.busiestDay.key).toLocaleDateString('en-GB', {

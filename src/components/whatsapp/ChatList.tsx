@@ -25,7 +25,7 @@ import {
   ChevronRight,
   UserRound,
 } from 'lucide-react'
-import { Avatar } from './Avatar'
+import { Avatar, SavedAvatar } from './Avatar'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import {
@@ -38,7 +38,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
-import type { ChatSummary } from './types'
+import { SAVED_CHAT_ID, type ChatSummary } from './types'
 import { cn } from '@/lib/utils'
 
 function formatListTime(iso: string | null): string {
@@ -121,6 +121,7 @@ function ChatRow({
   onToggleArchive: (id: string, archived: boolean) => void
   onDelete: (chat: ChatSummary) => void
 }) {
+  const isSaved = chat.id === SAVED_CHAT_ID
   return (
     <button
       data-chat-idx={index}
@@ -128,17 +129,17 @@ function ChatRow({
         'group relative flex w-full items-center gap-3 px-3 py-2.5 text-left transition-colors hover:bg-[#f5f6f6] dark:hover:bg-[#202c33]',
         activeId === chat.id && 'bg-[#f0f2f5] dark:bg-[#2a3942]',
         cursor === index &&
-          'ring-1 ring-inset ring-[#00a884]/70 bg-[#00a884]/[0.04] dark:bg-[#202c33]'
+          'ring-1 ring-inset ring-(--wa-accent)/70 bg-(--wa-accent)/[0.04] dark:bg-[#202c33]'
       )}
       onClick={() => onSelect(chat.id)}
     >
       {activeId === chat.id && (
         <span
           aria-hidden
-          className="absolute left-0 top-1/2 h-7 w-[3px] -translate-y-1/2 rounded-r-full bg-[#00a884]"
+          className="absolute left-0 top-1/2 h-7 w-[3px] -translate-y-1/2 rounded-r-full bg-(--wa-accent)"
         />
       )}
-      <Avatar name={chat.title} size={49} />
+      {isSaved ? <SavedAvatar size={49} /> : <Avatar name={chat.title} size={49} />}
       <div className="min-w-0 flex-1 border-b border-black/5 py-1.5 dark:border-white/5">
         <div className="flex items-baseline justify-between gap-2">
           <span className="flex min-w-0 items-center gap-1">
@@ -150,7 +151,7 @@ function ChatRow({
             >
               {chat.title}
             </span>
-            {chat.pinned && (
+            {chat.pinned && !isSaved && (
               <Pin
                 className="h-3 w-3 shrink-0 fill-[#8696a0] text-[#8696a0]"
                 aria-label="Pinned"
@@ -187,7 +188,7 @@ function ChatRow({
             </span>
           </div>
           <span className="hidden shrink-0 items-center group-hover:flex">
-            {!isArchived && (
+            {!isArchived && !isSaved && (
               <span
                 role="button"
                 tabIndex={0}
@@ -195,7 +196,7 @@ function ChatRow({
                   chat.pinned ? `Unpin ${chat.title}` : `Pin ${chat.title}`
                 }
                 title={chat.pinned ? 'Unpin chat' : 'Pin chat'}
-                className="rounded p-1 text-[#8696a0] hover:bg-black/10 hover:text-[#00a884] dark:hover:bg-white/10"
+                className="rounded p-1 text-[#8696a0] hover:bg-black/10 hover:text-(--wa-accent) dark:hover:bg-white/10"
                 onClick={(e) => {
                   e.stopPropagation()
                   onTogglePin(chat.id, !chat.pinned)
@@ -214,49 +215,53 @@ function ChatRow({
                 )}
               </span>
             )}
-            <span
-              role="button"
-              tabIndex={0}
-              aria-label={
-                isArchived ? `Unarchive ${chat.title}` : `Archive ${chat.title}`
-              }
-              title={isArchived ? 'Unarchive chat' : 'Archive chat'}
-              className="rounded p-1 text-[#8696a0] hover:bg-black/10 hover:text-[#00a884] dark:hover:bg-white/10"
-              onClick={(e) => {
-                e.stopPropagation()
-                onToggleArchive(chat.id, !isArchived)
-              }}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter' || e.key === ' ') {
+            {!isArchived && !isSaved && (
+              <span
+                role="button"
+                tabIndex={0}
+                aria-label={
+                  isArchived ? `Unarchive ${chat.title}` : `Archive ${chat.title}`
+                }
+                title={isArchived ? 'Unarchive chat' : 'Archive chat'}
+                className="rounded p-1 text-[#8696a0] hover:bg-black/10 hover:text-(--wa-accent) dark:hover:bg-white/10"
+                onClick={(e) => {
                   e.stopPropagation()
                   onToggleArchive(chat.id, !isArchived)
-                }
-              }}
-            >
-              {isArchived ? (
-                <ArchiveRestore className="h-4 w-4" />
-              ) : (
-                <Archive className="h-4 w-4" />
-              )}
-            </span>
-            <span
-              role="button"
-              tabIndex={0}
-              aria-label={`Delete ${chat.title}`}
-              className="rounded p-1 text-[#8696a0] hover:bg-black/10 hover:text-rose-500 dark:hover:bg-white/10"
-              onClick={(e) => {
-                e.stopPropagation()
-                onDelete(chat)
-              }}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter' || e.key === ' ') {
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' || e.key === ' ') {
+                    e.stopPropagation()
+                    onToggleArchive(chat.id, !isArchived)
+                  }
+                }}
+              >
+                {isArchived ? (
+                  <ArchiveRestore className="h-4 w-4" />
+                ) : (
+                  <Archive className="h-4 w-4" />
+                )}
+              </span>
+            )}
+            {!isSaved && (
+              <span
+                role="button"
+                tabIndex={0}
+                aria-label={`Delete ${chat.title}`}
+                className="rounded p-1 text-[#8696a0] hover:bg-black/10 hover:text-rose-500 dark:hover:bg-white/10"
+                onClick={(e) => {
                   e.stopPropagation()
                   onDelete(chat)
-                }
-              }}
-            >
-              <Trash2 className="h-4 w-4" />
-            </span>
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' || e.key === ' ') {
+                    e.stopPropagation()
+                    onDelete(chat)
+                  }
+                }}
+              >
+                <Trash2 className="h-4 w-4" />
+              </span>
+            )}
           </span>
         </div>
       </div>
@@ -417,7 +422,7 @@ export function ChatList({
       />
 
       {/* List header */}
-      <div className="bg-[#008069] px-4 pb-2 pt-3 dark:bg-[#202c33]">
+      <div className="bg-(--wa-appbar) px-4 pb-2 pt-3">
         <div className="flex items-center justify-between">
           <h1 className="text-[19px] font-semibold text-white dark:text-[#e9edef]">
             Chats
@@ -503,12 +508,12 @@ export function ChatList({
                   className={cn(
                     'flex w-full flex-col items-center rounded-2xl border-2 border-dashed px-6 py-10 transition-colors',
                     dragOver
-                      ? 'border-[#00a884] bg-[#00a884]/5'
+                      ? 'border-(--wa-accent) bg-(--wa-accent)/5'
                       : 'border-black/15 dark:border-white/15'
                   )}
                 >
-                  <div className="mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-[#00a884]/10">
-                    <Upload className="h-7 w-7 text-[#00a884]" />
+                  <div className="mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-(--wa-accent)/10">
+                    <Upload className="h-7 w-7 text-(--wa-accent)" />
                   </div>
                   <p className="text-[15px] font-medium text-[#111b21] dark:text-[#e9edef]">
                     Import your chats
@@ -519,7 +524,7 @@ export function ChatList({
                     button above.
                   </p>
                   <Button
-                    className="mt-5 gap-2 rounded-full bg-[#00a884] text-white hover:bg-[#029374]"
+                    className="mt-5 gap-2 rounded-full bg-(--wa-accent) text-white hover:bg-(--wa-accent-strong)"
                     onClick={onDemo}
                     disabled={importing}
                   >
@@ -539,7 +544,7 @@ export function ChatList({
                 </p>
                 <Button
                   variant="secondary"
-                  className="gap-2 rounded-full bg-[#00a884]/10 text-[13px] font-medium text-[#008069] hover:bg-[#00a884]/20 dark:bg-[#00a884]/15 dark:text-[#6fd3b6]"
+                  className="gap-2 rounded-full bg-(--wa-accent)/10 text-[13px] font-medium text-(--wa-accent-strong) hover:bg-(--wa-accent)/20 dark:bg-(--wa-accent)/15 dark:text-(--wa-accent)"
                   onClick={() => onOpenGlobalSearch(query.trim())}
                 >
                   <TextSearch className="h-4 w-4" />
@@ -557,7 +562,7 @@ export function ChatList({
                 className="group flex w-full items-center gap-3 border-b border-black/5 px-4 py-2.5 text-left transition-colors hover:bg-[#f5f6f6] dark:border-white/5 dark:hover:bg-[#202c33]"
                 title={`Search messages for "${query.trim()}"`}
               >
-                <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[#00a884]/10 text-[#008069] transition-colors group-hover:bg-[#00a884] group-hover:text-white dark:bg-[#00a884]/20 dark:text-[#6fd3b6] dark:group-hover:text-white">
+                <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-(--wa-accent)/10 text-(--wa-accent-strong) transition-colors group-hover:bg-(--wa-accent) group-hover:text-white dark:bg-(--wa-accent)/20 dark:text-(--wa-accent) dark:group-hover:text-white">
                   <TextSearch className="h-4 w-4" />
                 </span>
                 <span className="min-w-0 flex-1">
@@ -665,9 +670,9 @@ export function ChatList({
 
       {/* Drag overlay */}
       {dragOver && chats.length > 0 && (
-        <div className="pointer-events-none absolute inset-0 z-20 flex items-center justify-center bg-[#00a884]/10 backdrop-blur-[1px]">
-          <div className="rounded-2xl border-2 border-dashed border-[#00a884] bg-white/95 px-8 py-6 text-center dark:bg-[#111b21]/95">
-            <Upload className="mx-auto mb-2 h-8 w-8 text-[#00a884]" />
+        <div className="pointer-events-none absolute inset-0 z-20 flex items-center justify-center bg-(--wa-accent)/10 backdrop-blur-[1px]">
+          <div className="rounded-2xl border-2 border-dashed border-(--wa-accent) bg-white/95 px-8 py-6 text-center dark:bg-[#111b21]/95">
+            <Upload className="mx-auto mb-2 h-8 w-8 text-(--wa-accent)" />
             <p className="text-[14px] font-medium text-[#111b21] dark:text-[#e9edef]">
               Drop to import chat export
             </p>

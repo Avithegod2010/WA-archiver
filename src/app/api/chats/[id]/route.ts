@@ -61,6 +61,12 @@ export async function DELETE(
   ctx: { params: Promise<{ id: string }> }
 ) {
   const { id } = await ctx.params
+  if (id === 'saved-messages') {
+    return NextResponse.json(
+      { error: 'Saved Messages cannot be deleted' },
+      { status: 403 }
+    )
+  }
   const chat = await db.chat.findUnique({ where: { id }, select: { id: true } })
   if (!chat) {
     return NextResponse.json({ error: 'Chat not found' }, { status: 404 })

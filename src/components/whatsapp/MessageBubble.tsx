@@ -4,11 +4,15 @@ import { useMemo, useRef, useState } from 'react'
 import {
   Ban,
   BarChart3,
+  BookmarkPlus,
+  Check,
   Copy,
   Download,
   FileText,
+  Forward,
   MapPin,
   Mic,
+  Pencil,
   PhoneMissed,
   Star,
   StarOff,
@@ -26,6 +30,7 @@ import { Avatar } from './Avatar'
 import { BubbleTail, TicksDouble } from './icons'
 import { Lightbox } from './Lightbox'
 import { VoicePlayer } from './VoicePlayer'
+import { PollBubble } from './PollBubble'
 import { colorForName, type ChatMessage } from './types'
 import { cn } from '@/lib/utils'
 
@@ -228,7 +233,7 @@ function LinkifiedText({
                 target="_blank"
                 rel="noreferrer noopener"
                 onClick={(e) => e.stopPropagation()}
-                className="break-all text-[#027eb5] underline decoration-[#027eb5]/35 underline-offset-2 hover:decoration-[#027eb5] dark:text-[#53bdeb] dark:decoration-[#53bdeb]/35"
+                className="break-all text-(--wa-link) underline decoration-(--wa-link)/35 underline-offset-2 hover:decoration-(--wa-link)"
               >
                 {url}
               </a>
@@ -239,6 +244,16 @@ function LinkifiedText({
         return <Highlight key={i} text={chunk} query={query} regex={regex} />
       })}
     </>
+  )
+}
+
+/** Forwarded header chip — marks a message that was saved/forwarded here. */
+function ForwardedChip({ from }: { from: string }) {
+  return (
+    <p className="mb-0.5 flex items-center gap-1 text-[12.5px] font-medium italic text-(--wa-accent-strong)">
+      <Forward className="h-3.5 w-3.5 shrink-0" />
+      Forwarded from {from}
+    </p>
   )
 }
 
@@ -263,6 +278,9 @@ function Meta({ msg, outgoing, onMedia }: MetaProps) {
       )}
     >
       <span className="whitespace-nowrap">{formatTime(msg.ts)}</span>
+      {msg.edited && (
+        <span className="whitespace-nowrap italic opacity-80">edited</span>
+      )}
       {msg.starred && (
         <Star className="h-3 w-3 fill-[#f2a33c] text-[#f2a33c] drop-shadow-sm" />
       )}
@@ -296,7 +314,7 @@ function MediaPlaceholder({
 function DocumentChip({ name, src }: { name: string; src: string | null }) {
   const inner = (
     <div className="flex items-center gap-2.5 rounded-md bg-black/5 px-3 py-2.5 transition-colors dark:bg-white/5">
-      <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded bg-[#008069]/10 text-[#008069] dark:bg-[#00a884]/20 dark:text-[#00a884]">
+      <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded bg-(--wa-accent)/10 text-(--wa-accent)">
         <FileText className="h-5 w-5" />
       </div>
       <div className="min-w-0">
@@ -378,12 +396,38 @@ interface BubbleMenuProps {
   msg: ChatMessage
   src: string | null
   onToggleStar?: (id: string, starred: boolean) => void
+  onForwardSaved?: (msg: ChatMessage) => void
+  onEditMessage?: (msg: ChatMessage) => void
 }
 
 /** WhatsApp-style message context menu (right-click / long-press). */
-function BubbleMenu({ msg, src, onToggleStar }: BubbleMenuProps) {
+function BubbleMenu({
+  msg,
+  src,
+  onToggleStar,
+  onForwardSaved,
+  onEditMessage,
+}: BubbleMenuProps) {
+  const editable =
+    !!onEditMessage &&
+    msg.sender === 'You' &&
+    (msg.type === 'text' || msg.type === 'poll')
   return (
-    <ContextMenuContent className="min-w-[180px]">
+    <ContextMenuContent className="min-w-[200px]">
+      {onForwardSaved && (
+        <ContextMenuItem
+          onClick={() => onForwardSaved(msg)}
+          className="gap-2"
+        >
+          <BookmarkPlus className="h-4 w-4 text-(--wa-accent)" /> Forward to
+          Saved Messages
+        </ContextMenuItem>
+      )}
+      {editable && (
+        <ContextMenuItem onClick={() => onEditMessage(msg)} className="gap-2">
+          <Pencil className="h-4 w-4" /> Edit message
+        </ContextMenuItem>
+      )}
       {onToggleStar && (
         <ContextMenuItem
           onClick={() => onToggleStar(msg.id, !msg.starred)}
@@ -420,15 +464,29 @@ function BubbleMenu({ msg, src, onToggleStar }: BubbleMenuProps) {
 interface HoverActionsProps {
   msg: ChatMessage
   onToggleStar?: (id: string, starred: boolean) => void
+  onForwardSaved?: (msg: ChatMessage) => void
 }
 
-function HoverActions({ msg, onToggleStar }: HoverActionsProps) {
+function HoverActions({ msg, onToggleStar, onForwardSaved }: HoverActionsProps) {
   const cls = cn(
     'mb-1 hidden h-7 w-7 shrink-0 items-center justify-center rounded-full bg-white text-[#54656f] shadow-md transition-opacity sm:flex',
     'opacity-0 group-hover/msg:opacity-100 focus-visible:opacity-100 dark:bg-[#233138] dark:text-[#aebac1]'
   )
   return (
     <>
+      {onForwardSaved && (
+        <button
+          onClick={(e) => {
+            e.stopPropagation()
+            onForwardSaved(msg)
+          }}
+          aria-label="Forward to Saved Messages"
+          title="Forward to Saved Messages"
+          className={cls}
+        >
+          <BookmarkPlus className="h-3.5 w-3.5 transition-colors hover:text-(--wa-accent)" />
+        </button>
+      )}
       {onToggleStar && (
         <button
           onClick={(e) => {
@@ -464,6 +522,23 @@ function HoverActions({ msg, onToggleStar }: HoverActionsProps) {
   )
 }
 
+/** WhatsApp-style selection circle shown in select mode. */
+function SelectCircle({ selected }: { selected: boolean }) {
+  return (
+    <span
+      className={cn(
+        'flex h-6 w-6 shrink-0 items-center justify-center rounded-full border-2 transition-colors',
+        selected
+          ? 'border-(--wa-accent) bg-(--wa-accent)'
+          : 'border-[#8696a0] bg-white/70 dark:bg-black/30'
+      )}
+      aria-hidden
+    >
+      {selected && <Check className="h-3.5 w-3.5 text-white" />}
+    </span>
+  )
+}
+
 export function MessageBubble({
   msg,
   chatId,
@@ -473,6 +548,12 @@ export function MessageBubble({
   onToggleStar,
   highlight,
   highlightRegex,
+  selectMode,
+  selected,
+  anySelected,
+  onToggleSelect,
+  onForwardSaved,
+  onEditMessage,
 }: {
   msg: ChatMessage
   chatId: string
@@ -482,6 +563,12 @@ export function MessageBubble({
   onToggleStar?: (id: string, starred: boolean) => void
   highlight?: string
   highlightRegex?: boolean
+  selectMode?: boolean
+  selected?: boolean
+  anySelected?: boolean
+  onToggleSelect?: (id: string) => void
+  onForwardSaved?: (msg: ChatMessage) => void
+  onEditMessage?: (msg: ChatMessage) => void
 }) {
   const outgoing = msg.sender === 'You'
   const senderColor = useMemo(
@@ -501,7 +588,77 @@ export function MessageBubble({
         onToggleStar={onToggleStar}
         highlight={highlight}
         highlightRegex={highlightRegex}
+        selectMode={selectMode}
+        selected={selected}
+        anySelected={anySelected}
+        onToggleSelect={onToggleSelect}
+        onForwardSaved={onForwardSaved}
+        onEditMessage={onEditMessage}
       />
+    )
+  }
+
+  if (selectMode) {
+    return (
+      <div
+        className={cn(
+          'group/msg flex items-center gap-2 px-2 transition-opacity sm:px-4',
+          anySelected && !selected && 'opacity-50'
+        )}
+        onClick={() => onToggleSelect?.(msg.id)}
+        role="checkbox"
+        aria-checked={!!selected}
+        tabIndex={0}
+        onKeyDown={(e) => {
+          if (e.key === ' ' || e.key === 'Enter') {
+            e.preventDefault()
+            onToggleSelect?.(msg.id)
+          }
+        }}
+      >
+        <SelectCircle selected={!!selected} />
+        {isGroup ? (
+          showAvatar ? (
+            <Avatar name={msg.sender ?? '?'} size={28} className="mb-0.5" />
+          ) : (
+            <div className="w-7 shrink-0" />
+          )
+        ) : null}
+        <div className="relative min-w-0 max-w-[78%] sm:max-w-[65%]">
+          {showTail && (
+            <BubbleTail
+              side="left"
+              className="absolute -left-[7px] top-0 fill-white dark:fill-[#202c33]"
+            />
+          )}
+          <div
+            className={cn(
+              'relative rounded-[7.5px] px-2.5 py-1.5 text-(length:--wa-msg-size,14.2px) leading-[1.34]',
+              'bg-white text-[#111b21] shadow-[0_1px_0.5px_rgba(11,20,26,0.13)] dark:bg-[#202c33] dark:text-[#e9edef] dark:shadow-[0_1px_0.5px_rgba(0,0,0,0.25)]',
+              !showTail && 'rounded-tl-none',
+              selected && 'ring-2 ring-(--wa-accent)'
+            )}
+          >
+            {isGroup && msg.sender && (
+              <p
+                className="mb-0.5 text-[12.5px] font-semibold leading-tight"
+                style={{ color: senderColor }}
+              >
+                {msg.sender}
+              </p>
+            )}
+            <Content
+              msg={msg}
+              chatId={chatId}
+              src={src}
+              outgoing={false}
+              highlight={highlight}
+              highlightRegex={highlightRegex}
+            />
+            <Meta msg={msg} outgoing={false} onMedia={false} />
+          </div>
+        </div>
+      </div>
     )
   }
 
@@ -552,9 +709,19 @@ export function MessageBubble({
             </div>
           </div>
         </ContextMenuTrigger>
-        <BubbleMenu msg={msg} src={src} onToggleStar={onToggleStar} />
+        <BubbleMenu
+          msg={msg}
+          src={src}
+          onToggleStar={onToggleStar}
+          onForwardSaved={onForwardSaved}
+          onEditMessage={onEditMessage}
+        />
       </ContextMenu>
-      <HoverActions msg={msg} onToggleStar={onToggleStar} />
+      <HoverActions
+        msg={msg}
+        onToggleStar={onToggleStar}
+        onForwardSaved={onForwardSaved}
+      />
     </div>
   )
 }
@@ -567,6 +734,12 @@ function OutgoingBubble({
   onToggleStar,
   highlight,
   highlightRegex,
+  selectMode,
+  selected,
+  anySelected,
+  onToggleSelect,
+  onForwardSaved,
+  onEditMessage,
 }: {
   msg: ChatMessage
   chatId: string
@@ -575,42 +748,87 @@ function OutgoingBubble({
   onToggleStar?: (id: string, starred: boolean) => void
   highlight?: string
   highlightRegex?: boolean
+  selectMode?: boolean
+  selected?: boolean
+  anySelected?: boolean
+  onToggleSelect?: (id: string) => void
+  onForwardSaved?: (msg: ChatMessage) => void
+  onEditMessage?: (msg: ChatMessage) => void
 }) {
   const press = usePressFeedback()
+
+  const bubble = (
+    <div className="relative min-w-0 max-w-[78%] sm:max-w-[65%]">
+      {showTail && (
+        <BubbleTail
+          side="right"
+          className="absolute -right-[7px] top-0 fill-(--wa-out)"
+        />
+      )}
+      <div
+        {...(selectMode ? {} : press.handlers)}
+        className={cn(
+          'relative rounded-[7.5px] px-2.5 py-1.5 text-(length:--wa-msg-size,14.2px) leading-[1.34] transition-[transform,box-shadow] duration-150',
+          'bg-(--wa-out) text-[#111b21] shadow-[0_1px_0.5px_rgba(11,20,26,0.13)] dark:text-[#e9edef] dark:shadow-[0_1px_0.5px_rgba(0,0,0,0.25)]',
+          !showTail && 'rounded-tr-none',
+          !selectMode && press.pressing && 'scale-[0.98]',
+          selectMode && selected && 'ring-2 ring-(--wa-accent)'
+        )}
+      >
+        {msg.forwardedFrom && <ForwardedChip from={msg.forwardedFrom} />}
+        <Content
+          msg={msg}
+          chatId={chatId}
+          src={src}
+          outgoing
+          highlight={highlight}
+          highlightRegex={highlightRegex}
+        />
+        <Meta msg={msg} outgoing onMedia={false} />
+      </div>
+    </div>
+  )
+
+  if (selectMode) {
+    return (
+      <div
+        className={cn(
+          'group/msg flex items-center justify-end gap-2 px-2 transition-opacity sm:px-4',
+          anySelected && !selected && 'opacity-50'
+        )}
+        onClick={() => onToggleSelect?.(msg.id)}
+        role="checkbox"
+        aria-checked={!!selected}
+        tabIndex={0}
+        onKeyDown={(e) => {
+          if (e.key === ' ' || e.key === 'Enter') {
+            e.preventDefault()
+            onToggleSelect?.(msg.id)
+          }
+        }}
+      >
+        {bubble}
+        <SelectCircle selected={!!selected} />
+      </div>
+    )
+  }
+
   return (
     <div className="group/msg flex justify-end gap-1.5 px-2 sm:px-4">
-      <HoverActions msg={msg} onToggleStar={onToggleStar} />
+      <HoverActions
+        msg={msg}
+        onToggleStar={onToggleStar}
+        onForwardSaved={onForwardSaved}
+      />
       <ContextMenu>
-        <ContextMenuTrigger asChild>
-          <div className="relative min-w-0 max-w-[78%] sm:max-w-[65%]">
-            {showTail && (
-              <BubbleTail
-                side="right"
-                className="absolute -right-[7px] top-0 fill-[#d9fdd3] dark:fill-[#005c4b]"
-              />
-            )}
-            <div
-              {...press.handlers}
-              className={cn(
-                'relative rounded-[7.5px] px-2.5 py-1.5 text-(length:--wa-msg-size,14.2px) leading-[1.34] transition-[transform,box-shadow] duration-150',
-                'bg-[#d9fdd3] text-[#111b21] shadow-[0_1px_0.5px_rgba(11,20,26,0.13)] dark:bg-[#005c4b] dark:text-[#e9edef] dark:shadow-[0_1px_0.5px_rgba(0,0,0,0.25)]',
-                !showTail && 'rounded-tr-none',
-                press.pressing && 'scale-[0.98]'
-              )}
-            >
-              <Content
-                msg={msg}
-                chatId={chatId}
-                src={src}
-                outgoing
-                highlight={highlight}
-                highlightRegex={highlightRegex}
-              />
-              <Meta msg={msg} outgoing onMedia={false} />
-            </div>
-          </div>
-        </ContextMenuTrigger>
-        <BubbleMenu msg={msg} src={src} onToggleStar={onToggleStar} />
+        <ContextMenuTrigger asChild>{bubble}</ContextMenuTrigger>
+        <BubbleMenu
+          msg={msg}
+          src={src}
+          onToggleStar={onToggleStar}
+          onForwardSaved={onForwardSaved}
+          onEditMessage={onEditMessage}
+        />
       </ContextMenu>
     </div>
   )
@@ -647,23 +865,13 @@ function Content({
         </p>
       )
     case 'poll':
-      return (
-        <div className="min-w-[200px]">
-          <p className="flex items-center gap-1.5 font-medium text-[#111b21] dark:text-[#e9edef]">
-            <BarChart3 className="h-4 w-4 shrink-0" />
-            POLL: {msg.body}
-          </p>
-          <p className="mt-1 text-[12px] text-[#667781] dark:text-[#8696a0]">
-            Poll options are not included in exports
-          </p>
-        </div>
-      )
+      return <PollBubble msg={msg} outgoing={outgoing} />
     case 'location': {
       const url = extractUrl(msg.body)
       return (
         <div className="min-w-[180px]">
           <p className="flex items-center gap-1.5 font-medium">
-            <MapPin className="h-4 w-4 shrink-0 text-[#00a884]" />
+            <MapPin className="h-4 w-4 shrink-0 text-(--wa-accent)" />
             Location
           </p>
           {url && (
@@ -671,7 +879,7 @@ function Content({
               href={url}
               target="_blank"
               rel="noreferrer"
-              className="mt-0.5 block truncate text-[13px] text-[#027eb5] hover:underline dark:text-[#53bdeb]"
+              className="mt-0.5 block truncate text-[13px] text-(--wa-link) hover:underline"
             >
               {url}
             </a>
@@ -682,7 +890,7 @@ function Content({
     case 'contact':
       return (
         <div className="flex items-center gap-2.5 rounded-md bg-black/5 px-3 py-2.5 dark:bg-white/5">
-          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[#008069]/10 text-[#008069] dark:bg-[#00a884]/20 dark:text-[#00a884]">
+          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-(--wa-accent)/10 text-(--wa-accent)">
             <UserRound className="h-5 w-5" />
           </div>
           <div className="min-w-0">
@@ -742,7 +950,7 @@ function Content({
           ) : (
             <div className="min-w-[230px]">
               <div className="flex items-center gap-2">
-                <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-[#00a884]/15 text-[#00a884]">
+                <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-(--wa-accent)/15 text-(--wa-accent)">
                   <Mic className="h-4 w-4" />
                 </span>
                 <span className="text-[13px] text-[#667781] dark:text-[#8696a0]">

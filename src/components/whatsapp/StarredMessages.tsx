@@ -76,7 +76,7 @@ function Preview({ msg }: { msg: ChatMessage }) {
   if (msg.type === 'location') {
     return (
       <span className="flex items-center gap-1">
-        <MapPin className="h-3 w-3 text-[#00a884]" /> Location
+        <MapPin className="h-3 w-3 text-(--wa-accent)" /> Location
       </span>
     )
   }
@@ -212,13 +212,13 @@ export function StarredMessages({
                     }}
                     className={cn(
                       'group flex w-full cursor-pointer items-start gap-2.5 rounded-lg border border-black/5 bg-[#f0f2f5]/60 p-2.5 text-left transition-colors',
-                      'hover:bg-[#00a884]/10 hover:ring-1 hover:ring-[#00a884]/40 dark:border-white/5 dark:bg-[#202c33]/60 dark:hover:bg-[#00a884]/15'
+                      'hover:bg-(--wa-accent)/10 hover:ring-1 hover:ring-(--wa-accent)/40 dark:border-white/5 dark:bg-[#202c33]/60 dark:hover:bg-(--wa-accent)/15'
                     )}
                   >
                     {isGroup && m.sender ? (
                       <Avatar name={m.sender} size={30} className="mt-0.5 shrink-0" />
                     ) : m.sender === 'You' ? (
-                      <span className="mt-0.5 flex h-[30px] w-[30px] shrink-0 items-center justify-center rounded-full bg-[#00a884]/15 text-[10px] font-semibold text-[#008069] dark:text-[#6fd3b6]">
+                      <span className="mt-0.5 flex h-[30px] w-[30px] shrink-0 items-center justify-center rounded-full bg-(--wa-accent)/15 text-[10px] font-semibold text-(--wa-accent-strong)">
                         You
                       </span>
                     ) : (

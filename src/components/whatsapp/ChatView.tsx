@@ -13,15 +13,19 @@ import {
   ArrowDownToLine,
   ArrowLeft,
   ArrowUpToLine,
+  BookmarkPlus,
   CalendarDays,
   Check,
   ChevronDown,
   ChevronUp,
+  Copy,
   Download,
   Images,
+  ListChecks,
   Loader2,
   Lock,
   Palette,
+  Pencil,
   Regex,
   RotateCcw,
   Search,
@@ -32,17 +36,38 @@ import {
   X,
   Info,
 } from 'lucide-react'
-import { Avatar } from './Avatar'
+import { Avatar, SavedAvatar } from './Avatar'
 import { MessageBubble } from './MessageBubble'
 import { ChatInfo } from './ChatInfo'
 import { MediaGallery } from './MediaGallery'
 import { StarredMessages } from './StarredMessages'
+import { Composer } from './Composer'
+import { PollDialog } from './PollDialog'
 import { DoodleBackground } from './icons'
-import type { ChatDetail, ChatMessage } from './types'
+import { SAVED_CHAT_ID, type ChatDetail, type ChatMessage } from './types'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import { Textarea } from '@/components/ui/textarea'
 import { Calendar } from '@/components/ui/calendar'
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog'
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog'
 import {
   Popover,
   PopoverContent,
@@ -184,20 +209,24 @@ function dayKey(iso: string): string {
 
 export function ChatView({
   detail,
+  setDetail,
   loading,
   onBack,
   onDelete,
   deleting,
   onStarMessage,
   initialJumpMessageId,
+  onChatChanged,
 }: {
   detail: ChatDetail | null
+  setDetail: React.Dispatch<React.SetStateAction<ChatDetail | null>>
   loading: boolean
   onBack: () => void
   onDelete: (id: string) => void
   deleting: boolean
   onStarMessage?: (messageId: string, starred: boolean) => void
   initialJumpMessageId?: string | null
+  onChatChanged?: () => void
 }) {
   const scrollRef = useRef<HTMLDivElement>(null)
   const visibleCountRef = useRef(PAGE_SIZE)
@@ -221,6 +250,18 @@ export function ChatView({
   const [matchIdx, setMatchIdx] = useState(0)
   const [filterKey, setFilterKey] = useState('')
   const [isNarrow, setIsNarrow] = useState(false)
+
+  /* ----- Local edit mode (pencil): selection, edit, delete, compose ----- */
+  const [editMode, setEditMode] = useState(false)
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
+  const [pollOpen, setPollOpen] = useState(false)
+  const [pollCreating, setPollCreating] = useState(false)
+  const [editing, setEditing] = useState<ChatMessage | null>(null)
+  const [editBody, setEditBody] = useState('')
+  const [editSaving, setEditSaving] = useState(false)
+  const [deleteConfirm, setDeleteConfirm] = useState(false)
+  const [deleteBusy, setDeleteBusy] = useState(false)
+
   const chatId = detail?.chat.id ?? ''
   const { key: wallpaperKey, isCustom: wallpaperIsCustom } = useWallpaper(chatId)
   const wallpaper = WALLPAPERS[wallpaperKey] ?? WALLPAPERS.doodle
@@ -424,6 +465,212 @@ export function ChatView({
     toast.success(starred ? 'Message starred' : 'Message unstarred')
   }
 
+  /* ---------------------- Local edit mode (pencil) ---------------------- */
+
+  const isSavedChat = detail?.chat.id === SAVED_CHAT_ID
+  const selectedCount = selectedIds.size
+  const selectedMessages = useMemo(
+    () => messages.filter((m) => selectedIds.has(m.id)),
+    [messages, selectedIds]
+  )
+  const singleSelected =
+    selectedCount === 1 && selectedMessages[0]?.type !== 'system'
+      ? selectedMessages[0]
+      : null
+  const singleEditable =
+    !!singleSelected &&
+    singleSelected.sender === 'You' &&
+    (singleSelected.type === 'text' || singleSelected.type === 'poll')
+
+  /** Leave select mode whenever the chat changes. */
+  useEffect(() => {
+    setEditMode(false)
+    setSelectedIds(new Set())
+  }, [chatId])
+
+  function exitEditMode() {
+    setEditMode(false)
+    setSelectedIds(new Set())
+  }
+
+  function toggleSelect(id: string) {
+    setSelectedIds((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }
+
+  function selectAllVisible() {
+    setSelectedIds(
+      new Set(messages.filter((m) => m.sender || m.type === 'poll').map((m) => m.id))
+    )
+  }
+
+  /** Forward one or many messages into Saved Messages. */
+  async function forwardToSaved(targets: ChatMessage[]) {
+    let ok = 0
+    const toastId = toast.loading(
+      targets.length > 1 ? `Saving 1 of ${targets.length}…` : 'Saving to Saved Messages…'
+    )
+    for (const t of targets) {
+      try {
+        const res = await fetch(`/api/messages/${t.id}/forward`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ targetChatId: SAVED_CHAT_ID }),
+        })
+        if (!res.ok) throw new Error('failed')
+        ok++
+      } catch {
+        /* keep going */
+      }
+    }
+    if (ok > 0) {
+      toast.success(
+        ok === 1
+          ? `Saved to Saved Messages${isSavedChat ? '' : ''}`
+          : `Saved ${ok} messages`,
+        { id: toastId }
+      )
+      onChatChanged?.()
+    } else {
+      toast.error('Could not save to Saved Messages', { id: toastId })
+    }
+  }
+
+  function forwardOne(msg: ChatMessage) {
+    void forwardToSaved([msg])
+  }
+
+  async function starSelected() {
+    const unstarred = selectedMessages.filter((m) => !m.starred)
+    if (unstarred.length === 0) {
+      toast.info('Selected messages are already starred')
+      return
+    }
+    for (const m of unstarred) {
+      onStarMessage?.(m.id, true)
+    }
+    toast.success(`Starred ${unstarred.length} message${unstarred.length === 1 ? '' : 's'}`)
+  }
+
+  async function copySelected() {
+    const texts = selectedMessages.map((m) => {
+      const prefix = m.sender && m.sender !== 'You' ? `${m.sender}: ` : ''
+      return prefix + (m.body || '')
+    })
+    try {
+      await navigator.clipboard.writeText(texts.join('\n'))
+      toast.success(`${selectedMessages.length} messages copied`)
+    } catch {
+      toast.error('Could not copy')
+    }
+  }
+
+  async function executeDelete() {
+    if (selectedCount === 0) return
+    setDeleteBusy(true)
+    try {
+      const res = await fetch(`/api/chats/${chatId}/messages/delete`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ids: [...selectedIds] }),
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error ?? 'Delete failed')
+      setDetail((d) =>
+        d
+          ? { ...d, messages: d.messages.filter((m) => !selectedIds.has(m.id)) }
+          : d
+      )
+      toast.success(
+        data.deleted === 1
+          ? 'Message deleted for everyone'
+          : `${data.deleted} messages deleted`
+      )
+      setSelectedIds(new Set())
+      onChatChanged?.()
+    } catch {
+      toast.error('Could not delete messages')
+    } finally {
+      setDeleteBusy(false)
+      setDeleteConfirm(false)
+    }
+  }
+
+  function openEdit(msg: ChatMessage) {
+    setEditing(msg)
+    setEditBody(msg.body)
+  }
+
+  async function saveEdit() {
+    if (!editing || !editBody.trim() || editSaving) return
+    setEditSaving(true)
+    try {
+      const res = await fetch(`/api/messages/${editing.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ body: editBody.trim() }),
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error ?? 'Save failed')
+      const newBody = data.message.body as string
+      setDetail((d) =>
+        d
+          ? {
+              ...d,
+              messages: d.messages.map((m) =>
+                m.id === editing.id ? { ...m, body: newBody, edited: true } : m
+              ),
+            }
+          : d
+      )
+      toast.success('Message edited')
+      setEditing(null)
+      setSelectedIds(new Set())
+      onChatChanged?.()
+    } catch {
+      toast.error('Could not edit message')
+    } finally {
+      setEditSaving(false)
+    }
+  }
+
+  function handleSent(msg: ChatMessage) {
+    setDetail((d) => (d ? { ...d, messages: [...d.messages, msg] } : d))
+    requestAnimationFrame(() => {
+      const el = scrollRef.current
+      if (el) el.scrollTo({ top: el.scrollHeight, behavior: 'smooth' })
+    })
+    onChatChanged?.()
+  }
+
+  async function createPoll(
+    question: string,
+    options: string[]
+  ): Promise<boolean> {
+    setPollCreating(true)
+    try {
+      const res = await fetch(`/api/chats/${chatId}/messages`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ type: 'poll', body: question, pollOptions: options }),
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error ?? 'Failed')
+      handleSent(data.message as ChatMessage)
+      toast.success('Poll created — tap an option to vote')
+      return true
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Could not create poll')
+      return false
+    } finally {
+      setPollCreating(false)
+    }
+  }
+
   /** Expand the render window and smooth-scroll to a message with a flash. */
   function jumpToMessageId(id: string) {
     const idx = messages.findIndex((m) => m.id === id)
@@ -527,9 +774,9 @@ export function ChatView({
         }}
         modifiersClassNames={{
           hasMsg:
-            'relative after:absolute after:bottom-[3px] after:left-1/2 after:h-[3px] after:w-[3px] after:-translate-x-1/2 after:rounded-full after:bg-[#00a884] after:content-[""]',
+            'relative after:absolute after:bottom-[3px] after:left-1/2 after:h-[3px] after:w-[3px] after:-translate-x-1/2 after:rounded-full after:bg-(--wa-accent) after:content-[""]',
         }}
-        className="w-[272px] rounded-xl p-2 [&_[data-selected-single=true]]:bg-[#00a884] [&_[data-selected-single=true]]:text-white"
+        className="w-[272px] rounded-xl p-2 [&_[data-selected-single=true]]:bg-(--wa-accent) [&_[data-selected-single=true]]:text-white"
       />
       <div className="flex w-full gap-1.5 border-t px-2 pb-1.5 pt-2">
         <Button
@@ -571,7 +818,7 @@ export function ChatView({
   if (loading) {
     return (
       <div className="flex flex-1 items-center justify-center bg-[#efeae2] dark:bg-[#0b141a]">
-        <Loader2 className="h-8 w-8 animate-spin text-[#00a884]" />
+        <Loader2 className="h-8 w-8 animate-spin text-(--wa-accent)" />
       </div>
     )
   }
@@ -602,9 +849,11 @@ export function ChatView({
   }
 
   const { chat } = detail
-  const subtitle = chat.isGroup
-    ? `${countParticipants(messages)} participants`
-    : 'click here for chat info'
+  const subtitle = isSavedChat
+    ? 'Your personal space — notes, links & media'
+    : chat.isGroup
+      ? `${countParticipants(messages)} participants`
+      : 'click here for chat info'
 
   return (
     <div
@@ -631,7 +880,11 @@ export function ChatView({
           className="flex min-w-0 flex-1 items-center gap-3 text-left"
           onClick={() => setInfoOpen(true)}
         >
-          <Avatar name={chat.title} size={40} />
+          {isSavedChat ? (
+            <SavedAvatar size={40} />
+          ) : (
+            <Avatar name={chat.title} size={40} />
+          )}
           <div className="min-w-0">
             <h2 className="truncate text-[16px] font-medium leading-tight text-[#111b21] dark:text-[#e9edef]">
               {chat.title}
@@ -642,6 +895,31 @@ export function ChatView({
           </div>
         </button>
         <div className="flex items-center gap-1">
+          <Button
+            variant="ghost"
+            size="icon"
+            className={cn(
+              'h-9 w-9',
+              editMode &&
+                'bg-(--wa-accent)/15 text-(--wa-accent-strong) dark:text-(--wa-accent)'
+            )}
+            onClick={() => {
+              if (editMode) {
+                exitEditMode()
+              } else {
+                setEditMode(true)
+                toast.info(
+                  'Local editing on — tap messages to select, or send new ones below',
+                  { duration: 3500 }
+                )
+              }
+            }}
+            aria-label="Edit messages"
+            aria-pressed={editMode}
+            title={editMode ? 'Turn off editing' : 'Edit messages (select, delete, edit, send)'}
+          >
+            <Pencil className="h-5 w-5" />
+          </Button>
           <Button
             variant="ghost"
             size="icon"
@@ -720,7 +998,7 @@ export function ChatView({
                   Wallpaper for this chat
                 </p>
                 {wallpaperIsCustom && (
-                  <span className="rounded-full bg-[#00a884]/15 px-1.5 py-0.5 text-[9.5px] font-semibold uppercase tracking-wide text-[#008069] dark:text-[#6fd3b6]">
+                  <span className="rounded-full bg-(--wa-accent)/15 px-1.5 py-0.5 text-[9.5px] font-semibold uppercase tracking-wide text-(--wa-accent-strong)">
                     Custom
                   </span>
                 )}
@@ -740,7 +1018,7 @@ export function ChatView({
                       className={cn(
                         'group flex flex-col items-center gap-1.5 rounded-lg p-2 transition-colors',
                         active
-                          ? 'bg-[#00a884]/10 ring-1 ring-[#00a884]'
+                          ? 'bg-(--wa-accent)/10 ring-1 ring-(--wa-accent)'
                           : 'hover:bg-black/5 dark:hover:bg-white/5'
                       )}
                     >
@@ -759,7 +1037,7 @@ export function ChatView({
                         )}
                         {active && (
                           <span className="absolute inset-0 flex items-center justify-center">
-                            <Check className="h-4 w-4 text-[#00a884] drop-shadow" />
+                            <Check className="h-4 w-4 text-(--wa-accent) drop-shadow" />
                           </span>
                         )}
                       </span>
@@ -802,16 +1080,18 @@ export function ChatView({
           >
             <Info className="h-5 w-5 text-[#54656f] dark:text-[#aebac1]" />
           </Button>
-          <Button
-            variant="ghost"
-            size="icon"
-            className="h-9 w-9 hover:bg-rose-500/10"
-            onClick={() => onDelete(chat.id)}
-            disabled={deleting}
-            aria-label="Delete chat"
-          >
-            <Trash2 className="h-5 w-5 text-rose-500/80" />
-          </Button>
+          {!isSavedChat && (
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-9 w-9 hover:bg-rose-500/10"
+              onClick={() => onDelete(chat.id)}
+              disabled={deleting}
+              aria-label="Delete chat"
+            >
+              <Trash2 className="h-5 w-5 text-rose-500/80" />
+            </Button>
+          )}
         </div>
       </header>
 
@@ -911,7 +1191,7 @@ export function ChatView({
               className={cn(
                 'flex h-9 shrink-0 items-center gap-1 rounded-full px-2.5 text-[12.5px] font-medium transition-colors',
                 regexMode
-                  ? 'bg-[#00a884]/15 text-[#008069] ring-1 ring-[#00a884]/40 dark:bg-[#00a884]/25 dark:text-[#6fd3b6]'
+                  ? 'bg-(--wa-accent)/15 text-(--wa-accent-strong) ring-1 ring-(--wa-accent)/40 dark:bg-(--wa-accent)/25 dark:text-(--wa-accent)'
                   : 'bg-black/5 text-[#667781] hover:bg-black/10 dark:bg-white/5 dark:text-[#8696a0] dark:hover:bg-white/10'
               )}
             >
@@ -924,7 +1204,7 @@ export function ChatView({
               className={cn(
                 'h-9 w-9 shrink-0',
                 hasDateFilter &&
-                  'bg-[#00a884]/15 text-[#008069] dark:bg-[#00a884]/25 dark:text-[#6fd3b6]'
+                  'bg-(--wa-accent)/15 text-(--wa-accent-strong) dark:bg-(--wa-accent)/25 dark:text-(--wa-accent)'
               )}
               onClick={() => setDateFilterOpen((v) => !v)}
               aria-label="Toggle date range filter"
@@ -1087,7 +1367,10 @@ export function ChatView({
                 'animate-in fade-in mt-0.5 rounded-lg duration-300 transition-colors',
                 item.showTail && 'mt-2.5',
                 jumpedId === item.msg.id &&
-                  'bg-amber-200/50 ring-1 ring-amber-400/60 dark:bg-amber-500/20'
+                  'bg-amber-200/50 ring-1 ring-amber-400/60 dark:bg-amber-500/20',
+                editMode &&
+                  selectedIds.has(item.msg.id) &&
+                  'bg-(--wa-accent)/[0.06]'
               )}
             >
               <MessageBubble
@@ -1096,9 +1379,15 @@ export function ChatView({
                 isGroup={chat.isGroup}
                 showTail={item.showTail}
                 showAvatar={item.showAvatar}
-                onToggleStar={handleToggleStar}
+                onToggleStar={editMode ? undefined : handleToggleStar}
                 highlight={query.trim() || undefined}
                 highlightRegex={regexMode && !!query.trim()}
+                selectMode={editMode}
+                selected={selectedIds.has(item.msg.id)}
+                anySelected={selectedCount > 0}
+                onToggleSelect={toggleSelect}
+                onForwardSaved={editMode ? undefined : forwardOne}
+                onEditMessage={editMode ? undefined : openEdit}
               />
             </div>
           )
@@ -1116,13 +1405,91 @@ export function ChatView({
         </button>
       )}
 
-      {/* Read-only notice (mimics the WhatsApp composer) */}
-      <div className="relative z-10 bg-[#f0f2f5] px-3 py-2.5 dark:bg-[#202c33]">
-        <div className="flex items-center justify-center gap-2 rounded-lg bg-[#8696a0]/10 px-4 py-2.5 text-[13px] text-[#667781] dark:bg-white/5 dark:text-[#8696a0]">
-          <Lock className="h-3.5 w-3.5" />
-          Read-only viewer — replies are disabled
+      {/* Selection toolbar (edit mode with active selection) */}
+      {editMode && selectedCount > 0 ? (
+        <div className="relative z-10 flex items-center gap-1 border-t border-black/5 bg-[#f0f2f5] px-3 py-2 dark:border-black/30 dark:bg-[#202c33]">
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-9 w-9 shrink-0"
+            onClick={() => setSelectedIds(new Set())}
+            aria-label="Clear selection"
+            title="Clear selection"
+          >
+            <X className="h-5 w-5 text-[#54656f] dark:text-[#aebac1]" />
+          </Button>
+          <span className="min-w-0 flex-1 truncate text-[13.5px] font-medium text-[#111b21] dark:text-[#e9edef]">
+            {selectedCount} selected
+          </span>
+          <Button
+            variant="ghost"
+            size="icon"
+            className="hidden h-9 w-9 shrink-0 sm:inline-flex"
+            onClick={copySelected}
+            aria-label="Copy selected"
+            title="Copy selected messages"
+          >
+            <Copy className="h-5 w-5 text-[#54656f] dark:text-[#aebac1]" />
+          </Button>
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-9 w-9 shrink-0"
+            onClick={() => void forwardToSaved(selectedMessages)}
+            aria-label="Forward to Saved Messages"
+            title="Forward to Saved Messages"
+          >
+            <BookmarkPlus className="h-5 w-5 text-(--wa-accent)" />
+          </Button>
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-9 w-9 shrink-0"
+            onClick={starSelected}
+            aria-label="Star selected"
+            title="Star selected"
+          >
+            <Star className="h-5 w-5 text-[#f2a33c]" />
+          </Button>
+          {singleEditable && (
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-9 w-9 shrink-0"
+              onClick={() => singleSelected && openEdit(singleSelected)}
+              aria-label="Edit message"
+              title="Edit message"
+            >
+              <Pencil className="h-5 w-5 text-[#54656f] dark:text-[#aebac1]" />
+            </Button>
+          )}
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-9 w-9 shrink-0 hover:bg-rose-500/10"
+            onClick={() => setDeleteConfirm(true)}
+            aria-label="Delete selected"
+            title="Delete for everyone"
+          >
+            <Trash2 className="h-5 w-5 text-rose-500/90" />
+          </Button>
         </div>
-      </div>
+      ) : editMode ? (
+        /* Full local composer (edit mode, nothing selected) */
+        <Composer
+          chatId={chatId}
+          onSent={handleSent}
+          onOpenPoll={() => setPollOpen(true)}
+        />
+      ) : (
+        /* Read-only notice (mimics the WhatsApp composer) */
+        <div className="relative z-10 bg-[#f0f2f5] px-3 py-2.5 dark:bg-[#202c33]">
+          <div className="flex items-center justify-center gap-2 rounded-lg bg-[#8696a0]/10 px-4 py-2.5 text-[13px] text-[#667781] dark:bg-white/5 dark:text-[#8696a0]">
+            <Lock className="h-3.5 w-3.5" />
+            Read-only — tap the pencil to edit, select &amp; send
+          </div>
+        </div>
+      )}
 
       <ChatInfo
         open={infoOpen}
@@ -1157,6 +1524,82 @@ export function ChatView({
           onJumpToMessage={jumpToMessageId}
         />
       )}
+
+      {/* Create poll (local editing) */}
+      <PollDialog
+        open={pollOpen}
+        onOpenChange={setPollOpen}
+        onCreate={createPoll}
+        creating={pollCreating}
+      />
+
+      {/* Edit message text (local editing) */}
+      <Dialog open={!!editing} onOpenChange={(v) => !v && setEditing(null)}>
+        <DialogContent className="sm:max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Edit message</DialogTitle>
+            <DialogDescription>
+              Only the text can be changed locally — the message will show an
+              “edited” mark.
+            </DialogDescription>
+          </DialogHeader>
+          <Textarea
+            autoFocus
+            value={editBody}
+            rows={4}
+            maxLength={8000}
+            onChange={(e) => setEditBody(e.target.value)}
+            className="resize-none text-[14px]"
+            aria-label="Message text"
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
+                e.preventDefault()
+                void saveEdit()
+              }
+            }}
+          />
+          <DialogFooter>
+            <Button variant="ghost" onClick={() => setEditing(null)}>
+              Cancel
+            </Button>
+            <Button
+              className="rounded-full bg-(--wa-accent) text-white hover:bg-(--wa-accent-strong)"
+              disabled={editSaving || !editBody.trim()}
+              onClick={() => void saveEdit()}
+            >
+              {editSaving ? 'Saving…' : 'Save'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Delete selected confirmation */}
+      <AlertDialog open={deleteConfirm} onOpenChange={setDeleteConfirm}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              Delete {selectedCount === 1 ? 'message' : `${selectedCount} messages`}?
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              They will be removed from this viewer for everyone, including any
+              attached media. This cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-rose-600 text-white hover:bg-rose-700"
+              onClick={(e) => {
+                e.preventDefault()
+                void executeDelete()
+              }}
+              disabled={deleteBusy}
+            >
+              {deleteBusy ? 'Deleting…' : 'Delete'}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   )
 }

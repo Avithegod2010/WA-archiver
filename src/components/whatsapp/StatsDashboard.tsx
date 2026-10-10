@@ -107,7 +107,7 @@ function BarRow({
   value,
   max,
   total,
-  accent = '#00a884',
+  accent = 'var(--wa-accent)',
   leading,
   formatValue,
 }: {
@@ -180,10 +180,10 @@ function Heatmap({ grid, total }: { grid: number[][]; total: number }) {
   }
   const CELL = [
     'bg-black/[0.06] dark:bg-white/[0.06]',
-    'bg-[#00a884]/25',
-    'bg-[#00a884]/50',
-    'bg-[#00a884]/75',
-    'bg-[#00a884]',
+    'bg-(--wa-accent)/25',
+    'bg-(--wa-accent)/50',
+    'bg-(--wa-accent)/75',
+    'bg-(--wa-accent)',
   ]
   return (
     <div className="rounded-xl bg-[#f0f2f5]/60 p-3 dark:bg-[#202c33]/60">
@@ -272,7 +272,7 @@ function HoursChart({ hours }: { hours: StatsData['hours'] }) {
                 'w-full rounded-t-[3px] transition-colors',
                 h.hour === peak.hour && peak.count > 0
                   ? 'bg-[#f2a33c]'
-                  : 'bg-[#00a884]/70 group-hover:bg-[#00a884]'
+                  : 'bg-(--wa-accent)/70 group-hover:bg-(--wa-accent)'
               )}
               style={{
                 height: `${Math.max((h.count / max) * 100, h.count > 0 ? 4 : 1.5)}%`,
@@ -389,7 +389,7 @@ export function StatsDashboard({
       <DialogContent className="flex max-h-[85vh] flex-col overflow-hidden sm:max-w-2xl">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
-            <BarChart3 className="h-5 w-5 text-[#00a884]" />
+            <BarChart3 className="h-5 w-5 text-(--wa-accent)" />
             Insights
           </DialogTitle>
           <DialogDescription>
@@ -415,7 +415,7 @@ export function StatsDashboard({
                   icon={<MessageSquare className="h-4 w-4" />}
                   label="Messages"
                   value={data.totals.messages.toLocaleString()}
-                  accent="#00a884"
+                  accent="var(--wa-accent)"
                 />
                 <Kpi
                   icon={<Group className="h-4 w-4" />}
@@ -484,7 +484,7 @@ export function StatsDashboard({
               ) : (
                 <>
                   {data.range.busiestDay && (
-                    <p className="rounded-lg bg-[#00a884]/10 px-3 py-2 text-[12.5px] text-[#0b7a63] dark:text-[#6fd3b6]">
+                    <p className="rounded-lg bg-(--wa-accent)/10 px-3 py-2 text-[12.5px] text-(--wa-accent-strong)">
                       Busiest day:{' '}
                       <b>
                         {new Date(
@@ -527,7 +527,7 @@ export function StatsDashboard({
                               {m.count}
                             </span>
                             <div
-                              className="w-full max-w-7 rounded-t-sm bg-[#00a884]/80 transition-colors group-hover:bg-[#00a884]"
+                              className="w-full max-w-7 rounded-t-sm bg-(--wa-accent)/80 transition-colors group-hover:bg-(--wa-accent)"
                               style={{
                                 height: `${Math.max((m.count / maxMonth) * 100, 3)}%`,
                               }}
@@ -574,7 +574,7 @@ export function StatsDashboard({
                                 className="rounded-full border border-black/5 bg-[#f0f2f5]/70 px-2.5 py-1 text-[12px] text-[#3b4a54] dark:border-white/5 dark:bg-[#202c33]/70 dark:text-[#d1d7db]"
                               >
                                 {w.word}
-                                <b className="ml-1.5 tabular-nums text-[#00a884]">
+                                <b className="ml-1.5 tabular-nums text-(--wa-accent)">
                                   {w.count.toLocaleString()}
                                 </b>
                               </span>
@@ -597,7 +597,7 @@ export function StatsDashboard({
                                   ×{e.count.toLocaleString()}
                                 </span>
                                 {i === 0 && (
-                                  <span className="text-[9px] uppercase tracking-wide text-[#00a884]">
+                                  <span className="text-[9px] uppercase tracking-wide text-(--wa-accent)">
                                     favorite
                                   </span>
                                 )}
@@ -654,7 +654,7 @@ export function StatsDashboard({
                     </div>
                     {data.fun.longest && (
                       <div className="mt-2 flex gap-2.5 rounded-xl border border-black/5 bg-[#f0f2f5]/60 p-3 dark:border-white/5 dark:bg-[#202c33]/60">
-                        <Quote className="h-4 w-4 shrink-0 text-[#00a884]" />
+                        <Quote className="h-4 w-4 shrink-0 text-(--wa-accent)" />
                         <div className="min-w-0">
                           <p className="line-clamp-2 text-[12.5px] italic leading-snug text-[#3b4a54] dark:text-[#d1d7db]">
                             “{data.fun.longest.preview}”
@@ -695,7 +695,7 @@ export function StatsDashboard({
                             value={c.count}
                             max={filteredChatMax}
                             total={data.totals.messages}
-                            accent={c.isGroup ? '#e542a3' : '#00a884'}
+                            accent={c.isGroup ? '#e542a3' : 'var(--wa-accent)'}
                             leading={
                               <span className="shrink-0">
                                 <Avatar name={c.title} size={24} />
@@ -759,7 +759,7 @@ export function StatsDashboard({
                           )}
                         >
                           {TYPE_LABELS[t.type] ?? t.type}
-                          <b className="ml-1.5 tabular-nums text-[#00a884]">
+                          <b className="ml-1.5 tabular-nums text-(--wa-accent)">
                             {t.count.toLocaleString()}
                           </b>
                         </span>

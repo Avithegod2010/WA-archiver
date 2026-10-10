@@ -49,8 +49,13 @@ export default function RootLayout({
 }: Readonly<{
   children: React.ReactNode;
 }>) {
+  // Apply the persisted app theme before first paint (no accent flash)
+  const themeScript = `try{var t=localStorage.getItem('wa-viewer:theme');if(t)document.documentElement.setAttribute('data-wa-theme',t)}catch(e){}`;
   return (
     <html lang="en" suppressHydrationWarning>
+      <head>
+        <script dangerouslySetInnerHTML={{ __html: themeScript }} />
+      </head>
       <body
         className={`${geistSans.variable} ${geistMono.variable} antialiased bg-background text-foreground`}
       >

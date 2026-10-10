@@ -24,7 +24,13 @@ export interface ChatMessage {
   mediaPath: string | null
   mediaName: string | null
   starred?: boolean
+  edited?: boolean
+  forwardedFrom?: string | null
+  pollOptions?: string[] | null
 }
+
+/** Fixed id of the personal "Saved Messages" (you) chat — always present. */
+export const SAVED_CHAT_ID = 'saved-messages'
 
 export interface ChatDetailChat {
   id: string

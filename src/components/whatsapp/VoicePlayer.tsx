@@ -165,7 +165,7 @@ export function VoicePlayer({
         type="button"
         onClick={togglePlay}
         aria-label={playing ? 'Pause voice message' : 'Play voice message'}
-        className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[#00a884] text-white shadow-[0_1px_2px_rgba(11,20,26,0.2)] transition-transform hover:scale-105 active:scale-95"
+        className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-(--wa-accent) text-white shadow-[0_1px_2px_rgba(11,20,26,0.2)] transition-transform hover:scale-105 active:scale-95"
       >
         {playing ? (
           <Pause className="h-4 w-4 fill-current" />
@@ -189,7 +189,7 @@ export function VoicePlayer({
           onPointerUp={onWavePointerUp}
           onPointerCancel={() => (draggingRef.current = false)}
           onKeyDown={onWaveKeyDown}
-          className="flex h-7 cursor-pointer touch-none items-center gap-[2px] rounded outline-none focus-visible:ring-2 focus-visible:ring-[#00a884]/60"
+          className="flex h-7 cursor-pointer touch-none items-center gap-[2px] rounded outline-none focus-visible:ring-2 focus-visible:ring-(--wa-accent)/60"
         >
           {bars.map((h, i) => {
             const played = (i + 0.5) / BAR_COUNT <= progress
@@ -200,7 +200,7 @@ export function VoicePlayer({
                 className={cn(
                   'w-[3px] shrink-0 rounded-full transition-colors duration-100',
                   played
-                    ? 'bg-[#00a884]'
+                    ? 'bg-(--wa-accent)'
                     : 'bg-[#8696a0]/45 dark:bg-white/30'
                 )}
               />

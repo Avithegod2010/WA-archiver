@@ -255,7 +255,7 @@ export function MediaGallery({
             disabled={zipping || selectMode}
             aria-label="Download all media as zip"
             title="Download all media (.zip with transcript)"
-            className="flex h-9 items-center gap-1.5 rounded-full bg-[#00a884] px-3.5 text-[12.5px] font-medium text-white transition-colors hover:bg-[#029374] disabled:opacity-60"
+            className="flex h-9 items-center gap-1.5 rounded-full bg-(--wa-accent) px-3.5 text-[12.5px] font-medium text-white transition-colors hover:bg-(--wa-accent-strong) disabled:opacity-60"
           >
             {zipping ? (
               <Loader2 className="h-4 w-4 animate-spin" />
@@ -302,7 +302,7 @@ export function MediaGallery({
               className={cn(
                 'flex shrink-0 items-center gap-1.5 rounded-full px-3.5 py-1.5 text-[12.5px] font-medium transition-colors',
                 filter === t.key
-                  ? 'bg-[#00a884] text-white'
+                  ? 'bg-(--wa-accent) text-white'
                   : 'bg-white/10 text-[#aebac1] hover:bg-white/20'
               )}
             >
@@ -396,7 +396,7 @@ export function MediaGallery({
           <button
             onClick={handleDownloadSelected}
             disabled={selected.size === 0 || bulkBusy}
-            className="flex h-9 items-center gap-1.5 rounded-full bg-[#00a884] px-4 text-[12.5px] font-medium text-white transition-colors hover:bg-[#029374] disabled:opacity-60"
+            className="flex h-9 items-center gap-1.5 rounded-full bg-(--wa-accent) px-4 text-[12.5px] font-medium text-white transition-colors hover:bg-(--wa-accent-strong) disabled:opacity-60"
           >
             {bulkBusy ? (
               <Loader2 className="h-4 w-4 animate-spin" />
@@ -463,8 +463,8 @@ function MediaTile({
           ? 'cursor-pointer hover:brightness-110'
           : 'cursor-default opacity-70',
         isSelected
-          ? 'ring-2 ring-[#00a884]'
-          : 'ring-white/10 hover:ring-2 hover:ring-[#00a884]'
+          ? 'ring-2 ring-(--wa-accent)'
+          : 'ring-white/10 hover:ring-2 hover:ring-(--wa-accent)'
       )}
       role={src ? 'button' : undefined}
       aria-label={
@@ -518,8 +518,8 @@ function MediaTile({
         </>
       )}
       {src && kind === 'audio' && (
-        <span className="flex h-full w-full flex-col items-center justify-center gap-2 text-[#00a884]">
-          <span className="flex h-12 w-12 items-center justify-center rounded-full bg-[#00a884]/15">
+        <span className="flex h-full w-full flex-col items-center justify-center gap-2 text-(--wa-accent)">
+          <span className="flex h-12 w-12 items-center justify-center rounded-full bg-(--wa-accent)/15">
             <Mic className="h-6 w-6" />
           </span>
           <span className="max-w-[85%] truncate px-2 text-[11px] text-[#aebac1]">
@@ -567,7 +567,7 @@ function MediaTile({
           className={cn(
             'pointer-events-none absolute left-1.5 top-1.5 flex h-6 w-6 items-center justify-center rounded-full transition-all duration-150',
             isSelected
-              ? 'scale-100 bg-[#00a884] text-white opacity-100'
+              ? 'scale-100 bg-(--wa-accent) text-white opacity-100'
               : 'scale-90 bg-black/55 text-transparent opacity-90 ring-1 ring-white/40'
           )}
         >
@@ -584,7 +584,7 @@ function MediaTile({
           }}
           aria-label="Show in chat"
           title="Show in chat"
-          className="absolute right-1.5 top-1.5 flex h-7 w-7 translate-y-1 items-center justify-center rounded-full bg-black/55 text-white opacity-0 backdrop-blur-sm transition-all duration-200 hover:scale-110 hover:bg-[#00a884] focus-visible:opacity-100 group-hover:translate-y-0 group-hover:opacity-100"
+          className="absolute right-1.5 top-1.5 flex h-7 w-7 translate-y-1 items-center justify-center rounded-full bg-black/55 text-white opacity-0 backdrop-blur-sm transition-all duration-200 hover:scale-110 hover:bg-(--wa-accent) focus-visible:opacity-100 group-hover:translate-y-0 group-hover:opacity-100"
         >
           <CornerDownLeft className="h-3.5 w-3.5" />
         </button>

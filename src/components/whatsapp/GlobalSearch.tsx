@@ -178,7 +178,7 @@ export function GlobalSearch({
       <DialogContent className="flex max-h-[85dvh] flex-col gap-0 overflow-hidden p-0 sm:max-w-xl">
         <DialogHeader className="gap-0 border-b border-black/5 px-4 pb-3 pt-4 dark:border-white/5">
           <DialogTitle className="flex items-center gap-2 text-[15.5px]">
-            <TextSearch className="h-4.5 w-4.5 text-[#00a884]" />
+            <TextSearch className="h-4.5 w-4.5 text-(--wa-accent)" />
             Search messages
           </DialogTitle>
           <DialogDescription className="sr-only">
@@ -187,7 +187,7 @@ export function GlobalSearch({
           <div className="relative mt-3">
             <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[#8696a0]" />
             {loading && (
-              <Loader2 className="absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 animate-spin text-[#00a884]" />
+              <Loader2 className="absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 animate-spin text-(--wa-accent)" />
             )}
             <input
               ref={inputRef}
@@ -195,7 +195,7 @@ export function GlobalSearch({
               onChange={(e) => setQuery(e.target.value)}
               placeholder="Search all chats…"
               aria-label="Search all chats"
-              className="h-10 w-full rounded-lg border-none bg-[#f0f2f5] pl-9 pr-9 text-[14px] text-[#111b21] outline-none ring-[#00a884]/60 placeholder:text-[#8696a0] focus:ring-2 dark:bg-[#2a3942] dark:text-[#e9edef] dark:placeholder:text-[#8696a0]"
+              className="h-10 w-full rounded-lg border-none bg-[#f0f2f5] pl-9 pr-9 text-[14px] text-[#111b21] outline-none ring-(--wa-accent)/60 placeholder:text-[#8696a0] focus:ring-2 dark:bg-[#2a3942] dark:text-[#e9edef] dark:placeholder:text-[#8696a0]"
             />
           </div>
           {hint && (
@@ -211,8 +211,8 @@ export function GlobalSearch({
         >
           {!trimmed ? (
             <div className="flex flex-col items-center px-6 py-12 text-center">
-              <div className="mb-3 flex h-14 w-14 items-center justify-center rounded-full bg-[#00a884]/10">
-                <TextSearch className="h-6 w-6 text-[#00a884]" />
+              <div className="mb-3 flex h-14 w-14 items-center justify-center rounded-full bg-(--wa-accent)/10">
+                <TextSearch className="h-6 w-6 text-(--wa-accent)" />
               </div>
               <p className="text-[14px] font-medium text-[#111b21] dark:text-[#e9edef]">
                 Search every chat at once
@@ -249,7 +249,7 @@ export function GlobalSearch({
                         Group
                       </span>
                     )}
-                    <span className="rounded-full bg-[#00a884]/10 px-2 py-0.5 text-[11px] font-semibold tabular-nums text-[#008069] dark:bg-[#00a884]/20 dark:text-[#6fd3b6]">
+                    <span className="rounded-full bg-(--wa-accent)/10 px-2 py-0.5 text-[11px] font-semibold tabular-nums text-(--wa-accent-strong) dark:bg-(--wa-accent)/20">
                       {group.count}
                     </span>
                   </div>
@@ -283,7 +283,7 @@ export function GlobalSearch({
                                 </span>
                               )}
                               {hit.sender === 'You' && !group.isGroup && (
-                                <span className="mr-1.5 text-[12.5px] font-semibold text-[#008069] dark:text-[#6fd3b6]">
+                                <span className="mr-1.5 text-[12.5px] font-semibold text-(--wa-accent-strong)">
                                   You
                                 </span>
                               )}

@@ -32,6 +32,127 @@
   background: rgba(255, 255, 255, 0.32);
 }
 
+/* ---------------------------------------------------------------------------
+   WhatsApp Viewer themes — CSS variables that drive the accent color, the
+   top app-bar and the outgoing bubble across the whole app. The active theme
+   is set as `data-wa-theme` on <html>; dark variants activate via `.dark`.
+   Components use Tailwind 4 var shorthand: bg-(--wa-accent), text-(--wa-accent-strong)…
+--------------------------------------------------------------------------- */
+
+:root,
+[data-wa-theme='classic'] {
+  --wa-appbar: #008069;
+  --wa-accent: #00a884;
+  --wa-accent-strong: #008069;
+  --wa-out: #d9fdd3;
+}
+.dark:not([data-wa-theme]),
+.dark[data-wa-theme='classic'] {
+  --wa-appbar: #1f2c33;
+  --wa-accent: #00a884;
+  --wa-accent-strong: #6fd3b6;
+  --wa-out: #005c4b;
+}
+
+[data-wa-theme='telegram'] {
+  --wa-appbar: #3390ec;
+  --wa-accent: #3390ec;
+  --wa-accent-strong: #1c7cd6;
+  --wa-out: #effdde;
+}
+.dark[data-wa-theme='telegram'] {
+  --wa-appbar: #17212b;
+  --wa-accent: #6ab3f3;
+  --wa-accent-strong: #7ab8f5;
+  --wa-out: #2b5278;
+}
+
+[data-wa-theme='sunset'] {
+  --wa-appbar: #c2410c;
+  --wa-accent: #ea580c;
+  --wa-accent-strong: #9a3412;
+  --wa-out: #ffe8d6;
+}
+.dark[data-wa-theme='sunset'] {
+  --wa-appbar: #431f14;
+  --wa-accent: #fb923c;
+  --wa-accent-strong: #fdba74;
+  --wa-out: #7c2d12;
+}
+
+[data-wa-theme='violet'] {
+  --wa-appbar: #6d28d9;
+  --wa-accent: #8b5cf6;
+  --wa-accent-strong: #5b21b6;
+  --wa-out: #ece4fe;
+}
+.dark[data-wa-theme='violet'] {
+  --wa-appbar: #221536;
+  --wa-accent: #a78bfa;
+  --wa-accent-strong: #c4b5fd;
+  --wa-out: #4c3a80;
+}
+
+[data-wa-theme='rose'] {
+  --wa-appbar: #be185d;
+  --wa-accent: #e11d48;
+  --wa-accent-strong: #9f1239;
+  --wa-out: #ffe4e9;
+}
+.dark[data-wa-theme='rose'] {
+  --wa-appbar: #3d0c24;
+  --wa-accent: #fb7185;
+  --wa-accent-strong: #fda4af;
+  --wa-out: #7a1f33;
+}
+
+[data-wa-theme='ocean'] {
+  --wa-appbar: #0f766e;
+  --wa-accent: #14b8a6;
+  --wa-accent-strong: #115e59;
+  --wa-out: #d7f5ef;
+}
+.dark[data-wa-theme='ocean'] {
+  --wa-appbar: #0a1f1d;
+  --wa-accent: #2dd4bf;
+  --wa-accent-strong: #5eead4;
+  --wa-out: #0f3d38;
+}
+
+[data-wa-theme='graphite'] {
+  --wa-appbar: #37474f;
+  --wa-accent: #607d8b;
+  --wa-accent-strong: #37474f;
+  --wa-out: #e2e5e9;
+}
+.dark[data-wa-theme='graphite'] {
+  --wa-appbar: #1a2327;
+  --wa-accent: #90a4ae;
+  --wa-accent-strong: #b0bec5;
+  --wa-out: #3a4a52;
+}
+
+[data-wa-theme='midnight'] {
+  --wa-appbar: #1e293b;
+  --wa-accent: #0ea5e9;
+  --wa-accent-strong: #0369a1;
+  --wa-out: #d8ecfa;
+}
+.dark[data-wa-theme='midnight'] {
+  --wa-appbar: #0b1220;
+  --wa-accent: #38bdf8;
+  --wa-accent-strong: #7dd3fc;
+  --wa-out: #1e3a5f;
+}
+
+/* Chat-message color slots that follow the accent (e.g. link color) */
+:root {
+  --wa-link: #027eb5;
+}
+.dark {
+  --wa-link: #53bdeb;
+}
+
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);

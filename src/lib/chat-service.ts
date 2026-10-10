@@ -26,6 +26,96 @@ const MEDIA_TYPES = new Set([
   'media',
 ])
 
+export { MEDIA_TYPES }
+
+/** Fixed id of the personal "Saved Messages" (you) chat. */
+export const SAVED_CHAT_ID = 'saved-messages'
+
+/**
+ * Get (or lazily create) the Saved Messages chat. It always exists so the
+ * user can forward messages to themselves and compose notes.
+ */
+export async function ensureSavedMessagesChat() {
+  const existing = await db.chat.findUnique({ where: { id: SAVED_CHAT_ID } })
+  if (existing) return existing
+  try {
+    return await db.chat.create({
+      data: {
+        id: SAVED_CHAT_ID,
+        title: 'Saved Messages',
+        isGroup: false,
+        sourceFile: 'local',
+        pinned: true,
+        lastType: 'text',
+        lastPreview: 'Your personal space — notes, links & media',
+      },
+    })
+  } catch {
+    // Raced with another request — re-read
+    const chat = await db.chat.findUnique({ where: { id: SAVED_CHAT_ID } })
+    if (!chat) throw new Error('Could not create Saved Messages chat')
+    return chat
+  }
+}
+
+function previewText(type: string, body: string, mediaName: string | null): string {
+  if (type === 'system') return body.slice(0, 300)
+  // Types where the chat list renders its own label chip ("Photo:", "Poll:"…);
+  // the stored preview only carries the caption / question / file name, if any.
+  const LABELED = new Set([
+    'image',
+    'video',
+    'gif',
+    'audio',
+    'sticker',
+    'document',
+    'contact',
+    'media',
+    'poll',
+    'location',
+    'call',
+    'deleted',
+  ])
+  if (LABELED.has(type)) {
+    if (type === 'document' || type === 'contact') {
+      return (body || mediaName || '').slice(0, 120)
+    }
+    if (type === 'poll') return body.slice(0, 120)
+    return body ? body.slice(0, 120) : ''
+  }
+  return body.slice(0, 300)
+}
+
+/**
+ * Recompute aggregate fields (counts, first/last, preview) for a chat from
+ * its messages. Used after local edits: send / delete / forward.
+ */
+export async function refreshChatAggregates(chatId: string): Promise<void> {
+  const [messageCount, mediaCount, first, last] = await Promise.all([
+    db.message.count({ where: { chatId } }),
+    db.message.count({ where: { chatId, type: { in: [...MEDIA_TYPES] } } }),
+    db.message.findFirst({ where: { chatId }, orderBy: { idx: 'asc' } }),
+    db.message.findFirst({ where: { chatId }, orderBy: { idx: 'desc' } }),
+  ])
+  const saved = chatId === SAVED_CHAT_ID
+  await db.chat.update({
+    where: { id: chatId },
+    data: {
+      messageCount,
+      mediaCount,
+      firstAt: first?.ts ?? null,
+      lastAt: last?.ts ?? null,
+      lastPreview: last
+        ? previewText(last.type, last.body, last.mediaName)
+        : saved
+          ? 'Your personal space — notes, links & media'
+          : '',
+      lastSender: last?.sender ?? null,
+      lastType: last?.type ?? 'text',
+    },
+  })
+}
+
 /**
  * Persist a parsed chat (messages + aggregate fields) to the database.
  * If `chatId` is provided the messages are attached to that chat,

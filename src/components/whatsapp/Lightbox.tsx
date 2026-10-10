@@ -202,7 +202,7 @@ export function Lightbox({
         )}
         {kind === 'audio' && (
           <div className="flex w-[min(90vw,420px)] flex-col items-center gap-4 rounded-2xl bg-white/5 p-8 shadow-2xl backdrop-blur">
-            <span className="flex h-20 w-20 items-center justify-center rounded-full bg-[#00a884]/20 text-[#00a884]">
+            <span className="flex h-20 w-20 items-center justify-center rounded-full bg-(--wa-accent)/20 text-(--wa-accent)">
               <svg viewBox="0 0 24 24" className="h-9 w-9" fill="currentColor">
                 <path d="M12 3v10.55A4 4 0 1 0 14 17V7h4V3h-6z" />
               </svg>
