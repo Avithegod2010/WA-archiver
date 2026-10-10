@@ -1,6 +1,6 @@
 'use client'
 
-import { useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import {
   FileText,
   Film,
@@ -120,7 +120,10 @@ export function ChatList({
   const [query, setQuery] = useState('')
   const [pendingDelete, setPendingDelete] = useState<ChatSummary | null>(null)
   const [dragOver, setDragOver] = useState(false)
+  const [cursor, setCursor] = useState(-1)
   const fileInputRef = useRef<HTMLInputElement>(null)
+  const searchInputRef = useRef<HTMLInputElement>(null)
+  const asideRef = useRef<HTMLElement>(null)
 
   const filtered = useMemo(() => {
     const base = query.trim()
@@ -136,6 +139,52 @@ export function ChatList({
 
   const pinnedCount = filtered.filter((c) => c.pinned).length
   const hasBothSections = pinnedCount > 0 && pinnedCount < filtered.length
+
+  // Keyboard shortcuts: j/k or arrows navigate, Enter opens, / focuses search
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      if (e.metaKey || e.ctrlKey || e.altKey) return
+      if (pendingDelete) return
+      // Skip when any dialog/overlay is open
+      if (document.querySelector('[role="dialog"],[role="alertdialog"]')) return
+      const target = e.target as HTMLElement | null
+      const tag = target?.tagName
+      const typing =
+        tag === 'INPUT' || tag === 'TEXTAREA' || target?.isContentEditable
+      if (typing || e.key === ' ') return
+      // Skip when the list pane is hidden (mobile chat open)
+      if (!asideRef.current || asideRef.current.offsetParent === null) return
+
+      if (e.key === '/') {
+        e.preventDefault()
+        searchInputRef.current?.focus()
+        return
+      }
+      const down = e.key === 'j' || e.key === 'ArrowDown'
+      const up = e.key === 'k' || e.key === 'ArrowUp'
+      if (down || up) {
+        e.preventDefault()
+        if (filtered.length === 0) return
+        setCursor((c) =>
+          Math.min(Math.max(c + (down ? 1 : -1), 0), filtered.length - 1)
+        )
+      } else if (e.key === 'Enter' && cursor >= 0 && cursor < filtered.length) {
+        // Only when the chat list itself has focus context (body)
+        if (target && target !== document.body) return
+        e.preventDefault()
+        onSelect(filtered[cursor].id)
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [filtered, cursor, pendingDelete, onSelect])
+
+  // Keep the highlighted row visible
+  useEffect(() => {
+    if (cursor < 0) return
+    const el = asideRef.current?.querySelector(`[data-chat-idx="${cursor}"]`)
+    el?.scrollIntoView({ block: 'nearest' })
+  }, [cursor])
 
   function collectFiles(list: FileList | null | undefined): File[] {
     if (!list) return []
@@ -153,6 +202,7 @@ export function ChatList({
 
   return (
     <aside
+      ref={asideRef}
       className={cn(
         'min-h-0 w-full flex-col border-r border-black/10 bg-white dark:border-black/30 dark:bg-[#111b21]',
         'md:flex md:w-[400px] md:shrink-0',
@@ -226,8 +276,18 @@ export function ChatList({
         <div className="relative mt-2">
           <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[#8696a0]" />
           <Input
+            ref={searchInputRef}
             value={query}
             onChange={(e) => setQuery(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Escape') {
+                if (query) {
+                  e.stopPropagation()
+                  setQuery('')
+                }
+                e.currentTarget.blur()
+              }
+            }}
             placeholder="Search or start a new chat"
             className="h-9 rounded-lg border-none bg-[#f0f2f5] pl-9 text-[14px] text-[#111b21] dark:bg-[#2a3942] dark:text-[#e9edef] dark:placeholder:text-[#8696a0]"
           />
@@ -310,12 +370,21 @@ export function ChatList({
                     </div>
                   )}
                   <button
+                    data-chat-idx={i}
                     className={cn(
-                      'group flex w-full items-center gap-3 px-3 py-2.5 text-left transition-colors hover:bg-[#f5f6f6] dark:hover:bg-[#202c33]',
-                      activeId === chat.id && 'bg-[#f0f2f5] dark:bg-[#2a3942]'
+                      'group relative flex w-full items-center gap-3 px-3 py-2.5 text-left transition-colors hover:bg-[#f5f6f6] dark:hover:bg-[#202c33]',
+                      activeId === chat.id && 'bg-[#f0f2f5] dark:bg-[#2a3942]',
+                      cursor === i &&
+                        'ring-1 ring-inset ring-[#00a884]/70 bg-[#00a884]/[0.04] dark:bg-[#202c33]'
                     )}
                     onClick={() => onSelect(chat.id)}
                   >
+                    {activeId === chat.id && (
+                      <span
+                        aria-hidden
+                        className="absolute left-0 top-1/2 h-7 w-[3px] -translate-y-1/2 rounded-r-full bg-[#00a884]"
+                      />
+                    )}
                     <Avatar name={chat.title} size={49} />
                     <div className="min-w-0 flex-1 border-b border-black/5 py-1.5 dark:border-white/5">
                       <div className="flex items-baseline justify-between gap-2">

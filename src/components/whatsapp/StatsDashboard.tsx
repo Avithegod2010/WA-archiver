@@ -10,6 +10,7 @@ import {
   Group,
   Smile,
   Type,
+  HardDrive,
 } from 'lucide-react'
 import {
   Dialog,
@@ -94,6 +95,7 @@ function BarRow({
   total,
   accent = '#00a884',
   leading,
+  formatValue,
 }: {
   label: string
   value: number
@@ -101,6 +103,7 @@ function BarRow({
   total: number
   accent?: string
   leading?: React.ReactNode
+  formatValue?: (v: number) => string
 }) {
   const pct = max > 0 ? Math.max((value / max) * 100, 2) : 0
   return (
@@ -116,7 +119,7 @@ function BarRow({
         />
       </div>
       <span className="w-14 shrink-0 text-right text-[11.5px] tabular-nums text-[#667781] dark:text-[#8696a0]">
-        {value.toLocaleString()}
+        {formatValue ? formatValue(value) : value.toLocaleString()}
         {total > 0 && (
           <span className="text-[10px] opacity-70">
             {' '}
@@ -134,6 +137,13 @@ function monthLabel(ym: string): string {
     month: 'short',
     year: '2-digit',
   })
+}
+
+function formatBytes(n: number): string {
+  if (n < 1024) return `${n} B`
+  if (n < 1024 * 1024) return `${(n / 1024).toFixed(0)} KB`
+  if (n < 1024 * 1024 * 1024) return `${(n / (1024 * 1024)).toFixed(1)} MB`
+  return `${(n / (1024 * 1024 * 1024)).toFixed(2)} GB`
 }
 
 export function StatsDashboard({
@@ -169,6 +179,9 @@ export function StatsDashboard({
   const maxChat = data ? Math.max(...data.perChat.map((c) => c.count), 1) : 1
   const maxParticipant = data
     ? Math.max(...data.participants.map((p) => p.count), 1)
+    : 1
+  const maxStorage = data
+    ? Math.max(...data.storage.perChat.map((s) => s.bytes), 1)
     : 1
 
   return (
@@ -239,6 +252,16 @@ export function StatsDashboard({
                       : '—'
                   }
                   accent="#ef6c6c"
+                />
+                <Kpi
+                  icon={<HardDrive className="h-4 w-4" />}
+                  label={`Media storage (${data.storage.files} file${data.storage.files === 1 ? '' : 's'})`}
+                  value={
+                    data.storage.totalBytes > 0
+                      ? formatBytes(data.storage.totalBytes)
+                      : '0 B'
+                  }
+                  accent="#0ea5a4"
                 />
               </div>
 
@@ -370,6 +393,33 @@ export function StatsDashboard({
                       ))}
                     </div>
                   </Section>
+
+                  {data.storage.perChat.length > 0 && (
+                    <Section title="Media storage by chat">
+                      <div className="space-y-1.5">
+                        {data.storage.perChat.map((s) => (
+                          <BarRow
+                            key={s.chatId}
+                            label={s.title}
+                            value={s.bytes}
+                            max={maxStorage}
+                            total={data.storage.totalBytes}
+                            accent="#12b886"
+                            formatValue={formatBytes}
+                            leading={
+                              <span className="shrink-0">
+                                <Avatar name={s.title} size={24} />
+                              </span>
+                            }
+                          />
+                        ))}
+                        <p className="pt-0.5 text-right text-[10.5px] text-[#667781] dark:text-[#8696a0]">
+                          Bars show file sizes · total{' '}
+                          <b>{formatBytes(data.storage.totalBytes)}</b> on disk
+                        </p>
+                      </div>
+                    </Section>
+                  )}
                 </>
               )}
             </>

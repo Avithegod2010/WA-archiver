@@ -68,6 +68,17 @@ export interface StatsData {
     media: number
     words: number
   }[]
+  storage: {
+    totalBytes: number
+    files: number
+    perChat: {
+      chatId: string
+      title: string
+      isGroup: boolean
+      bytes: number
+      files: number
+    }[]
+  }
 }
 
 export const AVATAR_COLORS = [

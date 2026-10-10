@@ -7,9 +7,11 @@ import {
   CalendarDays,
   ChevronDown,
   Download,
+  Images,
   Loader2,
   Lock,
   Search,
+  SlidersHorizontal,
   Trash2,
   X,
   Info,
@@ -17,6 +19,7 @@ import {
 import { Avatar } from './Avatar'
 import { MessageBubble } from './MessageBubble'
 import { ChatInfo } from './ChatInfo'
+import { MediaGallery } from './MediaGallery'
 import { DoodleBackground } from './icons'
 import type { ChatDetail, ChatMessage } from './types'
 import { cn } from '@/lib/utils'
@@ -70,6 +73,10 @@ export function ChatView({
   const [visibleCount, setVisibleCount] = useState(PAGE_SIZE)
   const [searchOpen, setSearchOpen] = useState(false)
   const [query, setQuery] = useState('')
+  const [fromDate, setFromDate] = useState('')
+  const [toDate, setToDate] = useState('')
+  const [dateFilterOpen, setDateFilterOpen] = useState(false)
+  const [galleryOpen, setGalleryOpen] = useState(false)
   const [infoOpen, setInfoOpen] = useState(false)
   const [showFab, setShowFab] = useState(false)
   const [jumpedId, setJumpedId] = useState<string | null>(null)
@@ -80,14 +87,23 @@ export function ChatView({
   const messages = detail?.messages ?? []
 
   const filtered = useMemo(() => {
-    if (!query.trim()) return null
-    const q = query.toLowerCase()
-    return messages.filter(
-      (m) =>
-        (m.body ?? '').toLowerCase().includes(q) ||
-        (m.sender ?? '').toLowerCase().includes(q)
-    )
-  }, [messages, query])
+    const q = query.trim().toLowerCase()
+    const from = fromDate ? new Date(fromDate + 'T00:00:00').getTime() : null
+    const to = toDate ? new Date(toDate + 'T23:59:59.999').getTime() : null
+    if (!q && from == null && to == null) return null
+    return messages.filter((m) => {
+      if (q) {
+        const hay = `${m.body ?? ''}\n${m.sender ?? ''}`.toLowerCase()
+        if (!hay.includes(q)) return false
+      }
+      const t = new Date(m.ts).getTime()
+      if (from != null && t < from) return false
+      if (to != null && t > to) return false
+      return true
+    })
+  }, [messages, query, fromDate, toDate])
+
+  const hasDateFilter = !!(fromDate || toDate)
 
   // Scroll to bottom on open / chat change
   useEffect(() => {
@@ -157,13 +173,18 @@ export function ChatView({
     })
   }
 
-  // Escape: close search first, then go back to list
+  // Escape: clear filters -> close search -> go back to list
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
       if (e.key !== 'Escape') return
-      if (infoOpen || jumpOpen) return
+      // Never intercept Escape while a dialog/alert is open (Radix handles it)
+      if (document.querySelector('[role="dialog"],[role="alertdialog"]')) return
+      if (jumpOpen) return
       if (query) {
         setQuery('')
+      } else if (hasDateFilter) {
+        setFromDate('')
+        setToDate('')
       } else if (searchOpen) {
         setSearchOpen(false)
       } else {
@@ -172,7 +193,7 @@ export function ChatView({
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [infoOpen, jumpOpen, query, searchOpen, onBack])
+  }, [jumpOpen, query, hasDateFilter, searchOpen, onBack])
 
   function handleScrollToBottom() {
     const el = scrollRef.current
@@ -298,8 +319,19 @@ export function ChatView({
             variant="ghost"
             size="icon"
             className="h-9 w-9"
+            onClick={() => setGalleryOpen(true)}
+            aria-label="Media gallery"
+            title="Media gallery"
+          >
+            <Images className="h-5 w-5 text-[#54656f] dark:text-[#aebac1]" />
+          </Button>
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-9 w-9"
             onClick={() => setSearchOpen((v) => !v)}
             aria-label="Search in chat"
+            title="Search in chat"
           >
             <Search className="h-5 w-5 text-[#54656f] dark:text-[#aebac1]" />
           </Button>
@@ -340,7 +372,7 @@ export function ChatView({
           <Button
             variant="ghost"
             size="icon"
-            className="h-9 w-9"
+            className="hidden h-9 w-9 md:inline-flex"
             onClick={handleExport}
             aria-label="Export chat as text"
             title="Export chat as .txt"
@@ -350,9 +382,10 @@ export function ChatView({
           <Button
             variant="ghost"
             size="icon"
-            className="h-9 w-9"
+            className="hidden h-9 w-9 md:inline-flex"
             onClick={() => setInfoOpen(true)}
             aria-label="Chat info"
+            title="Chat info"
           >
             <Info className="h-5 w-5 text-[#54656f] dark:text-[#aebac1]" />
           </Button>
@@ -369,33 +402,89 @@ export function ChatView({
         </div>
       </header>
 
-      {/* In-chat search */}
+      {/* In-chat search (text + optional date range) */}
       {searchOpen && (
-        <div className="relative z-10 flex items-center gap-2 border-b border-black/10 bg-[#f0f2f5] px-3 py-2 dark:border-black/30 dark:bg-[#202c33]">
-          <Input
-            autoFocus
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            placeholder={`Search in ${chat.title}...`}
-            className="h-9 rounded-lg bg-white text-[14px] dark:bg-[#2a3942] dark:text-[#e9edef] dark:placeholder:text-[#8696a0]"
-          />
-          {query && (
-            <span className="shrink-0 text-[12px] text-[#667781] dark:text-[#8696a0]">
-              {filtered?.length ?? 0} result{(filtered?.length ?? 0) === 1 ? '' : 's'}
-            </span>
+        <div className="relative z-10 border-b border-black/10 bg-[#f0f2f5] px-3 py-2 dark:border-black/30 dark:bg-[#202c33]">
+          <div className="flex items-center gap-2">
+            <Input
+              autoFocus
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder={`Search in ${chat.title}...`}
+              className="h-9 rounded-lg bg-white text-[14px] dark:bg-[#2a3942] dark:text-[#e9edef] dark:placeholder:text-[#8696a0]"
+            />
+            <Button
+              variant="ghost"
+              size="icon"
+              className={cn(
+                'h-9 w-9 shrink-0',
+                hasDateFilter &&
+                  'bg-[#00a884]/15 text-[#008069] dark:bg-[#00a884]/25 dark:text-[#6fd3b6]'
+              )}
+              onClick={() => setDateFilterOpen((v) => !v)}
+              aria-label="Toggle date range filter"
+              title="Filter by date range"
+            >
+              <SlidersHorizontal className="h-4 w-4" />
+            </Button>
+            {(query || hasDateFilter) && (
+              <span className="shrink-0 text-[12px] text-[#667781] dark:text-[#8696a0]">
+                {filtered?.length ?? 0} result{(filtered?.length ?? 0) === 1 ? '' : 's'}
+              </span>
+            )}
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-8 w-8 shrink-0"
+              onClick={() => {
+                setSearchOpen(false)
+                setQuery('')
+                setFromDate('')
+                setToDate('')
+                setDateFilterOpen(false)
+              }}
+              aria-label="Close search"
+            >
+              <X className="h-4 w-4" />
+            </Button>
+          </div>
+          {dateFilterOpen && (
+            <div className="mt-2 flex flex-wrap items-center gap-2">
+              <span className="text-[11.5px] font-medium uppercase tracking-wide text-[#667781] dark:text-[#8696a0]">
+                From
+              </span>
+              <Input
+                type="date"
+                value={fromDate}
+                max={toDate || undefined}
+                onChange={(e) => setFromDate(e.target.value)}
+                className="h-8 w-[150px] rounded-lg bg-white text-[13px] [color-scheme:light] dark:bg-[#2a3942] dark:text-[#e9edef] dark:[color-scheme:dark]"
+              />
+              <span className="text-[11.5px] font-medium uppercase tracking-wide text-[#667781] dark:text-[#8696a0]">
+                To
+              </span>
+              <Input
+                type="date"
+                value={toDate}
+                min={fromDate || undefined}
+                onChange={(e) => setToDate(e.target.value)}
+                className="h-8 w-[150px] rounded-lg bg-white text-[13px] [color-scheme:light] dark:bg-[#2a3942] dark:text-[#e9edef] dark:[color-scheme:dark]"
+              />
+              {hasDateFilter && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-8 gap-1 rounded-full px-2.5 text-[12px] text-[#667781] hover:text-rose-500 dark:text-[#8696a0]"
+                  onClick={() => {
+                    setFromDate('')
+                    setToDate('')
+                  }}
+                >
+                  <X className="h-3.5 w-3.5" /> Clear dates
+                </Button>
+              )}
+            </div>
           )}
-          <Button
-            variant="ghost"
-            size="icon"
-            className="h-8 w-8 shrink-0"
-            onClick={() => {
-              setSearchOpen(false)
-              setQuery('')
-            }}
-            aria-label="Close search"
-          >
-            <X className="h-4 w-4" />
-          </Button>
         </div>
       )}
 
@@ -425,7 +514,14 @@ export function ChatView({
 
         {filtered && filtered.length === 0 && (
           <div className="mt-10 text-center text-[13px] text-[#667781] dark:text-[#8696a0]">
-            No messages match &quot;{query}&quot;
+            {query ? (
+              <>
+                No messages match &quot;{query}&quot;
+                {hasDateFilter ? ' in the selected date range' : ''}
+              </>
+            ) : (
+              'No messages in the selected date range'
+            )}
           </div>
         )}
 
@@ -501,6 +597,17 @@ export function ChatView({
           if (el) el.scrollTo({ top: el.scrollHeight })
         }}
       />
+
+      {/* Full media gallery (mounted per open for fresh state) */}
+      {galleryOpen && (
+        <MediaGallery
+          chatId={chatId}
+          chatTitle={chat.title}
+          isGroup={chat.isGroup}
+          open
+          onClose={() => setGalleryOpen(false)}
+        />
+      )}
     </div>
   )
 }

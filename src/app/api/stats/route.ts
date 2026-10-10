@@ -1,5 +1,7 @@
 import { NextResponse } from 'next/server'
 import { db } from '@/lib/db'
+import { promises as fs } from 'fs'
+import path from 'path'
 
 export const runtime = 'nodejs'
 
@@ -9,6 +11,51 @@ const EMOJI_RE =
   /[\u{1F300}-\u{1FAFF}\u{1F000}-\u{1F02F}\u{1F0A0}-\u{1F0FF}\u{2600}-\u{27BF}\u{2B00}-\u{2BFF}\u{1F1E6}-\u{1F1FF}]/gu
 
 const WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
+
+/** Walk db/media/<chatId>/ to compute on-disk media storage per chat. */
+async function computeStorage(): Promise<{
+  totalBytes: number
+  files: number
+  perChat: { chatId: string; bytes: number; files: number }[]
+}> {
+  const root = path.join(process.cwd(), 'db', 'media')
+  const perChat: { chatId: string; bytes: number; files: number }[] = []
+  let totalBytes = 0
+  let files = 0
+  try {
+    const chatDirs = await fs.readdir(root, { withFileTypes: true })
+    for (const d of chatDirs) {
+      if (!d.isDirectory()) continue
+      let bytes = 0
+      let count = 0
+      try {
+        const names = await fs.readdir(path.join(root, d.name))
+        for (const name of names) {
+          try {
+            const st = await fs.stat(path.join(root, d.name, name))
+            if (st.isFile()) {
+              bytes += st.size
+              count++
+            }
+          } catch {
+            /* file vanished between readdir and stat */
+          }
+        }
+      } catch {
+        /* unreadable dir */
+      }
+      if (count > 0) {
+        perChat.push({ chatId: d.name, bytes, files: count })
+        totalBytes += bytes
+        files += count
+      }
+    }
+  } catch {
+    /* media root missing — zero storage */
+  }
+  perChat.sort((a, b) => b.bytes - a.bytes)
+  return { totalBytes, files, perChat }
+}
 
 export async function GET() {
   const [chats, messages] = await Promise.all([
@@ -89,6 +136,18 @@ export async function GET() {
     if (!busiestDay || count > busiestDay.count) busiestDay = { date, count }
   }
 
+  const storage = await computeStorage()
+  const chatTitles = new Map(chats.map((c) => [c.id, { title: c.title, isGroup: c.isGroup }]))
+  const storagePerChat = storage.perChat
+    .map((s) => ({
+      chatId: s.chatId,
+      title: chatTitles.get(s.chatId)?.title ?? 'Deleted chat',
+      isGroup: chatTitles.get(s.chatId)?.isGroup ?? false,
+      bytes: s.bytes,
+      files: s.files,
+    }))
+    .slice(0, 6)
+
   const perChat = chats
     .map((c) => ({
       id: c.id,
@@ -126,5 +185,10 @@ export async function GET() {
       .slice(0, 8)
       .map(([sender, count]) => ({ sender, count })),
     perChat,
+    storage: {
+      totalBytes: storage.totalBytes,
+      files: storage.files,
+      perChat: storagePerChat,
+    },
   })
 }

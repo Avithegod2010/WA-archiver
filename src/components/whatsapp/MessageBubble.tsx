@@ -220,12 +220,12 @@ function ImageContent({ msg, src }: { msg: ChatMessage; src: string | null }) {
   }
   return (
     <>
-      <figure className="max-w-[280px]">
+      <figure className="min-w-0 max-w-[280px]">
         <img
           src={src}
           alt={msg.mediaName ?? 'Shared image'}
           loading="lazy"
-          className="max-h-[320px] w-full cursor-zoom-in rounded-md object-cover"
+          className="min-w-0 max-h-[320px] w-full cursor-zoom-in rounded-md object-cover"
           onClick={(e) => {
             e.stopPropagation()
             setOpen(true)
@@ -281,7 +281,7 @@ export function MessageBubble({
           <div className="w-7 shrink-0" />
         )
       ) : null}
-      <div className="relative max-w-[78%] sm:max-w-[65%]">
+      <div className="relative min-w-0 max-w-[78%] sm:max-w-[65%]">
         {showTail && (
           <BubbleTail
             side="left"
@@ -291,8 +291,8 @@ export function MessageBubble({
         <div
           {...longPress.handlers}
           className={cn(
-            'relative rounded-lg px-2.5 py-1.5 text-[14.2px] leading-[19px] shadow-sm transition-transform duration-150',
-            'bg-white text-[#111b21] dark:bg-[#202c33] dark:text-[#e9edef]',
+            'relative rounded-[7.5px] px-2.5 py-1.5 text-[14.2px] leading-[19px] transition-[transform,box-shadow] duration-150',
+            'bg-white text-[#111b21] shadow-[0_1px_0.5px_rgba(11,20,26,0.13)] dark:bg-[#202c33] dark:text-[#e9edef] dark:shadow-[0_1px_0.5px_rgba(0,0,0,0.25)]',
             !showTail && 'rounded-tl-none',
             longPress.pressing && 'scale-[0.98]'
           )}
@@ -329,7 +329,7 @@ function OutgoingBubble({
   return (
     <div className="group/msg flex justify-end gap-1.5 px-2 sm:px-4">
       <CopyButton msg={msg} />
-      <div className="relative max-w-[78%] sm:max-w-[65%]">
+      <div className="relative min-w-0 max-w-[78%] sm:max-w-[65%]">
         {showTail && (
           <BubbleTail
             side="right"
@@ -339,8 +339,8 @@ function OutgoingBubble({
         <div
           {...longPress.handlers}
           className={cn(
-            'relative rounded-lg px-2.5 py-1.5 text-[14.2px] leading-[19px] shadow-sm transition-transform duration-150',
-            'bg-[#d9fdd3] text-[#111b21] dark:bg-[#005c4b] dark:text-[#e9edef]',
+            'relative rounded-[7.5px] px-2.5 py-1.5 text-[14.2px] leading-[19px] transition-[transform,box-shadow] duration-150',
+            'bg-[#d9fdd3] text-[#111b21] shadow-[0_1px_0.5px_rgba(11,20,26,0.13)] dark:bg-[#005c4b] dark:text-[#e9edef] dark:shadow-[0_1px_0.5px_rgba(0,0,0,0.25)]',
             !showTail && 'rounded-tr-none',
             longPress.pressing && 'scale-[0.98]'
           )}
@@ -451,7 +451,7 @@ function Content({
           controls
           preload="metadata"
           src={src}
-          className="max-h-[320px] max-w-[280px] rounded-md"
+          className="min-w-0 max-h-[320px] max-w-[280px] rounded-md"
         />
       ) : (
         <MediaPlaceholder

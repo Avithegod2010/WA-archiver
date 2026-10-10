@@ -25,6 +25,14 @@ import { WhatsAppLogo } from './icons'
 import type { ChatDetail, ChatSummary } from './types'
 import { cn } from '@/lib/utils'
 
+function Kbd({ children }: { children: React.ReactNode }) {
+  return (
+    <kbd className="inline-flex h-6 min-w-6 items-center justify-center rounded-md border border-black/15 bg-[#f0f2f5] px-1.5 font-sans text-[11px] font-semibold text-[#3b4a54] shadow-[0_1.5px_0_rgba(11,20,26,0.15)] dark:border-white/15 dark:bg-[#2a3942] dark:text-[#d1d7db] dark:shadow-[0_1.5px_0_rgba(0,0,0,0.4)]">
+      {children}
+    </kbd>
+  )
+}
+
 export function WhatsAppApp() {
   const { resolvedTheme, setTheme } = useTheme()
   const [mounted, setMounted] = useState(false)
@@ -293,7 +301,7 @@ export function WhatsAppApp() {
       </div>
 
       {/* Main area */}
-      <div className="relative flex min-h-0 flex-1">
+      <div className="relative flex min-h-0 min-w-0 flex-1">
         <div className={cn('relative flex min-h-0 w-full md:w-auto', activeId ? 'hidden md:flex' : 'flex')}>
           <ChatList
             chats={chats}
@@ -308,7 +316,7 @@ export function WhatsAppApp() {
             onOpenInsights={() => setStatsOpen(true)}
           />
         </div>
-        <div className={cn('flex min-h-0 flex-1 flex-col', activeId ? 'flex' : 'hidden md:flex')}>
+        <div className={cn('flex min-h-0 min-w-0 flex-1 flex-col', activeId ? 'flex' : 'hidden md:flex')}>
           <ChatView
             key={activeId ?? 'empty'}
             detail={detail}
@@ -389,6 +397,22 @@ export function WhatsAppApp() {
                 Screen</b> (iPhone: Share &gt; Add to Home Screen). The viewer
                 installs as a full-screen app with its own icon.
               </p>
+            </div>
+            <div>
+              <h4 className="mb-1.5 font-semibold">Keyboard shortcuts</h4>
+              <div className="grid grid-cols-[auto_1fr] items-center gap-x-3 gap-y-1.5 text-[13px]">
+                <Kbd>/</Kbd>
+                <span>Focus chat search</span>
+                <div className="flex gap-1">
+                  <Kbd>J</Kbd>
+                  <Kbd>K</Kbd>
+                </div>
+                <span>Move up / down the chat list</span>
+                <Kbd>Enter</Kbd>
+                <span>Open highlighted chat</span>
+                <Kbd>Esc</Kbd>
+                <span>Clear search / close panels / back</span>
+              </div>
             </div>
             <p className="text-[12px] text-[#667781] dark:text-[#8696a0]">
               Supported: Android &amp; iOS exports (.zip with media or .txt only).
