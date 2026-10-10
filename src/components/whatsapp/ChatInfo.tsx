@@ -205,8 +205,10 @@ export function ChatInfo({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="wa-scroll max-h-[85vh] overflow-y-auto bg-(--wa-panel-2) p-0 dark:bg-(--wa-panel) sm:max-w-md">
         <DialogHeader className="bg-(--wa-appbar) p-6">
-          <div className="flex flex-col items-center gap-3 text-center">
-            <Avatar name={chat.title} size={88} className="ring-4 ring-white/20" />
+          <div className="anim-fade-up flex flex-col items-center gap-3 text-center">
+            <div className="anim-pop">
+              <Avatar name={chat.title} size={88} className="ring-4 ring-white/20" />
+            </div>
             <div>
               <DialogTitle className="text-xl font-medium text-white dark:text-(--wa-text)">
                 {chat.title}
@@ -221,7 +223,7 @@ export function ChatInfo({
 
         <div className="space-y-5 p-6">
           {/* Totals */}
-          <section>
+          <section className="wa-info-sec">
             <h3 className="mb-2 text-[13px] font-semibold uppercase tracking-wide text-(--wa-text-2)">
               Overview
             </h3>
@@ -262,7 +264,7 @@ export function ChatInfo({
           </section>
 
           {/* Media breakdown */}
-          <section>
+          <section className="wa-info-sec">
             <h3 className="mb-2 text-[13px] font-semibold uppercase tracking-wide text-(--wa-text-2)">
               Media
             </h3>
@@ -296,13 +298,13 @@ export function ChatInfo({
 
           {/* Activity by hour */}
           {stats.total > 0 && (
-            <section>
+            <section className="wa-info-sec">
               <h3 className="mb-2 text-[13px] font-semibold uppercase tracking-wide text-(--wa-text-2)">
                 Activity by hour
               </h3>
               <div className="rounded-lg bg-white p-3 shadow-sm dark:bg-(--wa-panel-2)">
                 <div className="flex h-16 items-end gap-[2px]">
-                  {stats.hourCounts.map((h) => (
+                  {stats.hourCounts.map((h, i) => (
                     <div
                       key={h.hour}
                       className="group relative min-w-0 flex-1"
@@ -310,13 +312,14 @@ export function ChatInfo({
                     >
                       <div
                         className={cn(
-                          'w-full rounded-t-[2px] transition-colors',
+                          'wa-bar w-full rounded-t-[2px] transition-colors',
                           h.hour === peakHour.hour && peakHour.count > 0
                             ? 'bg-[#f2a33c]'
                             : 'bg-(--wa-accent)/70'
                         )}
                         style={{
                           height: `${Math.max((h.count / maxHour) * 100, h.count > 0 ? 5 : 2)}%`,
+                          animationDelay: `${i * 14}ms`,
                         }}
                       />
                     </div>
@@ -341,13 +344,13 @@ export function ChatInfo({
           )}
 
           {/* Participants */}
-          <section>
+          <section className="wa-info-sec">
             <h3 className="mb-2 flex items-center gap-1.5 text-[13px] font-semibold uppercase tracking-wide text-(--wa-text-2)">
               <Users className="h-3.5 w-3.5" />
               Participants ({stats.senders.length})
             </h3>
             <div className="space-y-2.5">
-              {stats.senders.map(([name, count]) => {
+              {stats.senders.map(([name, count], i) => {
                 const reply = stats.replies.get(name)
                 return (
                   <div key={name} className="flex items-center gap-3">
@@ -364,10 +367,11 @@ export function ChatInfo({
                       </div>
                       <div className="h-1.5 overflow-hidden rounded-full bg-black/10 dark:bg-white/10">
                         <div
-                          className="h-full rounded-full"
+                          className="wa-fill h-full rounded-full"
                           style={{
                             width: `${Math.max(4, (count / maxSender) * 100)}%`,
                             backgroundColor: colorForName(name),
+                            animationDelay: `${i * 70}ms`,
                           }}
                         />
                       </div>
@@ -394,7 +398,7 @@ export function ChatInfo({
 
           {/* Top emojis */}
           {emojis.length > 0 && (
-            <section>
+            <section className="wa-info-sec">
               <h3 className="mb-2 text-[13px] font-semibold uppercase tracking-wide text-(--wa-text-2)">
                 Most used emojis
               </h3>
@@ -421,7 +425,7 @@ export function ChatInfo({
 
           {/* Top words */}
           {stats.topWords.length > 0 && (
-            <section>
+            <section className="wa-info-sec">
               <h3 className="mb-2 text-[13px] font-semibold uppercase tracking-wide text-(--wa-text-2)">
                 Most used words
               </h3>
@@ -443,7 +447,7 @@ export function ChatInfo({
 
           {/* Fun facts */}
           {stats.total > 0 && (
-            <section>
+            <section className="wa-info-sec">
               <h3 className="mb-2 text-[13px] font-semibold uppercase tracking-wide text-(--wa-text-2)">
                 Fun facts
               </h3>
@@ -472,7 +476,7 @@ export function ChatInfo({
 
           {/* Busiest day */}
           {stats.busiestDay && (
-            <section className="flex items-center gap-2 rounded-lg bg-(--wa-accent)/10 px-3 py-2.5 text-[13px] text-(--wa-accent-strong) dark:text-(--wa-accent)">
+            <section className="wa-info-sec flex items-center gap-2 rounded-lg bg-(--wa-accent)/10 px-3 py-2.5 text-[13px] text-(--wa-accent-strong) dark:text-(--wa-accent)">
               <BarChart3 className="h-4 w-4 shrink-0" />
               Busiest day:{' '}
               {new Date(stats.busiestDay.key).toLocaleDateString('en-GB', {

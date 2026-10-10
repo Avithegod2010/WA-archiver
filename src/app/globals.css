@@ -113,15 +113,82 @@
   border-radius: 9999px;
 }
 
-/* Press feedback for icon buttons across headers/toolbars */
+/* Press + hover feedback for icon buttons across headers/toolbars:
+   hover → the icon springs bigger; click → squish + a soft ripple ring */
 .wa-iconbtn {
+  position: relative;
   transition:
-    transform 0.16s cubic-bezier(0.34, 1.56, 0.64, 1),
+    transform 0.18s cubic-bezier(0.34, 1.56, 0.64, 1),
     background-color 0.15s ease,
     color 0.15s ease;
 }
+.wa-iconbtn svg {
+  transition: transform 0.22s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
 .wa-iconbtn:active {
   transform: scale(0.86);
+}
+.wa-iconbtn:active svg {
+  transform: scale(0.9);
+}
+@media (hover: hover) {
+  .wa-iconbtn:hover svg {
+    transform: scale(1.18);
+  }
+}
+.wa-iconbtn::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: currentColor;
+  opacity: 0;
+  pointer-events: none;
+}
+.wa-iconbtn:active::after {
+  animation: wa-click-ring 0.42s ease-out;
+}
+@keyframes wa-click-ring {
+  0% {
+    opacity: 0.2;
+    transform: scale(0.55);
+  }
+  100% {
+    opacity: 0;
+    transform: scale(1.3);
+  }
+}
+
+/* Chat/group info dialog — sections cascade in, bars and fills grow */
+.wa-info-sec {
+  animation: wa-fade-up 0.42s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+.wa-info-sec:nth-child(1) { animation-delay: 0.05s; }
+.wa-info-sec:nth-child(2) { animation-delay: 0.1s; }
+.wa-info-sec:nth-child(3) { animation-delay: 0.15s; }
+.wa-info-sec:nth-child(4) { animation-delay: 0.2s; }
+.wa-info-sec:nth-child(5) { animation-delay: 0.25s; }
+.wa-info-sec:nth-child(6) { animation-delay: 0.3s; }
+.wa-info-sec:nth-child(7) { animation-delay: 0.35s; }
+.wa-info-sec:nth-child(8) { animation-delay: 0.4s; }
+.wa-info-sec:nth-child(n + 9) { animation-delay: 0.45s; }
+.wa-bar {
+  transform-origin: bottom;
+  animation: wa-bar-up 0.6s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+@keyframes wa-bar-up {
+  from {
+    transform: scaleY(0);
+  }
+}
+.wa-fill {
+  transform-origin: left center;
+  animation: wa-fill-x 0.65s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+@keyframes wa-fill-x {
+  from {
+    transform: scaleX(0);
+  }
 }
 
 /* Respect users who prefer minimal motion everywhere */
@@ -435,165 +502,153 @@
 }
 
 /* ---------------------------------------------------------------------------
-   Chat wallpaper pattern library — pure-CSS background designs (no images).
-   Each class sets a soft base + a repeating decorative layer; dark variants
-   recolor for night mode. Selected via the wallpaper presets in wallpaper.ts
+   Wallpaper building blocks
+   1) .wp-base   — user-chosen base color (light + optional dark variant via
+                   --wp-base / --wp-base-dark; falls back to the default bg)
+   2) .wpat-*    — color-agnostic pattern overlays rendered as MASKS so any
+                   pattern can sit on top of ANY color. The visible ink is a
+                   single adaptive tint (--wpat-tint) for light/dark modes.
+   3) .wp-aurora / .wp-dunes — kept as complete pre-built scenes
 --------------------------------------------------------------------------- */
-.wp-confetti {
-  background-color: #faf3e7;
-  background-image:
-    radial-gradient(circle at 12px 14px, rgba(231, 111, 81, 0.32) 3px, transparent 3.5px),
-    radial-gradient(circle at 58px 30px, rgba(42, 157, 143, 0.3) 2.5px, transparent 3px),
-    radial-gradient(circle at 34px 66px, rgba(233, 196, 106, 0.42) 3px, transparent 3.5px),
-    radial-gradient(circle at 76px 78px, rgba(244, 162, 89, 0.32) 2px, transparent 2.5px);
-  background-size: 92px 92px;
+.wp-base {
+  background-color: var(--wp-base, var(--wa-chat-bg));
 }
-.dark .wp-confetti {
-  background-color: #191410;
-  background-image:
-    radial-gradient(circle at 12px 14px, rgba(231, 111, 81, 0.2) 3px, transparent 3.5px),
-    radial-gradient(circle at 58px 30px, rgba(42, 157, 143, 0.18) 2.5px, transparent 3px),
-    radial-gradient(circle at 34px 66px, rgba(233, 196, 106, 0.16) 3px, transparent 3.5px),
-    radial-gradient(circle at 76px 78px, rgba(244, 162, 89, 0.18) 2px, transparent 2.5px);
+.dark .wp-base {
+  background-color: var(--wp-base-dark, var(--wp-base, var(--wa-chat-bg)));
 }
-.wp-polka {
-  background-color: #fdf4f8;
-  background-image: radial-gradient(circle, rgba(219, 112, 147, 0.26) 2.2px, transparent 2.7px);
-  background-size: 26px 26px;
+
+:root {
+  --wpat-tint: rgba(0, 0, 0, 0.075);
 }
-.dark .wp-polka {
-  background-color: #1d1118;
-  background-image: radial-gradient(circle, rgba(200, 95, 135, 0.15) 2.2px, transparent 2.7px);
+.dark {
+  --wpat-tint: rgba(255, 255, 255, 0.075);
 }
-.wp-stripes {
-  background-color: #f2f6f0;
-  background-image: repeating-linear-gradient(
-    45deg,
-    rgba(107, 142, 35, 0.09) 0 10px,
-    transparent 10px 24px
-  );
+.wpat-bg {
+  background-color: var(--wpat-tint);
+  -webkit-mask-repeat: repeat;
+  mask-repeat: repeat;
 }
-.dark .wp-stripes {
-  background-color: #10160f;
-  background-image: repeating-linear-gradient(
-    45deg,
-    rgba(150, 190, 110, 0.08) 0 10px,
-    transparent 10px 24px
-  );
+.wpat-dots {
+  -webkit-mask-image: radial-gradient(circle, #000 2.2px, transparent 2.7px);
+  mask-image: radial-gradient(circle, #000 2.2px, transparent 2.7px);
+  -webkit-mask-size: 26px 26px;
+  mask-size: 26px 26px;
 }
-.wp-blueprint {
-  background-color: #eef4f8;
-  background-image:
-    linear-gradient(rgba(70, 120, 160, 0.14) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(70, 120, 160, 0.14) 1px, transparent 1px),
-    linear-gradient(rgba(70, 120, 160, 0.055) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(70, 120, 160, 0.055) 1px, transparent 1px);
-  background-size: 96px 96px, 96px 96px, 24px 24px, 24px 24px;
+.wpat-confetti {
+  -webkit-mask-image:
+    radial-gradient(circle at 12px 14px, #000 3px, transparent 3.5px),
+    radial-gradient(circle at 58px 30px, #000 2.5px, transparent 3px),
+    radial-gradient(circle at 34px 66px, #000 3px, transparent 3.5px),
+    radial-gradient(circle at 76px 78px, #000 2px, transparent 2.5px);
+  mask-image:
+    radial-gradient(circle at 12px 14px, #000 3px, transparent 3.5px),
+    radial-gradient(circle at 58px 30px, #000 2.5px, transparent 3px),
+    radial-gradient(circle at 34px 66px, #000 3px, transparent 3.5px),
+    radial-gradient(circle at 76px 78px, #000 2px, transparent 2.5px);
+  -webkit-mask-size: 92px 92px;
+  mask-size: 92px 92px;
 }
-.dark .wp-blueprint {
-  background-color: #0c141b;
-  background-image:
-    linear-gradient(rgba(100, 160, 200, 0.11) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(100, 160, 200, 0.11) 1px, transparent 1px),
-    linear-gradient(rgba(100, 160, 200, 0.05) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(100, 160, 200, 0.05) 1px, transparent 1px);
-  background-size: 96px 96px, 96px 96px, 24px 24px, 24px 24px;
+.wpat-stripes {
+  -webkit-mask-image: repeating-linear-gradient(45deg, #000 0 10px, transparent 10px 24px);
+  mask-image: repeating-linear-gradient(45deg, #000 0 10px, transparent 10px 24px);
 }
-.wp-plaid {
-  background-color: #f7f3ec;
-  background-image:
-    repeating-linear-gradient(0deg, rgba(150, 90, 60, 0.08) 0 14px, transparent 14px 44px),
-    repeating-linear-gradient(90deg, rgba(150, 90, 60, 0.08) 0 14px, transparent 14px 44px),
-    repeating-linear-gradient(0deg, rgba(150, 90, 60, 0.05) 0 2px, transparent 2px 44px),
-    repeating-linear-gradient(90deg, rgba(150, 90, 60, 0.05) 0 2px, transparent 2px 44px);
+.wpat-grid {
+  -webkit-mask-image:
+    linear-gradient(#000 1px, transparent 1px),
+    linear-gradient(90deg, #000 1px, transparent 1px),
+    linear-gradient(#000 1px, transparent 1px),
+    linear-gradient(90deg, #000 1px, transparent 1px);
+  mask-image:
+    linear-gradient(#000 1px, transparent 1px),
+    linear-gradient(90deg, #000 1px, transparent 1px),
+    linear-gradient(#000 1px, transparent 1px),
+    linear-gradient(90deg, #000 1px, transparent 1px);
+  -webkit-mask-size: 96px 96px, 96px 96px, 24px 24px, 24px 24px;
+  mask-size: 96px 96px, 96px 96px, 24px 24px, 24px 24px;
 }
-.dark .wp-plaid {
-  background-color: #17110c;
-  background-image:
-    repeating-linear-gradient(0deg, rgba(220, 170, 130, 0.07) 0 14px, transparent 14px 44px),
-    repeating-linear-gradient(90deg, rgba(220, 170, 130, 0.07) 0 14px, transparent 14px 44px),
-    repeating-linear-gradient(0deg, rgba(220, 170, 130, 0.045) 0 2px, transparent 2px 44px),
-    repeating-linear-gradient(90deg, rgba(220, 170, 130, 0.045) 0 2px, transparent 2px 44px);
+.wpat-plaid {
+  -webkit-mask-image:
+    repeating-linear-gradient(0deg, #000 0 14px, transparent 14px 44px),
+    repeating-linear-gradient(90deg, #000 0 14px, transparent 14px 44px),
+    repeating-linear-gradient(0deg, #000 0 2px, transparent 2px 44px),
+    repeating-linear-gradient(90deg, #000 0 2px, transparent 2px 44px);
+  mask-image:
+    repeating-linear-gradient(0deg, #000 0 14px, transparent 14px 44px),
+    repeating-linear-gradient(90deg, #000 0 14px, transparent 14px 44px),
+    repeating-linear-gradient(0deg, #000 0 2px, transparent 2px 44px),
+    repeating-linear-gradient(90deg, #000 0 2px, transparent 2px 44px);
 }
-.wp-chevron {
-  background-color: #f2ecdf;
-  background-image:
-    linear-gradient(135deg, rgba(160, 140, 100, 0.14) 25%, transparent 25%),
-    linear-gradient(225deg, rgba(160, 140, 100, 0.14) 25%, transparent 25%),
-    linear-gradient(315deg, rgba(160, 140, 100, 0.14) 25%, transparent 25%),
-    linear-gradient(45deg, rgba(160, 140, 100, 0.14) 25%, transparent 25%);
-  background-size: 36px 36px;
+.wpat-chevron {
+  -webkit-mask-image:
+    linear-gradient(135deg, #000 25%, transparent 25%),
+    linear-gradient(225deg, #000 25%, transparent 25%),
+    linear-gradient(315deg, #000 25%, transparent 25%),
+    linear-gradient(45deg, #000 25%, transparent 25%);
+  mask-image:
+    linear-gradient(135deg, #000 25%, transparent 25%),
+    linear-gradient(225deg, #000 25%, transparent 25%),
+    linear-gradient(315deg, #000 25%, transparent 25%),
+    linear-gradient(45deg, #000 25%, transparent 25%);
+  -webkit-mask-size: 36px 36px;
+  mask-size: 36px 36px;
 }
-.dark .wp-chevron {
-  background-color: #16130c;
-  background-image:
-    linear-gradient(135deg, rgba(210, 185, 135, 0.09) 25%, transparent 25%),
-    linear-gradient(225deg, rgba(210, 185, 135, 0.09) 25%, transparent 25%),
-    linear-gradient(315deg, rgba(210, 185, 135, 0.09) 25%, transparent 25%),
-    linear-gradient(45deg, rgba(210, 185, 135, 0.09) 25%, transparent 25%);
-  background-size: 36px 36px;
+.wpat-waves {
+  -webkit-mask-image:
+    radial-gradient(circle at 50% 110%, #000 14px, transparent 15px),
+    radial-gradient(circle at 0 110%, #000 14px, transparent 15px),
+    radial-gradient(circle at 100% 110%, #000 14px, transparent 15px);
+  mask-image:
+    radial-gradient(circle at 50% 110%, #000 14px, transparent 15px),
+    radial-gradient(circle at 0 110%, #000 14px, transparent 15px),
+    radial-gradient(circle at 100% 110%, #000 14px, transparent 15px);
+  -webkit-mask-size: 52px 30px;
+  mask-size: 52px 30px;
 }
-.wp-waves {
-  background-color: #eef6f4;
-  background-image:
-    radial-gradient(circle at 50% 110%, rgba(64, 145, 140, 0.16) 14px, transparent 15px),
-    radial-gradient(circle at 0 110%, rgba(64, 145, 140, 0.1) 14px, transparent 15px),
-    radial-gradient(circle at 100% 110%, rgba(64, 145, 140, 0.1) 14px, transparent 15px);
-  background-size: 52px 30px;
+.wpat-rings {
+  -webkit-mask-image:
+    repeating-radial-gradient(circle at 28% 18%, #000 0 10px, transparent 10px 36px),
+    repeating-radial-gradient(circle at 88% 92%, #000 0 12px, transparent 12px 46px);
+  mask-image:
+    repeating-radial-gradient(circle at 28% 18%, #000 0 10px, transparent 10px 36px),
+    repeating-radial-gradient(circle at 88% 92%, #000 0 12px, transparent 12px 46px);
 }
-.dark .wp-waves {
-  background-color: #0a1513;
-  background-image:
-    radial-gradient(circle at 50% 110%, rgba(90, 190, 180, 0.12) 14px, transparent 15px),
-    radial-gradient(circle at 0 110%, rgba(90, 190, 180, 0.07) 14px, transparent 15px),
-    radial-gradient(circle at 100% 110%, rgba(90, 190, 180, 0.07) 14px, transparent 15px);
-  background-size: 52px 30px;
+.wpat-bubbles {
+  -webkit-mask-image:
+    radial-gradient(circle at 25% 30%, #000 14px, transparent 15px),
+    radial-gradient(circle at 75% 70%, #000 22px, transparent 23px),
+    radial-gradient(circle at 18% 84%, #000 9px, transparent 10px),
+    radial-gradient(circle at 86% 14%, #000 7px, transparent 8px);
+  mask-image:
+    radial-gradient(circle at 25% 30%, #000 14px, transparent 15px),
+    radial-gradient(circle at 75% 70%, #000 22px, transparent 23px),
+    radial-gradient(circle at 18% 84%, #000 9px, transparent 10px),
+    radial-gradient(circle at 86% 14%, #000 7px, transparent 8px);
+  -webkit-mask-size: 130px 130px;
+  mask-size: 130px 130px;
 }
-.wp-rings {
-  background-color: #f6f1ea;
-  background-image:
-    repeating-radial-gradient(circle at 28% 18%, rgba(140, 110, 80, 0.08) 0 10px, transparent 10px 36px),
-    repeating-radial-gradient(circle at 88% 92%, rgba(140, 110, 80, 0.07) 0 12px, transparent 12px 46px);
+.wpat-sparkle {
+  -webkit-mask-image:
+    radial-gradient(circle, #000 1.5px, transparent 2.1px),
+    radial-gradient(circle, #000 1px, transparent 1.6px);
+  mask-image:
+    radial-gradient(circle, #000 1.5px, transparent 2.1px),
+    radial-gradient(circle, #000 1px, transparent 1.6px);
+  -webkit-mask-size: 34px 34px;
+  mask-size: 34px 34px;
+  -webkit-mask-position: 0 0, 17px 17px;
+  mask-position: 0 0, 17px 17px;
 }
-.dark .wp-rings {
-  background-color: #151009;
-  background-image:
-    repeating-radial-gradient(circle at 28% 18%, rgba(215, 180, 140, 0.07) 0 10px, transparent 10px 36px),
-    repeating-radial-gradient(circle at 88% 92%, rgba(215, 180, 140, 0.06) 0 12px, transparent 12px 46px);
+.wpat-hearts {
+  -webkit-mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='40' height='40' viewBox='0 0 24 24'%3E%3Cpath fill='%23000' d='M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z'/%3E%3C/svg%3E");
+  mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='40' height='40' viewBox='0 0 24 24'%3E%3Cpath fill='%23000' d='M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z'/%3E%3C/svg%3E");
+  -webkit-mask-size: 40px 40px;
+  mask-size: 40px 40px;
 }
-.wp-bubbles {
-  background-color: #ecf3f7;
-  background-image:
-    radial-gradient(circle at 25% 30%, rgba(90, 150, 190, 0.16) 14px, transparent 15px),
-    radial-gradient(circle at 75% 70%, rgba(90, 150, 190, 0.13) 22px, transparent 23px),
-    radial-gradient(circle at 18% 84%, rgba(90, 150, 190, 0.11) 9px, transparent 10px),
-    radial-gradient(circle at 86% 14%, rgba(90, 150, 190, 0.12) 7px, transparent 8px);
-  background-size: 130px 130px;
-}
-.dark .wp-bubbles {
-  background-color: #0b1319;
-  background-image:
-    radial-gradient(circle at 25% 30%, rgba(120, 180, 220, 0.12) 14px, transparent 15px),
-    radial-gradient(circle at 75% 70%, rgba(120, 180, 220, 0.09) 22px, transparent 23px),
-    radial-gradient(circle at 18% 84%, rgba(120, 180, 220, 0.08) 9px, transparent 10px),
-    radial-gradient(circle at 86% 14%, rgba(120, 180, 220, 0.09) 7px, transparent 8px);
-  background-size: 130px 130px;
-}
-.wp-sparkle {
-  background-color: #fbf7ec;
-  background-image:
-    radial-gradient(circle, rgba(196, 158, 62, 0.3) 1.5px, transparent 2.1px),
-    radial-gradient(circle, rgba(196, 158, 62, 0.18) 1px, transparent 1.6px);
-  background-size: 34px 34px;
-  background-position: 0 0, 17px 17px;
-}
-.dark .wp-sparkle {
-  background-color: #161207;
-  background-image:
-    radial-gradient(circle, rgba(230, 195, 105, 0.2) 1.5px, transparent 2.1px),
-    radial-gradient(circle, rgba(230, 195, 105, 0.13) 1px, transparent 1.6px);
-  background-size: 34px 34px;
-  background-position: 0 0, 17px 17px;
+.wpat-stars {
+  -webkit-mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='46' height='46' viewBox='0 0 24 24'%3E%3Cpath fill='%23000' d='M12 6.2l1.35 4.45L17.8 12l-4.45 1.35L12 17.8l-1.35-4.45L6.2 12l4.45-1.35z'/%3E%3C/svg%3E");
+  mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='46' height='46' viewBox='0 0 24 24'%3E%3Cpath fill='%23000' d='M12 6.2l1.35 4.45L17.8 12l-4.45 1.35L12 17.8l-1.35-4.45L6.2 12l4.45-1.35z'/%3E%3C/svg%3E");
+  -webkit-mask-size: 46px 46px;
+  mask-size: 46px 46px;
 }
 .wp-aurora {
   background-color: #eef0fa;

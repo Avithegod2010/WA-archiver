@@ -246,8 +246,14 @@ export function ChatView({
 
   const chatId = detail?.chat.id ?? ''
   const wallpaperCfg = useWallpaperConfig(chatId)
-  const wallpaperPreset = presetByKey(wallpaperCfg.k)
+  const wpIsPreset = wallpaperCfg.k === 'preset'
+  const wallpaperPreset = presetByKey(wpIsPreset ? wallpaperCfg.preset : 'doodle')
   const wallpaperIsPhoto = wallpaperCfg.k === 'custom' && !!wallpaperCfg.photo
+  /** Inline vars for the user-chosen base color (light + optional dark). */
+  const wallpaperBaseStyle = {
+    '--wp-base': wallpaperCfg.color ?? undefined,
+    '--wp-base-dark': wallpaperCfg.colorDark ?? undefined,
+  } as React.CSSProperties
   /** CSS filter for the wallpaper stack — contrast/brightness/saturation tuning. */
   const wallpaperFilter = useMemo(() => {
     const parts: string[] = []
@@ -864,12 +870,24 @@ export function ChatView({
         className="pointer-events-none absolute inset-0 overflow-hidden"
         style={wallpaperFilter ? { filter: wallpaperFilter } : undefined}
       >
-        <div
-          className={cn(
-            'absolute inset-0 transition-[background-color,background-image] duration-300',
-            wallpaperPreset.bg
-          )}
-        />
+        {/* Base color (user pick or default) + optional pattern overlay */}
+        {!wpIsPreset && (
+          <div className="wp-base absolute inset-0" style={wallpaperBaseStyle} />
+        )}
+        {!wpIsPreset && wallpaperCfg.pattern && (
+          <div
+            className={cn('wpat-bg absolute inset-0', `wpat-${wallpaperCfg.pattern}`)}
+          />
+        )}
+        {/* Pre-built design (complete look) */}
+        {wpIsPreset && (
+          <div
+            className={cn(
+              'absolute inset-0 transition-[background-color,background-image] duration-300',
+              wallpaperPreset.bg
+            )}
+          />
+        )}
         {wallpaperIsPhoto && wallpaperCfg.photo && (
           <div
             className="absolute inset-0"
@@ -883,7 +901,7 @@ export function ChatView({
             }}
           />
         )}
-        {!wallpaperIsPhoto && wallpaperPreset.doodle && (
+        {wpIsPreset && !wallpaperIsPhoto && wallpaperPreset.doodle && (
           <div className={cn('absolute inset-0', wallpaperPreset.doodle)}>
             <DoodleBackground />
           </div>

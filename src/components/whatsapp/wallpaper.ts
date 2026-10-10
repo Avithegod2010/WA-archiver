@@ -1,17 +1,33 @@
 /**
- * Chat wallpaper system v2 — preset colors & gradients, custom uploaded
- * photos, plus dim / blur controls. Persisted per chat with an app-wide
- * default (chatId '' = global):
+ * Chat wallpaper system v3 — three fully mixable layers plus fine-tuning:
  *
- *   wa-viewer:wallpaper:<chatId>  → JSON `{ k, dim, blur, photo }`
- *   wa-viewer:wallpaper           → app-wide default, same shape
+ *   1. COLORS      — any solid color (palette swatches or a custom color wheel)
+ *   2. PATTERNS    — color-agnostic decorative overlays (masks) that can sit
+ *                    on top of ANY color, or the default background
+ *   3. PRE-BUILTS  — complete designed looks (gradients, scenes, classic doodle)
  *
- * Legacy values (a plain preset key like "doodle") are upgraded on read.
+ * Plus an optional uploaded photo, dim overlay and contrast / brightness /
+ * saturation / blur tuning. Persisted per chat with an app-wide default:
+ *
+ *   wa-viewer:wallpaper:<chatId>  → JSON WallpaperConfig
+ *   wa-viewer:wallpaper           → app-wide default
+ *
+ * Legacy stored values (flat preset keys) are upgraded on read.
  */
 
+export type WallpaperMode = 'color' | 'pattern' | 'preset' | 'custom'
+
 export interface WallpaperConfig {
-  /** Preset key, or 'custom' when a photo is set */
-  k: string
+  /** Which section the current look came from — drives rendering + highlights */
+  k: WallpaperMode
+  /** Base solid color (light mode) when k is 'color' or 'pattern' */
+  color: string | null
+  /** Optional dark-mode variant of the base color */
+  colorDark: string | null
+  /** Pattern overlay key (k 'pattern', or a pattern kept under a chosen color) */
+  pattern: string | null
+  /** Pre-built design key (k === 'preset') */
+  preset: string
   /** Darkness overlay 0..0.75 — boosts legibility on any wallpaper */
   dim: number
   /** Blur in px 0..12 — applied to custom photo wallpapers */
@@ -28,8 +44,13 @@ export interface WallpaperConfig {
 
 export const WALLPAPER_EVENT = 'wa-wallpaper'
 export const GLOBAL_WALLPAPER_KEY = 'wa-viewer:wallpaper'
-const DEFAULT_CONFIG: WallpaperConfig = {
-  k: 'doodle',
+
+export const DEFAULT_CONFIG: WallpaperConfig = {
+  k: 'preset',
+  preset: 'doodle',
+  color: null,
+  colorDark: null,
+  pattern: null,
   dim: 0,
   blur: 0,
   contrast: 1,
@@ -37,6 +58,71 @@ const DEFAULT_CONFIG: WallpaperConfig = {
   saturation: 1,
   photo: null,
 }
+
+/* ------------------------------------------------------------------ */
+/* Section 1 — Colors                                                  */
+/* ------------------------------------------------------------------ */
+
+export interface WallpaperColor {
+  key: string
+  label: string
+  /** css color for light mode */
+  light: string
+  /** css color for dark mode */
+  dark: string
+}
+
+/** null light+dark = follow the default chat background */
+export const WALLPAPER_COLORS: WallpaperColor[] = [
+  { key: 'auto', label: 'Auto', light: '', dark: '' },
+  { key: 'sage', label: 'Sage', light: '#e3ecdd', dark: '#0c1710' },
+  { key: 'mint', label: 'Mint', light: '#dbf2e5', dark: '#081610' },
+  { key: 'teal', label: 'Lagoon', light: '#d5ebe7', dark: '#071614' },
+  { key: 'blush', label: 'Blush', light: '#fbe4e6', dark: '#1c0f11' },
+  { key: 'rose', label: 'Rose', light: '#f9dfe7', dark: '#1a0d13' },
+  { key: 'sepia', label: 'Sepia', light: '#f2e9d8', dark: '#16120d' },
+  { key: 'sand', label: 'Sand', light: '#f1e6d0', dark: '#151007' },
+  { key: 'butter', label: 'Butter', light: '#fdf3cf', dark: '#191507' },
+  { key: 'cocoa', label: 'Cocoa', light: '#eddfcd', dark: '#170f08' },
+  { key: 'lilac', label: 'Lilac', light: '#eae2f5', dark: '#120e1c' },
+  { key: 'graphite', label: 'Graphite', light: '#e2e5e8', dark: '#0d1114' },
+  { key: 'slate', label: 'Slate', light: '#cfd8de', dark: '#0a0f14' },
+]
+
+/* ------------------------------------------------------------------ */
+/* Section 2 — Patterns (color-agnostic overlays)                      */
+/* ------------------------------------------------------------------ */
+
+export interface WallpaperPattern {
+  key: string
+  label: string
+}
+
+/**
+ * Rendering lives in globals.css as `.wpat-<key>` mask layers — a single
+ * tint (`--wpat-tint`, adapts to light/dark) so any pattern can sit on top
+ * of ANY user color. Validation on read uses this key list.
+ */
+export const WALLPAPER_PATTERNS: WallpaperPattern[] = [
+  { key: 'dots', label: 'Dots' },
+  { key: 'confetti', label: 'Confetti' },
+  { key: 'stripes', label: 'Stripes' },
+  { key: 'grid', label: 'Grid' },
+  { key: 'plaid', label: 'Plaid' },
+  { key: 'chevron', label: 'Chevron' },
+  { key: 'waves', label: 'Waves' },
+  { key: 'rings', label: 'Rings' },
+  { key: 'bubbles', label: 'Bubbles' },
+  { key: 'sparkle', label: 'Sparkle' },
+  { key: 'hearts', label: 'Hearts' },
+  { key: 'stars', label: 'Stars' },
+]
+
+const PATTERN_KEYS = new Set(WALLPAPER_PATTERNS.map((p) => p.key))
+
+/* ------------------------------------------------------------------ */
+/* Section 3 — Pre-built designs (complete looks)                      */
+/* ------------------------------------------------------------------ */
 
 export interface WallpaperPreset {
   key: string
@@ -58,38 +144,11 @@ export const WALLPAPER_PRESETS: WallpaperPreset[] = [
     swatch: 'bg-(--wa-chat-bg)',
   },
   {
-    key: 'plain',
-    label: 'Plain',
-    bg: 'bg-(--wa-chat-bg)',
-    swatch: 'bg-(--wa-chat-bg)',
-  },
-  {
-    key: 'sage',
-    label: 'Sage',
-    bg: 'bg-[#e3ecdd] dark:bg-[#0c1710]',
-    doodle: 'text-[#4a7c59]/[0.08] dark:text-[#8fc7a5]/[0.05]',
-    swatch: 'bg-[#e3ecdd] dark:bg-[#0c1710]',
-  },
-  {
-    key: 'sepia',
-    label: 'Sepia',
-    bg: 'bg-[#f2e9d8] dark:bg-[#16120d]',
-    doodle: 'text-[#8a6d3b]/[0.09] dark:text-[#d9b878]/[0.05]',
-    swatch: 'bg-[#f2e9d8] dark:bg-[#16120d]',
-  },
-  {
     key: 'dusk',
     label: 'Dusk',
     bg: 'bg-[linear-gradient(140deg,#e5dcf7_0%,#f2e2ec_52%,#fbe9d6_100%)] dark:bg-[linear-gradient(140deg,#1b1230_0%,#251026_52%,#2a1408_100%)]',
     swatch:
       'bg-[linear-gradient(140deg,#e5dcf7_0%,#f2e2ec_52%,#fbe9d6_100%)] dark:bg-[linear-gradient(140deg,#1b1230_0%,#251026_52%,#2a1408_100%)]',
-  },
-  {
-    key: 'mint',
-    label: 'Mint',
-    bg: 'bg-[#dbf2e5] dark:bg-[#081610]',
-    doodle: 'text-[#2f855a]/[0.08] dark:text-[#7fd0a4]/[0.05]',
-    swatch: 'bg-[#dbf2e5] dark:bg-[#081610]',
   },
   {
     key: 'blossom',
@@ -121,81 +180,6 @@ export const WALLPAPER_PRESETS: WallpaperPreset[] = [
       'bg-[linear-gradient(160deg,#dcead0_0%,#c9e2cf_100%)] dark:bg-[linear-gradient(160deg,#0d1a0a_0%,#0a1610_100%)]',
   },
   {
-    key: 'graphite',
-    label: 'Graphite',
-    bg: 'bg-[#e2e5e8] dark:bg-[#0d1114]',
-    swatch: 'bg-[#e2e5e8] dark:bg-[#0d1114]',
-  },
-  {
-    key: 'cocoa',
-    label: 'Cocoa',
-    bg: 'bg-[#eddfcd] dark:bg-[#170f08]',
-    doodle: 'text-[#7a5a38]/[0.08] dark:text-[#caa878]/[0.05]',
-    swatch: 'bg-[#eddfcd] dark:bg-[#170f08]',
-  },
-
-  /* ---- Pattern designs (pure CSS, see globals.css .wp-*) ---- */
-  {
-    key: 'confetti',
-    label: 'Confetti',
-    bg: 'wp-confetti',
-    swatch: 'wp-confetti',
-  },
-  {
-    key: 'polka',
-    label: 'Polka',
-    bg: 'wp-polka',
-    swatch: 'wp-polka',
-  },
-  {
-    key: 'stripes',
-    label: 'Stripes',
-    bg: 'wp-stripes',
-    swatch: 'wp-stripes',
-  },
-  {
-    key: 'blueprint',
-    label: 'Blueprint',
-    bg: 'wp-blueprint',
-    swatch: 'wp-blueprint',
-  },
-  {
-    key: 'plaid',
-    label: 'Plaid',
-    bg: 'wp-plaid',
-    swatch: 'wp-plaid',
-  },
-  {
-    key: 'chevron',
-    label: 'Chevron',
-    bg: 'wp-chevron',
-    swatch: 'wp-chevron',
-  },
-  {
-    key: 'waves',
-    label: 'Waves',
-    bg: 'wp-waves',
-    swatch: 'wp-waves',
-  },
-  {
-    key: 'rings',
-    label: 'Rings',
-    bg: 'wp-rings',
-    swatch: 'wp-rings',
-  },
-  {
-    key: 'bubbles',
-    label: 'Bubbles',
-    bg: 'wp-bubbles',
-    swatch: 'wp-bubbles',
-  },
-  {
-    key: 'sparkle',
-    label: 'Sparkle',
-    bg: 'wp-sparkle',
-    swatch: 'wp-sparkle',
-  },
-  {
     key: 'aurora',
     label: 'Aurora',
     bg: 'wp-aurora',
@@ -213,6 +197,16 @@ export function presetByKey(k: string): WallpaperPreset {
   return WALLPAPER_PRESETS.find((p) => p.key === k) ?? WALLPAPER_PRESETS[0]
 }
 
+/* ------------------------------------------------------------------ */
+/* Store                                                               */
+/* ------------------------------------------------------------------ */
+
+const HEX_RE = /^#(?:[0-9a-f]{3}|[0-9a-f]{5,8})$/i
+
+function validColor(v: unknown): string | null {
+  return typeof v === 'string' && HEX_RE.test(v.trim()) ? v.trim() : null
+}
+
 function clampNum(v: unknown, def: number, min: number, max: number): number {
   const n = Number(v)
   if (!Number.isFinite(n)) return def
@@ -225,28 +219,87 @@ function clamp01(v: unknown, max: number): number {
   return Math.min(Math.max(n, 0), max)
 }
 
+/** Old flat keys → the new model */
+function mapLegacyKey(key: string, photo: string | null): WallpaperConfig {
+  const base: WallpaperConfig = { ...DEFAULT_CONFIG }
+  if (key === 'custom') {
+    base.k = 'custom'
+    base.photo = photo
+    return base
+  }
+  if (PATTERN_KEYS.has(key)) {
+    // old pattern presets; 'aurora'/'dunes' live in pre-builts now
+    if (key === 'aurora' || key === 'dunes') {
+      base.k = 'preset'
+      base.preset = key
+      return base
+    }
+    base.k = 'pattern'
+    base.pattern = key
+    return base
+  }
+  const oldSolid: Record<string, [string, string]> = {
+    sage: ['#e3ecdd', '#0c1710'],
+    mint: ['#dbf2e5', '#081610'],
+    sepia: ['#f2e9d8', '#16120d'],
+    graphite: ['#e2e5e8', '#0d1114'],
+    cocoa: ['#eddfcd', '#170f08'],
+  }
+  if (oldSolid[key]) {
+    base.k = 'color'
+    base.color = oldSolid[key][0]
+    base.colorDark = oldSolid[key][1]
+    return base
+  }
+  if (key === 'plain') {
+    base.k = 'color'
+    base.color = null
+    return base
+  }
+  // dusk / blossom / lagoon / ember / forest / doodle stay pre-builts
+  base.k = 'preset'
+  base.preset = presetByKey(key).key
+  return base
+}
+
 function parseConfig(raw: string | null): WallpaperConfig | null {
   if (!raw) return null
-  if (raw.startsWith('{')) {
-    try {
-      const o = JSON.parse(raw) as Record<string, unknown>
-      const photo = typeof o.photo === 'string' && o.photo ? o.photo : null
-      const k = typeof o.k === 'string' && o.k ? o.k : photo ? 'custom' : 'doodle'
-      return {
-        k,
-        dim: clamp01(o.dim, 0.75),
-        blur: clamp01(o.blur, 12),
-        contrast: clampNum(o.contrast, 1, 0.6, 1.6),
-        brightness: clampNum(o.brightness, 1, 0.6, 1.3),
-        saturation: clampNum(o.saturation, 1, 0, 2),
-        photo,
-      }
-    } catch {
-      return null
+  if (!raw.startsWith('{')) return mapLegacyKey(raw.trim(), null)
+  try {
+    const o = JSON.parse(raw) as Record<string, unknown>
+    const photo = typeof o.photo === 'string' && o.photo ? o.photo : null
+    const kStr = typeof o.k === 'string' ? o.k : null
+    if (kStr && !['color', 'pattern', 'preset', 'custom'].includes(kStr)) {
+      return mapLegacyKey(kStr, photo)
     }
+
+    const mode = (['color', 'pattern', 'preset', 'custom'] as const).includes(
+      o.k as WallpaperMode
+    )
+      ? (o.k as WallpaperMode)
+      : photo
+        ? 'custom'
+        : 'preset'
+    const pattern =
+      typeof o.pattern === 'string' && PATTERN_KEYS.has(o.pattern) ? o.pattern : null
+    const cfg: WallpaperConfig = {
+      k: mode,
+      color: validColor(o.color),
+      colorDark: validColor(o.colorDark),
+      pattern: mode === 'preset' ? null : pattern,
+      preset: presetByKey(typeof o.preset === 'string' ? o.preset : 'doodle').key,
+      dim: clamp01(o.dim, 0.75),
+      blur: clamp01(o.blur, 12),
+      contrast: clampNum(o.contrast, 1, 0.6, 1.6),
+      brightness: clampNum(o.brightness, 1, 0.6, 1.3),
+      saturation: clampNum(o.saturation, 1, 0, 2),
+      photo: mode === 'custom' ? photo : photo, // keep the url cached either way
+    }
+    if (cfg.k === 'custom' && !cfg.photo) cfg.k = 'preset'
+    return cfg
+  } catch {
+    return null
   }
-  // Legacy plain-key value
-  return { ...DEFAULT_CONFIG, k: raw }
 }
 
 function perChatKey(chatId: string): string {
@@ -279,13 +332,16 @@ export function hasWallpaperOverride(chatId: string): boolean {
 export function writeWallpaper(chatId: string, patch: Partial<WallpaperConfig>) {
   try {
     const cur = hasWallpaperOverride(chatId) || !chatId ? readWallpaper(chatId) : readWallpaper('')
-    // For a fresh per-chat override start from the effective look
-    const next: WallpaperConfig = {
-      ...cur,
-      ...patch,
+    const next: WallpaperConfig = { ...cur, ...patch }
+    if (next.k === 'preset') {
+      next.color = null
+      next.colorDark = null
+      next.pattern = null
     }
-    if (next.k !== 'custom') next.photo = null
-    if (next.k === 'custom' && !next.photo) next.k = 'doodle'
+    if (next.k === 'custom' && !next.photo) {
+      next.k = 'preset'
+      next.preset = 'doodle'
+    }
     localStorage.setItem(
       chatId ? perChatKey(chatId) : GLOBAL_WALLPAPER_KEY,
       JSON.stringify(next)
