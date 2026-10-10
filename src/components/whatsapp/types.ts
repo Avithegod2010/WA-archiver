@@ -11,6 +11,7 @@ export interface ChatSummary {
   lastType: string
   sourceFile: string
   pinned: boolean
+  archived: boolean
 }
 
 export interface ChatMessage {

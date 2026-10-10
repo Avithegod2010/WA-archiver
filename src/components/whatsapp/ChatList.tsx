@@ -2,6 +2,9 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react'
 import {
+  Archive,
+  ArchiveRestore,
+  ChevronDown,
   FileText,
   Film,
   Image as ImageIcon,
@@ -94,6 +97,171 @@ function Preview({ chat }: { chat: ChatSummary }) {
   return <p className="truncate text-[13.5px]">{chat.lastPreview}</p>
 }
 
+/** One chat row — shared by the active list and the archived drawer. */
+function ChatRow({
+  chat,
+  index,
+  activeId,
+  cursor,
+  isArchived,
+  onSelect,
+  onTogglePin,
+  onToggleArchive,
+  onDelete,
+}: {
+  chat: ChatSummary
+  index: number
+  activeId: string | null
+  cursor: number
+  isArchived: boolean
+  onSelect: (id: string) => void
+  onTogglePin: (id: string, pinned: boolean) => void
+  onToggleArchive: (id: string, archived: boolean) => void
+  onDelete: (chat: ChatSummary) => void
+}) {
+  return (
+    <button
+      data-chat-idx={index}
+      className={cn(
+        'group relative flex w-full items-center gap-3 px-3 py-2.5 text-left transition-colors hover:bg-[#f5f6f6] dark:hover:bg-[#202c33]',
+        activeId === chat.id && 'bg-[#f0f2f5] dark:bg-[#2a3942]',
+        cursor === index &&
+          'ring-1 ring-inset ring-[#00a884]/70 bg-[#00a884]/[0.04] dark:bg-[#202c33]'
+      )}
+      onClick={() => onSelect(chat.id)}
+    >
+      {activeId === chat.id && (
+        <span
+          aria-hidden
+          className="absolute left-0 top-1/2 h-7 w-[3px] -translate-y-1/2 rounded-r-full bg-[#00a884]"
+        />
+      )}
+      <Avatar name={chat.title} size={49} />
+      <div className="min-w-0 flex-1 border-b border-black/5 py-1.5 dark:border-white/5">
+        <div className="flex items-baseline justify-between gap-2">
+          <span className="flex min-w-0 items-center gap-1">
+            <span
+              className={cn(
+                'truncate text-[16px] leading-tight text-[#111b21] dark:text-[#e9edef]',
+                isArchived && 'text-[#54656f] dark:text-[#8696a0]'
+              )}
+            >
+              {chat.title}
+            </span>
+            {chat.pinned && (
+              <Pin
+                className="h-3 w-3 shrink-0 fill-[#8696a0] text-[#8696a0]"
+                aria-label="Pinned"
+              />
+            )}
+          </span>
+          <span
+            className={cn(
+              'shrink-0 text-[12px]',
+              'text-[#667781] dark:text-[#8696a0]'
+            )}
+          >
+            {formatListTime(chat.lastAt)}
+          </span>
+        </div>
+        <div className="mt-0.5 flex items-center justify-between gap-2">
+          <div className="min-w-0 flex-1 text-[#667781] dark:text-[#8696a0]">
+            {chat.isGroup && chat.lastSender ? (
+              <span className="text-[13.5px]">
+                {chat.lastSender === 'You' ? (
+                  'You: '
+                ) : (
+                  <>
+                    <span className="text-[#111b21] dark:text-[#d1d7db]">
+                      {chat.lastSender}
+                    </span>
+                    {': '}
+                  </>
+                )}
+              </span>
+            ) : null}
+            <span className="align-[1px]">
+              <Preview chat={chat} />
+            </span>
+          </div>
+          <span className="hidden shrink-0 items-center group-hover:flex">
+            {!isArchived && (
+              <span
+                role="button"
+                tabIndex={0}
+                aria-label={
+                  chat.pinned ? `Unpin ${chat.title}` : `Pin ${chat.title}`
+                }
+                title={chat.pinned ? 'Unpin chat' : 'Pin chat'}
+                className="rounded p-1 text-[#8696a0] hover:bg-black/10 hover:text-[#00a884] dark:hover:bg-white/10"
+                onClick={(e) => {
+                  e.stopPropagation()
+                  onTogglePin(chat.id, !chat.pinned)
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' || e.key === ' ') {
+                    e.stopPropagation()
+                    onTogglePin(chat.id, !chat.pinned)
+                  }
+                }}
+              >
+                {chat.pinned ? (
+                  <PinOff className="h-4 w-4" />
+                ) : (
+                  <Pin className="h-4 w-4" />
+                )}
+              </span>
+            )}
+            <span
+              role="button"
+              tabIndex={0}
+              aria-label={
+                isArchived ? `Unarchive ${chat.title}` : `Archive ${chat.title}`
+              }
+              title={isArchived ? 'Unarchive chat' : 'Archive chat'}
+              className="rounded p-1 text-[#8696a0] hover:bg-black/10 hover:text-[#00a884] dark:hover:bg-white/10"
+              onClick={(e) => {
+                e.stopPropagation()
+                onToggleArchive(chat.id, !isArchived)
+              }}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' || e.key === ' ') {
+                  e.stopPropagation()
+                  onToggleArchive(chat.id, !isArchived)
+                }
+              }}
+            >
+              {isArchived ? (
+                <ArchiveRestore className="h-4 w-4" />
+              ) : (
+                <Archive className="h-4 w-4" />
+              )}
+            </span>
+            <span
+              role="button"
+              tabIndex={0}
+              aria-label={`Delete ${chat.title}`}
+              className="rounded p-1 text-[#8696a0] hover:bg-black/10 hover:text-rose-500 dark:hover:bg-white/10"
+              onClick={(e) => {
+                e.stopPropagation()
+                onDelete(chat)
+              }}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' || e.key === ' ') {
+                  e.stopPropagation()
+                  onDelete(chat)
+                }
+              }}
+            >
+              <Trash2 className="h-4 w-4" />
+            </span>
+          </span>
+        </div>
+      </div>
+    </button>
+  )
+}
+
 export function ChatList({
   chats,
   activeId,
@@ -104,6 +272,7 @@ export function ChatList({
   onImportFiles,
   onDemo,
   onTogglePin,
+  onToggleArchive,
   onOpenInsights,
 }: {
   chats: ChatSummary[]
@@ -115,12 +284,14 @@ export function ChatList({
   onImportFiles: (files: File[]) => void
   onDemo: () => void
   onTogglePin: (id: string, pinned: boolean) => void
+  onToggleArchive: (id: string, archived: boolean) => void
   onOpenInsights: () => void
 }) {
   const [query, setQuery] = useState('')
   const [pendingDelete, setPendingDelete] = useState<ChatSummary | null>(null)
   const [dragOver, setDragOver] = useState(false)
   const [cursor, setCursor] = useState(-1)
+  const [archivedOpen, setArchivedOpen] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const searchInputRef = useRef<HTMLInputElement>(null)
   const asideRef = useRef<HTMLElement>(null)
@@ -134,11 +305,23 @@ export function ChatList({
         )
       : chats
     // Pinned first, then by recency (API already sorts by lastAt desc)
-    return [...base].sort((a, b) => Number(b.pinned) - Number(a.pinned))
+    const sorted = [...base].sort((a, b) => Number(b.pinned) - Number(a.pinned))
+    return {
+      active: sorted.filter((c) => !c.archived),
+      archived: sorted.filter((c) => c.archived),
+    }
   }, [chats, query])
 
-  const pinnedCount = filtered.filter((c) => c.pinned).length
-  const hasBothSections = pinnedCount > 0 && pinnedCount < filtered.length
+  const { active: activeChats, archived: archivedChats } = filtered
+  const pinnedCount = activeChats.filter((c) => c.pinned).length
+  const hasBothSections = pinnedCount > 0 && pinnedCount < activeChats.length
+
+  // Flat display order for keyboard navigation: active chats, then archived
+  // (only when the archived drawer is open)
+  const displayList = useMemo(
+    () => (archivedOpen ? [...activeChats, ...archivedChats] : activeChats),
+    [activeChats, archivedChats, archivedOpen]
+  )
 
   // Keyboard shortcuts: j/k or arrows navigate, Enter opens, / focuses search
   useEffect(() => {
@@ -164,20 +347,20 @@ export function ChatList({
       const up = e.key === 'k' || e.key === 'ArrowUp'
       if (down || up) {
         e.preventDefault()
-        if (filtered.length === 0) return
+        if (displayList.length === 0) return
         setCursor((c) =>
-          Math.min(Math.max(c + (down ? 1 : -1), 0), filtered.length - 1)
+          Math.min(Math.max(c + (down ? 1 : -1), 0), displayList.length - 1)
         )
-      } else if (e.key === 'Enter' && cursor >= 0 && cursor < filtered.length) {
+      } else if (e.key === 'Enter' && cursor >= 0 && cursor < displayList.length) {
         // Only when the chat list itself has focus context (body)
         if (target && target !== document.body) return
         e.preventDefault()
-        onSelect(filtered[cursor].id)
+        onSelect(displayList[cursor].id)
       }
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [filtered, cursor, pendingDelete, onSelect])
+  }, [displayList, cursor, pendingDelete, onSelect])
 
   // Keep the highlighted row visible
   useEffect(() => {
@@ -308,7 +491,7 @@ export function ChatList({
               </div>
             ))}
           </div>
-        ) : filtered.length === 0 ? (
+        ) : activeChats.length === 0 && archivedChats.length === 0 ? (
           <div className="flex h-full flex-col items-center justify-center px-8 py-10 text-center">
             {chats.length === 0 ? (
               <>
@@ -352,136 +535,96 @@ export function ChatList({
             )}
           </div>
         ) : (
-          <ul role="list">
-            {filtered.map((chat, i) => {
-              const prev = filtered[i - 1]
-              const showPinnedDivider =
-                hasBothSections && chat.pinned && (!prev || !prev.pinned)
-              const showAllDivider =
-                hasBothSections && !chat.pinned && prev?.pinned
-              return (
-                <li key={chat.id}>
-                  {(showPinnedDivider || showAllDivider) && (
-                    <div className="flex items-center gap-3 bg-[#f5f6f6]/80 px-4 pb-1 pt-2.5 dark:bg-[#111b21]/60">
-                      <span className="text-[11px] font-semibold uppercase tracking-wider text-[#667781] dark:text-[#8696a0]">
-                        {showPinnedDivider ? 'Pinned' : 'All chats'}
-                      </span>
-                      <span className="h-px flex-1 bg-black/5 dark:bg-white/5" />
-                    </div>
-                  )}
-                  <button
-                    data-chat-idx={i}
-                    className={cn(
-                      'group relative flex w-full items-center gap-3 px-3 py-2.5 text-left transition-colors hover:bg-[#f5f6f6] dark:hover:bg-[#202c33]',
-                      activeId === chat.id && 'bg-[#f0f2f5] dark:bg-[#2a3942]',
-                      cursor === i &&
-                        'ring-1 ring-inset ring-[#00a884]/70 bg-[#00a884]/[0.04] dark:bg-[#202c33]'
-                    )}
-                    onClick={() => onSelect(chat.id)}
-                  >
-                    {activeId === chat.id && (
-                      <span
-                        aria-hidden
-                        className="absolute left-0 top-1/2 h-7 w-[3px] -translate-y-1/2 rounded-r-full bg-[#00a884]"
-                      />
-                    )}
-                    <Avatar name={chat.title} size={49} />
-                    <div className="min-w-0 flex-1 border-b border-black/5 py-1.5 dark:border-white/5">
-                      <div className="flex items-baseline justify-between gap-2">
-                        <span className="flex min-w-0 items-center gap-1">
-                          <span className="truncate text-[16px] leading-tight text-[#111b21] dark:text-[#e9edef]">
-                            {chat.title}
-                          </span>
-                          {chat.pinned && (
-                            <Pin
-                              className="h-3 w-3 shrink-0 fill-[#8696a0] text-[#8696a0]"
-                              aria-label="Pinned"
-                            />
-                          )}
-                        </span>
-                        <span
-                          className={cn(
-                            'shrink-0 text-[12px]',
-                            'text-[#667781] dark:text-[#8696a0]'
-                          )}
-                        >
-                          {formatListTime(chat.lastAt)}
-                        </span>
-                      </div>
-                      <div className="mt-0.5 flex items-center justify-between gap-2">
-                        <div className="min-w-0 flex-1 text-[#667781] dark:text-[#8696a0]">
-                          {chat.isGroup && chat.lastSender ? (
-                            <span className="text-[13.5px]">
-                              {chat.lastSender === 'You' ? (
-                                'You: '
-                              ) : (
-                                <>
-                                  <span className="text-[#111b21] dark:text-[#d1d7db]">
-                                    {chat.lastSender}
-                                  </span>
-                                  {': '}
-                                </>
-                              )}
-                            </span>
-                          ) : null}
-                          <span className="align-[1px]">
-                            <Preview chat={chat} />
-                          </span>
-                        </div>
-                        <span className="hidden shrink-0 items-center group-hover:flex">
-                          <span
-                            role="button"
-                            tabIndex={0}
-                            aria-label={
-                              chat.pinned
-                                ? `Unpin ${chat.title}`
-                                : `Pin ${chat.title}`
-                            }
-                            title={chat.pinned ? 'Unpin chat' : 'Pin chat'}
-                            className="rounded p-1 text-[#8696a0] hover:bg-black/10 hover:text-[#00a884] dark:hover:bg-white/10"
-                            onClick={(e) => {
-                              e.stopPropagation()
-                              onTogglePin(chat.id, !chat.pinned)
-                            }}
-                            onKeyDown={(e) => {
-                              if (e.key === 'Enter' || e.key === ' ') {
-                                e.stopPropagation()
-                                onTogglePin(chat.id, !chat.pinned)
-                              }
-                            }}
-                          >
-                            {chat.pinned ? (
-                              <PinOff className="h-4 w-4" />
-                            ) : (
-                              <Pin className="h-4 w-4" />
-                            )}
-                          </span>
-                          <span
-                            role="button"
-                            tabIndex={0}
-                            aria-label={`Delete ${chat.title}`}
-                            className="rounded p-1 text-[#8696a0] hover:bg-black/10 hover:text-rose-500 dark:hover:bg-white/10"
-                            onClick={(e) => {
-                              e.stopPropagation()
-                              setPendingDelete(chat)
-                            }}
-                            onKeyDown={(e) => {
-                              if (e.key === 'Enter' || e.key === ' ') {
-                                e.stopPropagation()
-                                setPendingDelete(chat)
-                              }
-                            }}
-                          >
-                            <Trash2 className="h-4 w-4" />
-                          </span>
-                        </span>
-                      </div>
-                    </div>
-                  </button>
+          <>
+            <ul role="list">
+              {activeChats.length === 0 && (
+                <li className="px-4 pb-1 pt-4 text-center">
+                  <p className="text-[13px] text-[#667781] dark:text-[#8696a0]">
+                    All chats are archived
+                  </p>
                 </li>
-              )
-            })}
-          </ul>
+              )}
+              {activeChats.map((chat, i) => {
+                const prev = activeChats[i - 1]
+                const showPinnedDivider =
+                  hasBothSections && chat.pinned && (!prev || !prev.pinned)
+                const showAllDivider =
+                  hasBothSections && !chat.pinned && prev?.pinned
+                return (
+                  <li key={chat.id}>
+                    {(showPinnedDivider || showAllDivider) && (
+                      <div className="flex items-center gap-3 bg-[#f5f6f6]/80 px-4 pb-1 pt-2.5 dark:bg-[#111b21]/60">
+                        <span className="text-[11px] font-semibold uppercase tracking-wider text-[#667781] dark:text-[#8696a0]">
+                          {showPinnedDivider ? 'Pinned' : 'All chats'}
+                        </span>
+                        <span className="h-px flex-1 bg-black/5 dark:bg-white/5" />
+                      </div>
+                    )}
+                    <ChatRow
+                      chat={chat}
+                      index={i}
+                      activeId={activeId}
+                      cursor={cursor}
+                      isArchived={false}
+                      onSelect={onSelect}
+                      onTogglePin={onTogglePin}
+                      onToggleArchive={onToggleArchive}
+                      onDelete={setPendingDelete}
+                    />
+                  </li>
+                )
+              })}
+            </ul>
+
+            {/* Archived drawer (WhatsApp-style collapsible section) */}
+            {archivedChats.length > 0 && (
+              <div className="sticky bottom-0 mt-1">
+                <button
+                  onClick={() => setArchivedOpen((v) => !v)}
+                  aria-expanded={archivedOpen}
+                  className="flex w-full items-center gap-3 border-t border-black/10 bg-white px-4 py-2.5 text-left transition-colors hover:bg-[#f5f6f6] dark:border-white/5 dark:bg-[#111b21] dark:hover:bg-[#202c33]"
+                >
+                  <span className="flex h-9 w-9 items-center justify-center rounded-full bg-black/5 text-[#667781] dark:bg-white/10 dark:text-[#8696a0]">
+                    <Archive className="h-4 w-4" />
+                  </span>
+                  <span className="flex-1 text-[14.5px] font-medium text-[#111b21] dark:text-[#e9edef]">
+                    Archived
+                  </span>
+                  <span className="rounded-full bg-black/5 px-2 py-0.5 text-[11.5px] font-semibold tabular-nums text-[#667781] dark:bg-white/10 dark:text-[#8696a0]">
+                    {archivedChats.length}
+                  </span>
+                  <ChevronDown
+                    className={cn(
+                      'h-4 w-4 text-[#8696a0] transition-transform duration-200',
+                      archivedOpen && 'rotate-180'
+                    )}
+                  />
+                </button>
+                {archivedOpen && (
+                  <ul
+                    role="list"
+                    className="animate-in slide-in-from-top-1 bg-black/[0.015] pb-2 duration-200 dark:bg-white/[0.02]"
+                  >
+                    {archivedChats.map((chat, i) => (
+                      <li key={chat.id}>
+                        <ChatRow
+                          chat={chat}
+                          index={activeChats.length + i}
+                          activeId={activeId}
+                          cursor={cursor}
+                          isArchived
+                          onSelect={onSelect}
+                          onTogglePin={onTogglePin}
+                          onToggleArchive={onToggleArchive}
+                          onDelete={setPendingDelete}
+                        />
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            )}
+          </>
         )}
       </div>
 

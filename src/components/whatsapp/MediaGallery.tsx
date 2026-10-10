@@ -4,13 +4,17 @@ import { useEffect, useMemo, useState, useSyncExternalStore } from 'react'
 import { createPortal } from 'react-dom'
 import {
   Archive,
+  Check,
   CornerDownLeft,
+  Download,
   FileText,
   Film,
   ImageIcon,
+  ListChecks,
   Loader2,
   Mic,
   Play,
+  X,
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { Lightbox } from './Lightbox'
@@ -75,6 +79,9 @@ export function MediaGallery({
   const [viewerIndex, setViewerIndex] = useState<number | null>(null)
   const [filter, setFilter] = useState<'all' | 'image' | 'video' | 'audio' | 'doc'>('all')
   const [zipping, setZipping] = useState(false)
+  const [selectMode, setSelectMode] = useState(false)
+  const [selected, setSelected] = useState<Set<string>>(new Set())
+  const [bulkBusy, setBulkBusy] = useState(false)
   const mounted = useSyncExternalStore(
     () => () => {},
     () => true,
@@ -103,11 +110,18 @@ export function MediaGallery({
   useEffect(() => {
     if (!open) return
     function onKey(e: KeyboardEvent) {
-      if (e.key === 'Escape' && viewerIndex == null) onClose()
+      if (e.key === 'Escape' && viewerIndex == null) {
+        // Selection mode exits first, then the gallery closes
+        if (selectMode) {
+          exitSelect()
+        } else {
+          onClose()
+        }
+      }
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [open, viewerIndex, onClose])
+  }, [open, viewerIndex, onClose, selectMode])
 
   const shown = useMemo(() => {
     if (!items) return []
@@ -131,6 +145,58 @@ export function MediaGallery({
     () => (items ?? []).filter((m) => m.mediaPath).length,
     [items]
   )
+
+  function exitSelect() {
+    setSelectMode(false)
+    setSelected(new Set())
+  }
+
+  function toggleSelect(id: string) {
+    setSelected((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) {
+        next.delete(id)
+      } else {
+        next.add(id)
+      }
+      return next
+    })
+  }
+
+  async function handleDownloadSelected() {
+    if (selected.size === 0 || bulkBusy) return
+    setBulkBusy(true)
+    try {
+      const res = await fetch(`/api/chats/${chatId}/media-zip`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ids: [...selected] }),
+      })
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}))
+        throw new Error(data.error ?? 'Download failed')
+      }
+      const blob = await res.blob()
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = ''
+      document.body.appendChild(a)
+      a.click()
+      a.remove()
+      setTimeout(() => URL.revokeObjectURL(url), 10_000)
+      toast.success(
+        `Downloading ${selected.size} item${selected.size === 1 ? '' : 's'} as .zip — check your downloads`
+      )
+      exitSelect()
+    } catch (err) {
+      toast.error(
+        err instanceof Error ? err.message : 'Could not download selection'
+      )
+    } finally {
+      setBulkBusy(false)
+    }
+  }
 
   function handleDownloadZip() {
     if (zipping) return
@@ -186,7 +252,7 @@ export function MediaGallery({
         {items != null && availableCount > 0 && (
           <button
             onClick={handleDownloadZip}
-            disabled={zipping}
+            disabled={zipping || selectMode}
             aria-label="Download all media as zip"
             title="Download all media (.zip with transcript)"
             className="flex h-9 items-center gap-1.5 rounded-full bg-[#00a884] px-3.5 text-[12.5px] font-medium text-white transition-colors hover:bg-[#029374] disabled:opacity-60"
@@ -197,6 +263,22 @@ export function MediaGallery({
               <Archive className="h-4 w-4" />
             )}
             Download all
+          </button>
+        )}
+        {items != null && items.length > 0 && (
+          <button
+            onClick={() => (selectMode ? exitSelect() : setSelectMode(true))}
+            aria-pressed={selectMode}
+            title={selectMode ? 'Exit selection' : 'Select media to download'}
+            className={cn(
+              'flex h-9 items-center gap-1.5 rounded-full px-3.5 text-[12.5px] font-medium transition-colors',
+              selectMode
+                ? 'bg-white text-[#111b21]'
+                : 'bg-white/10 text-[#e9edef] hover:bg-white/20'
+            )}
+          >
+            <ListChecks className="h-4 w-4" />
+            {selectMode ? 'Cancel' : 'Select'}
           </button>
         )}
         <button
@@ -262,14 +344,17 @@ export function MediaGallery({
           </div>
         )}
         {items !== undefined && shown.length > 0 && (
-          <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5">
+          <div className="grid grid-cols-2 gap-2 pb-4 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5">
             {shown.map((m, i) => (
               <MediaTile
                 key={m.id}
                 item={m}
                 chatId={chatId}
                 isGroup={isGroup}
-                canJump={canJump}
+                canJump={canJump && !selectMode}
+                selectMode={selectMode}
+                isSelected={selected.has(m.id)}
+                onToggleSelect={toggleSelect}
                 onOpen={() => setViewerIndex(i)}
                 onJump={
                   canJump
@@ -285,6 +370,43 @@ export function MediaGallery({
           </div>
         )}
       </div>
+
+      {/* Selection action bar */}
+      {selectMode && (
+        <div className="animate-in slide-in-from-bottom-2 flex items-center gap-2 border-t border-white/10 bg-[#111b21] px-4 py-2.5 duration-200">
+          <button
+            onClick={() =>
+              setSelected(new Set(shown.filter((m) => m.mediaPath).map((m) => m.id)))
+            }
+            disabled={shown.length === 0}
+            className="flex h-8 items-center rounded-full bg-white/10 px-3 text-[12px] font-medium text-[#e9edef] transition-colors hover:bg-white/20 disabled:opacity-50"
+          >
+            Select all
+          </button>
+          <button
+            onClick={() => setSelected(new Set())}
+            disabled={selected.size === 0}
+            className="flex h-8 items-center rounded-full bg-white/10 px-3 text-[12px] font-medium text-[#e9edef] transition-colors hover:bg-white/20 disabled:opacity-50"
+          >
+            Clear
+          </button>
+          <span className="flex-1 text-center text-[12.5px] tabular-nums text-[#8696a0]">
+            {selected.size} selected
+          </span>
+          <button
+            onClick={handleDownloadSelected}
+            disabled={selected.size === 0 || bulkBusy}
+            className="flex h-9 items-center gap-1.5 rounded-full bg-[#00a884] px-4 text-[12.5px] font-medium text-white transition-colors hover:bg-[#029374] disabled:opacity-60"
+          >
+            {bulkBusy ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <Download className="h-4 w-4" />
+            )}
+            Download
+          </button>
+        </div>
+      )}
 
       {/* Media viewer overlay with ← → navigation across `shown` */}
       {viewerIndex != null && shown[viewerIndex] && (
@@ -312,6 +434,9 @@ function MediaTile({
   chatId,
   isGroup,
   canJump,
+  selectMode,
+  isSelected,
+  onToggleSelect,
   onOpen,
   onJump,
 }: {
@@ -319,6 +444,9 @@ function MediaTile({
   chatId: string
   isGroup: boolean
   canJump: boolean
+  selectMode: boolean
+  isSelected: boolean
+  onToggleSelect: (id: string) => void
   onOpen: () => void
   onJump?: () => void
 }) {
@@ -330,17 +458,31 @@ function MediaTile({
   return (
     <div
       className={cn(
-        'group relative aspect-square overflow-hidden rounded-lg bg-white/5 ring-1 ring-white/10 transition-all duration-200',
-        src ? 'cursor-pointer hover:ring-2 hover:ring-[#00a884] hover:brightness-110' : 'cursor-default opacity-70'
+        'group relative aspect-square overflow-hidden rounded-lg bg-white/5 ring-1 transition-all duration-200',
+        src
+          ? 'cursor-pointer hover:brightness-110'
+          : 'cursor-default opacity-70',
+        isSelected
+          ? 'ring-2 ring-[#00a884]'
+          : 'ring-white/10 hover:ring-2 hover:ring-[#00a884]'
       )}
       role={src ? 'button' : undefined}
-      aria-label={item.mediaName ?? item.type}
+      aria-label={
+        selectMode
+          ? `${isSelected ? 'Deselect' : 'Select'} ${item.mediaName ?? item.type}`
+          : item.mediaName ?? item.type
+      }
+      aria-pressed={selectMode ? isSelected : undefined}
       title={
         item.mediaName
           ? `${item.mediaName}${item.bytes != null ? ` · ${formatBytes(item.bytes)}` : ''}`
           : undefined
       }
-      onClick={() => src && onOpen()}
+      onClick={() => {
+        if (!src) return
+        if (selectMode) onToggleSelect(item.id)
+        else onOpen()
+      }}
     >
       {src && kind === 'image' && (
         <img
@@ -360,7 +502,12 @@ function MediaTile({
             playsInline
             className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-[1.04]"
           />
-          <span className="absolute left-1.5 top-1.5 flex items-center gap-1 rounded bg-black/55 px-1.5 py-0.5 text-[9.5px] font-medium text-white backdrop-blur-sm">
+          <span
+            className={cn(
+              'absolute left-1.5 top-1.5 flex items-center gap-1 rounded bg-black/55 px-1.5 py-0.5 text-[9.5px] font-medium text-white backdrop-blur-sm transition-all duration-150',
+              selectMode && 'left-8'
+            )}
+          >
             <Film className="h-3 w-3" /> Video
           </span>
           <span className="pointer-events-none absolute inset-0 flex items-center justify-center">
@@ -414,8 +561,22 @@ function MediaTile({
         </span>
       )}
 
+      {/* Selection checkbox */}
+      {selectMode && src && (
+        <span
+          className={cn(
+            'pointer-events-none absolute left-1.5 top-1.5 flex h-6 w-6 items-center justify-center rounded-full transition-all duration-150',
+            isSelected
+              ? 'scale-100 bg-[#00a884] text-white opacity-100'
+              : 'scale-90 bg-black/55 text-transparent opacity-90 ring-1 ring-white/40'
+          )}
+        >
+          <Check className="h-4 w-4" />
+        </span>
+      )}
+
       {/* Jump to message in chat */}
-      {src && onJump && (
+      {src && onJump && !selectMode && (
         <button
           onClick={(e) => {
             e.stopPropagation()

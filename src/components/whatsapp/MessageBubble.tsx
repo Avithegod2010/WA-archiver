@@ -105,6 +105,42 @@ function mediaSrc(chatId: string, msg: ChatMessage): string | null {
   return `/api/media/${chatId}/${encodeURIComponent(msg.mediaPath)}`
 }
 
+/**
+ * Renders text with every case-insensitive occurrence of `query` wrapped in a
+ * <mark> — used while the in-chat search is active.
+ */
+export function Highlight({
+  text,
+  query,
+}: {
+  text: string
+  query?: string
+}) {
+  const q = query?.trim()
+  if (!q) return <>{text}</>
+  const lower = text.toLowerCase()
+  const ql = q.toLowerCase()
+  const parts: React.ReactNode[] = []
+  let i = 0
+  let pos = lower.indexOf(ql)
+  let key = 0
+  while (pos !== -1) {
+    if (pos > i) parts.push(text.slice(i, pos))
+    parts.push(
+      <mark
+        key={key++}
+        className="rounded-[3px] bg-[#ffe084] px-[1px] text-inherit dark:bg-[#937317]/70"
+      >
+        {text.slice(pos, pos + ql.length)}
+      </mark>
+    )
+    i = pos + ql.length
+    pos = lower.indexOf(ql, i)
+  }
+  if (i < text.length) parts.push(text.slice(i))
+  return <>{parts}</>
+}
+
 interface MetaProps {
   msg: ChatMessage
   outgoing: boolean
@@ -182,7 +218,15 @@ function DocumentChip({ name, src }: { name: string; src: string | null }) {
 }
 
 /** In-bubble photo with lightbox opening on click. */
-function ImageContent({ msg, src }: { msg: ChatMessage; src: string | null }) {
+function ImageContent({
+  msg,
+  src,
+  highlight,
+}: {
+  msg: ChatMessage
+  src: string | null
+  highlight?: string
+}) {
   const [open, setOpen] = useState(false)
   if (!src) {
     return (
@@ -210,7 +254,9 @@ function ImageContent({ msg, src }: { msg: ChatMessage; src: string | null }) {
           }}
         />
         {msg.body && (
-          <figcaption className="mt-1 whitespace-pre-wrap">{msg.body}</figcaption>
+          <figcaption className="mt-1 whitespace-pre-wrap">
+            <Highlight text={msg.body} query={highlight} />
+          </figcaption>
         )}
       </figure>
       {open && (
@@ -322,6 +368,7 @@ export function MessageBubble({
   showTail,
   showAvatar,
   onToggleStar,
+  highlight,
 }: {
   msg: ChatMessage
   chatId: string
@@ -329,6 +376,7 @@ export function MessageBubble({
   showTail: boolean
   showAvatar: boolean
   onToggleStar?: (id: string, starred: boolean) => void
+  highlight?: string
 }) {
   const outgoing = msg.sender === 'You'
   const senderColor = useMemo(
@@ -339,7 +387,16 @@ export function MessageBubble({
   const press = usePressFeedback()
 
   if (outgoing) {
-    return <OutgoingBubble msg={msg} chatId={chatId} showTail={showTail} src={src} onToggleStar={onToggleStar} />
+    return (
+      <OutgoingBubble
+        msg={msg}
+        chatId={chatId}
+        showTail={showTail}
+        src={src}
+        onToggleStar={onToggleStar}
+        highlight={highlight}
+      />
+    )
   }
 
   return (
@@ -374,10 +431,10 @@ export function MessageBubble({
                   className="mb-0.5 text-[12.5px] font-semibold leading-tight"
                   style={{ color: senderColor }}
                 >
-                  {msg.sender}
+                  <Highlight text={msg.sender} query={highlight} />
                 </p>
               )}
-              <Content msg={msg} chatId={chatId} src={src} outgoing={false} />
+              <Content msg={msg} chatId={chatId} src={src} outgoing={false} highlight={highlight} />
               <Meta msg={msg} outgoing={false} onMedia={false} />
             </div>
           </div>
@@ -395,12 +452,14 @@ function OutgoingBubble({
   showTail,
   src,
   onToggleStar,
+  highlight,
 }: {
   msg: ChatMessage
   chatId: string
   showTail: boolean
   src: string | null
   onToggleStar?: (id: string, starred: boolean) => void
+  highlight?: string
 }) {
   const press = usePressFeedback()
   return (
@@ -424,7 +483,7 @@ function OutgoingBubble({
                 press.pressing && 'scale-[0.98]'
               )}
             >
-              <Content msg={msg} chatId={chatId} src={src} outgoing />
+              <Content msg={msg} chatId={chatId} src={src} outgoing highlight={highlight} />
               <Meta msg={msg} outgoing onMedia={false} />
             </div>
           </div>
@@ -440,11 +499,13 @@ function Content({
   chatId,
   src,
   outgoing,
+  highlight,
 }: {
   msg: ChatMessage
   chatId: string
   src: string | null
   outgoing: boolean
+  highlight?: string
 }) {
   switch (msg.type) {
     case 'deleted':
@@ -511,7 +572,7 @@ function Content({
         </div>
       )
     case 'image':
-      return <ImageContent msg={msg} src={src} />
+      return <ImageContent msg={msg} src={src} highlight={highlight} />
     case 'sticker':
       return src ? (
         <img
@@ -562,14 +623,14 @@ function Content({
               {msg.mediaName} · not in export
             </p>
           )}
-          {msg.body && <p className="mt-1 whitespace-pre-wrap">{msg.body}</p>}
+          {msg.body && <p className="mt-1 whitespace-pre-wrap"><Highlight text={msg.body} query={highlight} /></p>}
         </div>
       )
     case 'document':
       return (
         <div>
           <DocumentChip name={msg.mediaName ?? 'Document'} src={src} />
-          {msg.body && <p className="mt-1 whitespace-pre-wrap">{msg.body}</p>}
+          {msg.body && <p className="mt-1 whitespace-pre-wrap"><Highlight text={msg.body} query={highlight} /></p>}
         </div>
       )
     case 'media':
@@ -580,6 +641,10 @@ function Content({
         />
       )
     default:
-      return <p className="whitespace-pre-wrap break-words">{msg.body}</p>
+      return (
+        <p className="whitespace-pre-wrap break-words">
+          <Highlight text={msg.body} query={highlight} />
+        </p>
+      )
   }
 }

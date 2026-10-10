@@ -20,6 +20,7 @@ model Chat {
   lastType     String    @default("text")
   sourceFile   String    @default("")
   pinned       Boolean   @default(false)
+  archived     Boolean   @default(false)
   createdAt    DateTime  @default(now())
   messages     Message[]
 }

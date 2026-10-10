@@ -275,6 +275,29 @@ export function WhatsAppApp() {
     [chats]
   )
 
+  /** Archive / unarchive a chat (DB-backed, like pinning). */
+  const toggleArchive = useCallback(
+    async (id: string, archived: boolean) => {
+      const prev = chats
+      setChats((cs) =>
+        cs.map((c) => (c.id === id ? { ...c, archived } : c))
+      )
+      try {
+        const res = await fetch(`/api/chats/${id}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ archived }),
+        })
+        if (!res.ok) throw new Error('failed')
+        toast.success(archived ? 'Chat archived' : 'Chat unarchived')
+      } catch {
+        setChats(prev)
+        toast.error('Could not update archive')
+      }
+    },
+    [chats]
+  )
+
   /** Star/unstar a message: optimistic DB-backed bookmark with revert. */
   const toggleStar = useCallback(
     async (messageId: string, starred: boolean) => {
@@ -421,6 +444,7 @@ export function WhatsAppApp() {
             onImportFiles={importFiles}
             onDemo={loadDemo}
             onTogglePin={togglePin}
+            onToggleArchive={toggleArchive}
             onOpenInsights={() => setStatsOpen(true)}
           />
         </div>
@@ -524,14 +548,38 @@ export function WhatsAppApp() {
               </div>
             </div>
             <div>
+              <h4 className="mb-1.5 font-semibold">Organize the list</h4>
+              <p>
+                <b>Hover a chat row</b> (or long-press actions appear on the
+                right) to <b>pin</b>, <b>archive</b> or delete it. Archived
+                chats slide into the <b>Archived</b> drawer at the bottom of
+                the list — open it any time and unarchive from there. Pinned
+                chats always sort first.
+              </p>
+            </div>
+            <div>
               <h4 className="mb-1.5 font-semibold">Message actions</h4>
               <p>
                 <b>Right-click</b> a message (or <b>long-press</b> on touch) to
                 star it or copy it — starred messages are collected under the
                 star icon in the chat header, and the <b>Starred</b> chip in the
-                search panel filters the chat down to just those. Personalize
-                each chat with its own <b>wallpaper</b> (palette icon) and adjust
-                the reading <b>text size</b> from the Aa menu in the top bar.
+                search panel filters the chat down to just those. Search
+                highlights every match inside the bubbles and shows a{' '}
+                <b>n/m counter</b> — press <b>Enter</b> (or the arrows) to hop
+                between matches, <b>Shift+Enter</b> to go back. Personalize
+                each chat with its own <b>wallpaper</b> (palette icon) and
+                adjust the reading <b>text size</b> from the Aa menu in the top
+                bar.
+              </p>
+            </div>
+            <div>
+              <h4 className="mb-1.5 font-semibold">Media gallery</h4>
+              <p>
+                The gallery button opens every photo, video, voice note and
+                document in the chat. Click <b>Select</b> to tick items and{' '}
+                <b>Download</b> just those as a .zip, or grab everything with{' '}
+                <b>Download all</b> (includes the .txt transcript). Inside a
+                photo, use <b>← →</b> or swipe to browse.
               </p>
             </div>
             <p className="text-[12px] text-[#667781] dark:text-[#8696a0]">

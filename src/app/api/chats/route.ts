@@ -19,6 +19,7 @@ export async function GET() {
       lastType: true,
       sourceFile: true,
       pinned: true,
+      archived: true,
       createdAt: true,
     },
   })

@@ -14,6 +14,7 @@ import {
   CalendarDays,
   Check,
   ChevronDown,
+  ChevronUp,
   Download,
   Images,
   Loader2,
@@ -209,6 +210,8 @@ export function ChatView({
   const [jumpOpen, setJumpOpen] = useState(false)
   const [wallpaperOpen, setWallpaperOpen] = useState(false)
   const [starredOnly, setStarredOnly] = useState(false)
+  const [matchIdx, setMatchIdx] = useState(0)
+  const [filterKey, setFilterKey] = useState('')
   const chatId = detail?.chat.id ?? ''
   const { key: wallpaperKey, isCustom: wallpaperIsCustom } = useWallpaper(chatId)
   const wallpaper = WALLPAPERS[wallpaperKey] ?? WALLPAPERS.doodle
@@ -240,6 +243,16 @@ export function ChatView({
   }, [messages, query, fromDate, toDate, starredOnly])
 
   const hasDateFilter = !!(fromDate || toDate)
+
+  // Reset the match cursor whenever the active filters change
+  // (adjust-state-during-render, no effect needed)
+  const matchCount = filtered?.length ?? 0
+  const safeMatchIdx = matchCount > 0 ? Math.min(matchIdx, matchCount - 1) : 0
+  const activeFilterKey = `${query}|${fromDate}|${toDate}|${starredOnly}`
+  if (activeFilterKey !== filterKey) {
+    setFilterKey(activeFilterKey)
+    setMatchIdx(0)
+  }
 
   // Scroll to bottom on open / chat change
   useEffect(() => {
@@ -402,6 +415,14 @@ export function ChatView({
     }
     jumpToMessageId(messages[idx].id)
     setJumpOpen(false)
+  }
+
+  /** Cycle the search-match cursor (1 = next, -1 = previous) and jump. */
+  function goToMatch(dir: 1 | -1) {
+    if (!filtered || filtered.length === 0) return
+    const next = (safeMatchIdx + dir + filtered.length) % filtered.length
+    setMatchIdx(next)
+    jumpToMessageId(filtered[next].id)
   }
 
   if (loading) {
@@ -676,9 +697,41 @@ export function ChatView({
               autoFocus
               value={query}
               onChange={(e) => setQuery(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  e.preventDefault()
+                  goToMatch(e.shiftKey ? -1 : 1)
+                }
+              }}
               placeholder={`Search in ${chat.title}...`}
               className="h-9 rounded-lg bg-white text-[14px] dark:bg-[#2a3942] dark:text-[#e9edef] dark:placeholder:text-[#8696a0]"
             />
+            {/* Match navigation (query only) */}
+            {query.trim() && matchCount > 0 && (
+              <span className="flex h-9 shrink-0 items-center gap-0.5 rounded-full bg-black/5 px-1 dark:bg-white/10">
+                <span className="px-1.5 text-[11.5px] font-medium tabular-nums text-[#667781] dark:text-[#8696a0]">
+                  {safeMatchIdx + 1}/{matchCount}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => goToMatch(-1)}
+                  aria-label="Previous match"
+                  title="Previous match (Shift+Enter)"
+                  className="flex h-7 w-7 items-center justify-center rounded-full text-[#667781] transition-colors hover:bg-black/10 hover:text-[#111b21] dark:text-[#8696a0] dark:hover:bg-white/10 dark:hover:text-[#e9edef]"
+                >
+                  <ChevronUp className="h-4 w-4" />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => goToMatch(1)}
+                  aria-label="Next match"
+                  title="Next match (Enter)"
+                  className="flex h-7 w-7 items-center justify-center rounded-full text-[#667781] transition-colors hover:bg-black/10 hover:text-[#111b21] dark:text-[#8696a0] dark:hover:bg-white/10 dark:hover:text-[#e9edef]"
+                >
+                  <ChevronDown className="h-4 w-4" />
+                </button>
+              </span>
+            )}
             <button
               type="button"
               onClick={() => setStarredOnly((v) => !v)}
@@ -714,7 +767,7 @@ export function ChatView({
               <SlidersHorizontal className="h-4 w-4" />
             </Button>
             {(query || hasDateFilter || starredOnly) && (
-              <span className="shrink-0 text-[12px] text-[#667781] dark:text-[#8696a0]">
+              <span className="hidden shrink-0 text-[12px] text-[#667781] sm:inline dark:text-[#8696a0]">
                 {filtered?.length ?? 0} result{(filtered?.length ?? 0) === 1 ? '' : 's'}
               </span>
             )}
@@ -858,6 +911,7 @@ export function ChatView({
                 showTail={item.showTail}
                 showAvatar={item.showAvatar}
                 onToggleStar={handleToggleStar}
+                highlight={query.trim() || undefined}
               />
             </div>
           )

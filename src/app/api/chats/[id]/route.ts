@@ -15,10 +15,32 @@ export async function PATCH(
   } catch {
     return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 })
   }
-  const { pinned } = (body ?? {}) as { pinned?: unknown }
-  if (typeof pinned !== 'boolean') {
+  const { pinned, archived } = (body ?? {}) as {
+    pinned?: unknown
+    archived?: unknown
+  }
+  const data: { pinned?: boolean; archived?: boolean } = {}
+  if (pinned !== undefined) {
+    if (typeof pinned !== 'boolean') {
+      return NextResponse.json(
+        { error: 'Field "pinned" must be a boolean' },
+        { status: 400 }
+      )
+    }
+    data.pinned = pinned
+  }
+  if (archived !== undefined) {
+    if (typeof archived !== 'boolean') {
+      return NextResponse.json(
+        { error: 'Field "archived" must be a boolean' },
+        { status: 400 }
+      )
+    }
+    data.archived = archived
+  }
+  if (Object.keys(data).length === 0) {
     return NextResponse.json(
-      { error: 'Field "pinned" must be a boolean' },
+      { error: 'Provide "pinned" and/or "archived" (boolean)' },
       { status: 400 }
     )
   }
@@ -28,8 +50,8 @@ export async function PATCH(
   }
   const updated = await db.chat.update({
     where: { id },
-    data: { pinned },
-    select: { id: true, pinned: true },
+    data,
+    select: { id: true, pinned: true, archived: true },
   })
   return NextResponse.json({ chat: updated })
 }
