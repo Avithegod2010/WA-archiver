@@ -2,13 +2,22 @@
 
 import { useEffect, useState, useSyncExternalStore } from 'react'
 import { createPortal } from 'react-dom'
-import { Download, X, ZoomIn, ZoomOut } from 'lucide-react'
+import {
+  ChevronLeft,
+  ChevronRight,
+  Download,
+  X,
+  ZoomIn,
+  ZoomOut,
+} from 'lucide-react'
 import { cn } from '@/lib/utils'
 
 /**
  * Full-screen media viewer: backdrop click / Escape closes,
  * click image toggles 1x <-> 2x zoom, download button saves the file.
  * Supports images, videos (inline player) and audio.
+ * When `onPrev`/`onNext` are given, arrow keys + edge buttons navigate
+ * between gallery items and a "n / total" counter is shown.
  */
 export function Lightbox({
   src,
@@ -16,14 +25,28 @@ export function Lightbox({
   downloadName,
   kind = 'image',
   onClose,
+  onPrev,
+  onNext,
+  position,
+  total,
 }: {
   src: string
   caption?: string | null
   downloadName?: string | null
   kind?: 'image' | 'video' | 'audio'
   onClose: () => void
+  onPrev?: () => void
+  onNext?: () => void
+  position?: number
+  total?: number
 }) {
   const [zoomed, setZoomed] = useState(false)
+  // Reset zoom when navigating between items (adjust-state-during-render pattern)
+  const [prevSrc, setPrevSrc] = useState(src)
+  if (prevSrc !== src) {
+    setPrevSrc(src)
+    setZoomed(false)
+  }
   const mounted = useSyncExternalStore(
     () => () => {},
     () => true,
@@ -35,6 +58,12 @@ export function Lightbox({
       if (e.key === 'Escape') {
         e.stopPropagation()
         onClose()
+      } else if (e.key === 'ArrowLeft' && onPrev) {
+        e.preventDefault()
+        onPrev()
+      } else if (e.key === 'ArrowRight' && onNext) {
+        e.preventDefault()
+        onNext()
       }
     }
     window.addEventListener('keydown', onKey, true)
@@ -43,9 +72,11 @@ export function Lightbox({
       window.removeEventListener('keydown', onKey, true)
       document.body.style.overflow = ''
     }
-  }, [onClose])
+  }, [onClose, onPrev, onNext])
 
   if (!mounted) return null
+
+  const hasNav = !!(onPrev && onNext && total && total > 1)
 
   // Portal to body so the lightbox escapes the chat pane's stacking context
   return createPortal(
@@ -55,12 +86,20 @@ export function Lightbox({
       role="dialog"
       aria-modal="true"
       aria-label={kind === 'video' ? 'Video player' : 'Image viewer'}
+      onKeyDown={(e) => {
+        if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') e.stopPropagation()
+      }}
     >
       {/* Toolbar */}
       <div
         className="animate-in fade-in slide-in-from-top-2 absolute right-4 top-4 z-10 flex items-center gap-2 duration-200"
         onClick={(e) => e.stopPropagation()}
       >
+        {hasNav && (
+          <span className="rounded-full bg-white/10 px-3 py-1.5 text-[12px] font-medium tabular-nums text-white/90">
+            {position} / {total}
+          </span>
+        )}
         <a
           href={src}
           download={downloadName ?? true}
@@ -80,18 +119,47 @@ export function Lightbox({
         </button>
       </div>
 
+      {/* Prev / next edge buttons */}
+      {hasNav && (
+        <>
+          <button
+            onClick={(e) => {
+              e.stopPropagation()
+              onPrev?.()
+            }}
+            aria-label="Previous item"
+            title="Previous (←)"
+            className="absolute left-3 top-1/2 z-10 flex h-11 w-11 -translate-y-1/2 items-center justify-center rounded-full bg-white/10 text-white backdrop-blur-sm transition-all hover:scale-105 hover:bg-white/25 active:scale-95 sm:left-5"
+          >
+            <ChevronLeft className="h-6 w-6" />
+          </button>
+          <button
+            onClick={(e) => {
+              e.stopPropagation()
+              onNext?.()
+            }}
+            aria-label="Next item"
+            title="Next (→)"
+            className="absolute right-3 top-1/2 z-10 flex h-11 w-11 -translate-y-1/2 items-center justify-center rounded-full bg-white/10 text-white backdrop-blur-sm transition-all hover:scale-105 hover:bg-white/25 active:scale-95 sm:right-5"
+          >
+            <ChevronRight className="h-6 w-6" />
+          </button>
+        </>
+      )}
+
       {/* Media */}
       <div
-        className="flex max-h-full max-w-full items-center justify-center overflow-auto"
+        className="flex max-h-full max-w-full items-center justify-center overflow-auto px-10 sm:px-16"
         onClick={(e) => e.stopPropagation()}
       >
         {kind === 'image' && (
           <img
+            key={src}
             src={src}
             alt={caption ?? 'Chat image'}
             onClick={() => setZoomed((z) => !z)}
             className={cn(
-              'max-h-[82vh] max-w-full rounded-lg object-contain shadow-2xl transition-transform duration-300',
+              'animate-in zoom-in-95 max-h-[82vh] max-w-full rounded-lg object-contain shadow-2xl duration-200',
               zoomed && 'max-h-none max-w-none scale-150 cursor-zoom-out',
               !zoomed && 'cursor-zoom-in'
             )}
@@ -100,6 +168,7 @@ export function Lightbox({
         )}
         {kind === 'video' && (
           <video
+            key={src}
             src={src}
             controls
             autoPlay
@@ -141,7 +210,8 @@ export function Lightbox({
               </>
             ) : (
               <>
-                <ZoomIn className="h-3 w-3" /> Click image to zoom in
+                <ZoomIn className="h-3 w-3" />
+                {hasNav ? 'Click to zoom · ← → to browse' : 'Click image to zoom in'}
               </>
             )}
           </p>

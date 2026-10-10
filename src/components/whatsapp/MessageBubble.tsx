@@ -451,6 +451,7 @@ function Content({
           controls
           preload="metadata"
           src={src}
+          poster={`${src}?poster=1`}
           className="min-w-0 max-h-[320px] max-w-[280px] rounded-md"
         />
       ) : (

@@ -1,6 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { promises as fsp } from 'fs'
-import { resolveMediaPath, mimeFromName } from '@/lib/media-store'
+import {
+  resolveMediaPath,
+  mimeFromName,
+  generateVideoPoster,
+  posterPathFor,
+  isVideoName,
+} from '@/lib/media-store'
 
 export const runtime = 'nodejs'
 
@@ -12,6 +18,30 @@ export async function GET(
   const filePath = await resolveMediaPath(chatId, name)
   if (!filePath) {
     return NextResponse.json({ error: 'Media not found' }, { status: 404 })
+  }
+
+  // Poster thumbnail request: `<file>?poster=1` serves `<file>.poster.jpg`,
+  // lazily generating it with ffmpeg for videos that don't have one yet.
+  if (req.nextUrl.searchParams.get('poster') === '1') {
+    const posterName = posterPathFor(name)
+    let posterPath = await resolveMediaPath(chatId, posterName)
+    if (!posterPath && isVideoName(name)) {
+      await generateVideoPoster(chatId, name)
+      posterPath = await resolveMediaPath(chatId, posterName)
+    }
+    if (posterPath) {
+      const stat = await fsp.stat(posterPath)
+      const buf = await fsp.readFile(posterPath)
+      return new NextResponse(new Uint8Array(buf), {
+        status: 200,
+        headers: {
+          'Content-Type': 'image/jpeg',
+          'Cache-Control': 'public, max-age=31536000, immutable',
+          'Content-Length': String(stat.size),
+        },
+      })
+    }
+    return NextResponse.json({ error: 'Poster not available' }, { status: 404 })
   }
 
   const stat = await fsp.stat(filePath)

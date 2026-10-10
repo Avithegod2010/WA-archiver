@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState, useSyncExternalStore } from 'react'
 import { createPortal } from 'react-dom'
 import {
+  CornerDownLeft,
   FileText,
   Film,
   ImageIcon,
@@ -17,6 +18,7 @@ import { cn } from '@/lib/utils'
 
 interface MediaItem {
   id: string
+  idx: number
   ts: string
   sender: string | null
   body: string
@@ -59,15 +61,17 @@ export function MediaGallery({
   isGroup,
   open,
   onClose,
+  onJumpToMessage,
 }: {
   chatId: string
   chatTitle: string
   isGroup: boolean
   open: boolean
   onClose: () => void
+  onJumpToMessage?: (messageId: string) => void
 }) {
   const [items, setItems] = useState<MediaItem[] | null | undefined>(undefined)
-  const [viewer, setViewer] = useState<MediaItem | null>(null)
+  const [viewerIndex, setViewerIndex] = useState<number | null>(null)
   const [filter, setFilter] = useState<'all' | 'image' | 'video' | 'audio' | 'doc'>('all')
   const mounted = useSyncExternalStore(
     () => () => {},
@@ -97,11 +101,11 @@ export function MediaGallery({
   useEffect(() => {
     if (!open) return
     function onKey(e: KeyboardEvent) {
-      if (e.key === 'Escape' && !viewer) onClose()
+      if (e.key === 'Escape' && viewerIndex == null) onClose()
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [open, viewer, onClose])
+  }, [open, viewerIndex, onClose])
 
   const shown = useMemo(() => {
     if (!items) return []
@@ -125,6 +129,8 @@ export function MediaGallery({
     { key: 'audio', label: 'Voice', icon: <Mic className="h-3.5 w-3.5" /> },
     { key: 'doc', label: 'Docs', icon: <FileText className="h-3.5 w-3.5" /> },
   ]
+
+  const canJump = !!onJumpToMessage
 
   return createPortal(
     <div
@@ -213,22 +219,44 @@ export function MediaGallery({
         )}
         {items !== undefined && shown.length > 0 && (
           <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5">
-            {shown.map((m) => (
+            {shown.map((m, i) => (
               <MediaTile
                 key={m.id}
                 item={m}
                 chatId={chatId}
                 isGroup={isGroup}
-                onOpen={() => setViewer(m)}
+                canJump={canJump}
+                onOpen={() => setViewerIndex(i)}
+                onJump={
+                  canJump
+                    ? () => {
+                        setViewerIndex(null)
+                        onClose() // reveal the chat underneath
+                        onJumpToMessage?.(m.id)
+                      }
+                    : undefined
+                }
               />
             ))}
           </div>
         )}
       </div>
 
-      {/* Media viewer overlay */}
-      {viewer && (
-        <GalleryViewer item={viewer} chatId={chatId} onClose={() => setViewer(null)} />
+      {/* Media viewer overlay with ← → navigation across `shown` */}
+      {viewerIndex != null && shown[viewerIndex] && (
+        <GalleryViewer
+          items={shown}
+          index={viewerIndex}
+          chatId={chatId}
+          onClose={() => setViewerIndex(null)}
+          onNavigate={(next) =>
+            setViewerIndex((cur) => {
+              if (cur == null) return cur
+              const n = (next + shown.length) % shown.length
+              return n
+            })
+          }
+        />
       )}
     </div>,
     document.body
@@ -239,12 +267,16 @@ function MediaTile({
   item,
   chatId,
   isGroup,
+  canJump,
   onOpen,
+  onJump,
 }: {
   item: MediaItem
   chatId: string
   isGroup: boolean
+  canJump: boolean
   onOpen: () => void
+  onJump?: () => void
 }) {
   const kind = kindOf(item.type)
   const src = item.mediaPath
@@ -252,19 +284,19 @@ function MediaTile({
     : null
 
   return (
-    <button
-      onClick={onOpen}
-      disabled={!src}
+    <div
       className={cn(
         'group relative aspect-square overflow-hidden rounded-lg bg-white/5 ring-1 ring-white/10 transition-all duration-200',
         src ? 'cursor-pointer hover:ring-2 hover:ring-[#00a884] hover:brightness-110' : 'cursor-default opacity-70'
       )}
+      role={src ? 'button' : undefined}
       aria-label={item.mediaName ?? item.type}
       title={
         item.mediaName
           ? `${item.mediaName}${item.bytes != null ? ` · ${formatBytes(item.bytes)}` : ''}`
           : undefined
       }
+      onClick={() => src && onOpen()}
     >
       {src && kind === 'image' && (
         <img
@@ -278,12 +310,16 @@ function MediaTile({
         <>
           <video
             src={`${src}#t=0.1`}
+            poster={`${src}?poster=1`}
             preload="metadata"
             muted
             playsInline
             className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-[1.04]"
           />
-          <span className="absolute inset-0 flex items-center justify-center">
+          <span className="absolute left-1.5 top-1.5 flex items-center gap-1 rounded bg-black/55 px-1.5 py-0.5 text-[9.5px] font-medium text-white backdrop-blur-sm">
+            <Film className="h-3 w-3" /> Video
+          </span>
+          <span className="pointer-events-none absolute inset-0 flex items-center justify-center">
             <span className="flex h-11 w-11 items-center justify-center rounded-full bg-black/55 text-white backdrop-blur-sm transition-transform duration-200 group-hover:scale-110">
               <Play className="ml-0.5 h-5 w-5 fill-current" />
             </span>
@@ -319,7 +355,7 @@ function MediaTile({
         </span>
       )}
 
-      {/* Hover overlay: sender + date */}
+      {/* Hover overlay: sender + date + jump-to-message */}
       {src && (
         <span className="absolute inset-x-0 bottom-0 flex items-center gap-1.5 bg-gradient-to-t from-black/80 via-black/50 to-transparent px-2 pb-1.5 pt-6 opacity-0 transition-opacity duration-200 group-hover:opacity-100">
           {isGroup && item.sender && item.sender !== 'You' && (
@@ -333,19 +369,39 @@ function MediaTile({
           </span>
         </span>
       )}
-    </button>
+
+      {/* Jump to message in chat */}
+      {src && onJump && (
+        <button
+          onClick={(e) => {
+            e.stopPropagation()
+            onJump()
+          }}
+          aria-label="Show in chat"
+          title="Show in chat"
+          className="absolute right-1.5 top-1.5 flex h-7 w-7 translate-y-1 items-center justify-center rounded-full bg-black/55 text-white opacity-0 backdrop-blur-sm transition-all duration-200 hover:scale-110 hover:bg-[#00a884] focus-visible:opacity-100 group-hover:translate-y-0 group-hover:opacity-100"
+        >
+          <CornerDownLeft className="h-3.5 w-3.5" />
+        </button>
+      )}
+    </div>
   )
 }
 
 function GalleryViewer({
-  item,
+  items,
+  index,
   chatId,
   onClose,
+  onNavigate,
 }: {
-  item: MediaItem
+  items: MediaItem[]
+  index: number
   chatId: string
   onClose: () => void
+  onNavigate: (nextIndex: number) => void
 }) {
+  const item = items[index]
   const kind = kindOf(item.type)
   const src = item.mediaPath
     ? `/api/media/${chatId}/${encodeURIComponent(item.mediaPath)}`
@@ -358,6 +414,10 @@ function GalleryViewer({
       downloadName={item.mediaName}
       kind={kind === 'doc' ? 'image' : kind}
       onClose={onClose}
+      onPrev={() => onNavigate(index - 1)}
+      onNext={() => onNavigate(index + 1)}
+      position={index + 1}
+      total={items.length}
     />
   )
 }

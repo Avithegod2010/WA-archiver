@@ -1,5 +1,6 @@
 import { promises as fs } from 'fs'
 import path from 'path'
+import { execFile } from 'child_process'
 
 /**
  * Media files extracted from ZIP exports are stored on disk under
@@ -58,6 +59,66 @@ export async function resolveMediaPath(
   if (!p.startsWith(path.join(MEDIA_ROOT, chatId))) return null
   if (!(await exists(p))) return null
   return p
+}
+
+const VIDEO_EXT = new Set(['mp4', 'm4v', '3gp', 'mkv', 'mov', 'webm', 'avi'])
+
+export function isVideoName(name: string): boolean {
+  const ext = (name.split('.').pop() ?? '').toLowerCase()
+  return VIDEO_EXT.has(ext)
+}
+
+/** Poster thumbnails are stored next to the video as `<file>.poster.jpg`. */
+export function posterPathFor(storedName: string): string {
+  return `${storedName}.poster.jpg`
+}
+
+/**
+ * Extract a poster frame from a video with ffmpeg (best effort).
+ * Frame is taken at ~10% in (min 0.3s) so intro-black frames are skipped.
+ * Returns true when a poster file exists afterwards.
+ */
+export async function generateVideoPoster(
+  chatId: string,
+  storedName: string
+): Promise<boolean> {
+  const poster = posterPathFor(storedName)
+  const posterAbs = path.join(MEDIA_ROOT, chatId, poster)
+  if (await exists(posterAbs)) return true
+  if (!isVideoName(storedName)) return false
+
+  const videoAbs = path.join(MEDIA_ROOT, chatId, storedName)
+  try {
+    const stat = await fs.stat(videoAbs)
+    const seek = Math.min(Math.max(stat.size > 0 ? 0.3 : 0, 0.3), 5)
+    await new Promise<void>((resolve, reject) => {
+      execFile(
+        'ffmpeg',
+        [
+          '-hide_banner',
+          '-loglevel',
+          'error',
+          '-ss',
+          String(seek),
+          '-i',
+          videoAbs,
+          '-frames:v',
+          '1',
+          '-vf',
+          "scale='min(720,iw)':-2",
+          '-q:v',
+          '4',
+          '-y',
+          posterAbs,
+        ],
+        { timeout: 15000 },
+        (err) => (err ? reject(err) : resolve())
+      )
+    })
+    return await exists(posterAbs)
+  } catch {
+    return false
+  }
 }
 
 export async function removeChatMedia(chatId: string): Promise<void> {

@@ -34,6 +34,7 @@ export async function GET(
     orderBy: [{ ts: 'desc' }, { idx: 'desc' }],
     select: {
       id: true,
+      idx: true,
       ts: true,
       sender: true,
       body: true,

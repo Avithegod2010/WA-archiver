@@ -3,7 +3,12 @@ import JSZip from 'jszip'
 import { db } from '@/lib/db'
 import { parseWhatsAppText, guessTitleFromFilename } from '@/lib/whatsapp-parser'
 import { persistParsedChat } from '@/lib/chat-service'
-import { saveMediaFile, removeChatMedia } from '@/lib/media-store'
+import {
+  saveMediaFile,
+  removeChatMedia,
+  generateVideoPoster,
+  isVideoName,
+} from '@/lib/media-store'
 
 export const runtime = 'nodejs'
 export const maxDuration = 120
@@ -113,6 +118,10 @@ export async function POST(req: NextRequest) {
           const stored = await saveMediaFile(chat.id, base, data)
           mediaMap.set(base.toLowerCase(), stored)
           mediaFileCount++
+          // Warm the video poster thumbnail (best effort, non-fatal)
+          if (isVideoName(stored)) {
+            await generateVideoPoster(chat.id, stored).catch(() => undefined)
+          }
         } catch {
           // Skip unreadable entries
         }

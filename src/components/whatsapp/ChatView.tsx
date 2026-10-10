@@ -1,15 +1,23 @@
 'use client'
 
-import { useEffect, useMemo, useRef, useState } from 'react'
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  useSyncExternalStore,
+} from 'react'
 import { toast } from 'sonner'
 import {
   ArrowLeft,
   CalendarDays,
+  Check,
   ChevronDown,
   Download,
   Images,
   Loader2,
   Lock,
+  Palette,
   Search,
   SlidersHorizontal,
   Trash2,
@@ -32,6 +40,67 @@ import {
 } from '@/components/ui/popover'
 
 const PAGE_SIZE = 300
+
+/* ---------- Chat wallpaper (persisted per device) ---------- */
+
+const WALLPAPERS = {
+  doodle: {
+    label: 'Classic',
+    bg: 'bg-[#efeae2] dark:bg-[#0b141a]',
+    doodle: 'text-black/[0.05] dark:text-white/[0.05]',
+    swatch: 'bg-[#efeae2] dark:bg-[#0b141a]',
+    swatchDot: 'bg-black/20 dark:bg-white/20',
+  },
+  plain: {
+    label: 'Plain',
+    bg: 'bg-[#efeae2] dark:bg-[#0b141a]',
+    doodle: null,
+    swatch: 'bg-[#efeae2] dark:bg-[#0b141a]',
+    swatchDot: null,
+  },
+  sage: {
+    label: 'Sage',
+    bg: 'bg-[#e3ecdd] dark:bg-[#0c1710]',
+    doodle: 'text-[#4a7c59]/[0.08] dark:text-[#8fc7a5]/[0.05]',
+    swatch: 'bg-[#e3ecdd] dark:bg-[#0c1710]',
+    swatchDot: 'bg-[#4a7c59]/30 dark:bg-[#8fc7a5]/30',
+  },
+  sepia: {
+    label: 'Sepia',
+    bg: 'bg-[#f2e9d8] dark:bg-[#16120d]',
+    doodle: 'text-[#8a6d3b]/[0.09] dark:text-[#d9b878]/[0.05]',
+    swatch: 'bg-[#f2e9d8] dark:bg-[#16120d]',
+    swatchDot: 'bg-[#8a6d3b]/30 dark:bg-[#d9b878]/30',
+  },
+} as const
+
+type WallpaperKey = keyof typeof WALLPAPERS
+
+function subscribeWallpaper(cb: () => void) {
+  window.addEventListener('wa-wallpaper', cb)
+  window.addEventListener('storage', cb)
+  return () => {
+    window.removeEventListener('wa-wallpaper', cb)
+    window.removeEventListener('storage', cb)
+  }
+}
+
+function getWallpaper(): string {
+  try {
+    return localStorage.getItem('wa-viewer:wallpaper') ?? 'doodle'
+  } catch {
+    return 'doodle'
+  }
+}
+
+function setStoredWallpaper(w: string) {
+  try {
+    localStorage.setItem('wa-viewer:wallpaper', w)
+  } catch {
+    /* storage unavailable */
+  }
+  window.dispatchEvent(new Event('wa-wallpaper'))
+}
 
 function formatDayLabel(d: Date): string {
   const now = new Date()
@@ -82,6 +151,13 @@ export function ChatView({
   const [jumpedId, setJumpedId] = useState<string | null>(null)
   const [jumpDate, setJumpDate] = useState('')
   const [jumpOpen, setJumpOpen] = useState(false)
+  const [wallpaperOpen, setWallpaperOpen] = useState(false)
+  const wallpaperKey = useSyncExternalStore(
+    subscribeWallpaper,
+    getWallpaper,
+    () => 'doodle'
+  ) as WallpaperKey
+  const wallpaper = WALLPAPERS[wallpaperKey] ?? WALLPAPERS.doodle
   const chatId = detail?.chat.id ?? ''
 
   const messages = detail?.messages ?? []
@@ -211,6 +287,31 @@ export function ChatView({
     toast.success('Chat exported as .txt — check your downloads')
   }
 
+  /** Expand the render window and smooth-scroll to a message with a flash. */
+  function jumpToMessageId(id: string) {
+    const idx = messages.findIndex((m) => m.id === id)
+    if (idx === -1) {
+      toast.info('Message not found in this chat')
+      return
+    }
+    const needed = messages.length - idx
+    if (needed > visibleCountRef.current) {
+      visibleCountRef.current = needed
+      setVisibleCount(needed)
+    }
+    pendingJumpRef.current = id
+    // If already rendered, the effect fires via visibleCount change; force check
+    requestAnimationFrame(() => {
+      const el = scrollRef.current?.querySelector(`[data-mid="${id}"]`)
+      if (el) {
+        el.scrollIntoView({ block: 'center', behavior: 'smooth' })
+        setJumpedId(id)
+        setTimeout(() => setJumpedId(null), 2000)
+        pendingJumpRef.current = null
+      }
+    })
+  }
+
   function handleJumpToDate() {
     if (!jumpDate) return
     const target = new Date(jumpDate + 'T00:00:00')
@@ -226,24 +327,7 @@ export function ChatView({
       )
       return
     }
-    const needed = messages.length - idx
-    if (needed > visibleCountRef.current) {
-      visibleCountRef.current = needed
-      setVisibleCount(needed)
-    }
-    pendingJumpRef.current = messages[idx].id
-    // If already rendered, the effect fires via visibleCount change; force check
-    requestAnimationFrame(() => {
-      const el = scrollRef.current?.querySelector(
-        `[data-mid="${messages[idx].id}"]`
-      )
-      if (el) {
-        el.scrollIntoView({ block: 'center', behavior: 'smooth' })
-        setJumpedId(messages[idx].id)
-        setTimeout(() => setJumpedId(null), 2000)
-        pendingJumpRef.current = null
-      }
-    })
+    jumpToMessageId(messages[idx].id)
     setJumpOpen(false)
   }
 
@@ -286,8 +370,14 @@ export function ChatView({
     : 'click here for chat info'
 
   return (
-    <div className="relative flex min-h-0 flex-1 flex-col bg-[#efeae2] text-black/[0.05] dark:bg-[#0b141a] dark:text-white/[0.05]">
-      <DoodleBackground />
+    <div
+      className={cn(
+        'relative flex min-h-0 flex-1 flex-col transition-colors duration-300',
+        wallpaper.bg,
+        wallpaper.doodle ?? 'text-transparent'
+      )}
+    >
+      {wallpaper.doodle && <DoodleBackground />}
 
       {/* Header */}
       <header className="relative z-10 flex items-center gap-3 border-l border-black/10 bg-[#f0f2f5] px-3 py-2 dark:border-black/30 dark:bg-[#202c33]">
@@ -367,6 +457,66 @@ export function ChatView({
               >
                 Go to date
               </Button>
+            </PopoverContent>
+          </Popover>
+          <Popover open={wallpaperOpen} onOpenChange={setWallpaperOpen}>
+            <PopoverTrigger asChild>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="hidden h-9 w-9 md:inline-flex"
+                aria-label="Chat wallpaper"
+                title="Chat wallpaper"
+              >
+                <Palette className="h-5 w-5 text-[#54656f] dark:text-[#aebac1]" />
+              </Button>
+            </PopoverTrigger>
+            <PopoverContent align="end" className="w-56 p-3">
+              <p className="mb-2 text-[13px] font-medium text-[#111b21] dark:text-[#e9edef]">
+                Chat wallpaper
+              </p>
+              <div className="grid grid-cols-2 gap-2">
+                {(Object.keys(WALLPAPERS) as WallpaperKey[]).map((key) => {
+                  const w = WALLPAPERS[key]
+                  const active = wallpaperKey === key
+                  return (
+                    <button
+                      key={key}
+                      onClick={() => setStoredWallpaper(key)}
+                      aria-pressed={active}
+                      className={cn(
+                        'group flex flex-col items-center gap-1.5 rounded-lg p-2 transition-colors',
+                        active
+                          ? 'bg-[#00a884]/10 ring-1 ring-[#00a884]'
+                          : 'hover:bg-black/5 dark:hover:bg-white/5'
+                      )}
+                    >
+                      <span
+                        className={cn(
+                          'relative flex h-12 w-full items-center justify-center rounded-md ring-1 ring-black/10 dark:ring-white/10',
+                          w.swatch
+                        )}
+                      >
+                        {w.swatchDot && (
+                          <span className="flex gap-1">
+                            <i className={cn('block h-1.5 w-1.5 rounded-full', w.swatchDot)} />
+                            <i className={cn('block h-1.5 w-1.5 rounded-full', w.swatchDot)} />
+                            <i className={cn('block h-1.5 w-1.5 rounded-full', w.swatchDot)} />
+                          </span>
+                        )}
+                        {active && (
+                          <span className="absolute inset-0 flex items-center justify-center">
+                            <Check className="h-4 w-4 text-[#00a884] drop-shadow" />
+                          </span>
+                        )}
+                      </span>
+                      <span className="text-[11.5px] font-medium text-[#3b4a54] dark:text-[#d1d7db]">
+                        {w.label}
+                      </span>
+                    </button>
+                  )
+                })}
+              </div>
             </PopoverContent>
           </Popover>
           <Button
@@ -528,8 +678,8 @@ export function ChatView({
         {grouped.map((item) => {
           if (item.kind === 'date') {
             return (
-              <div key={item.key} className="my-3 flex justify-center">
-                <span className="rounded-md bg-white px-3 py-1 text-[12.2px] font-medium text-[#54656f] shadow-sm dark:bg-[#182229] dark:text-[#8696a0]">
+              <div key={item.key} className="animate-in fade-in my-3 flex justify-center duration-300">
+                <span className="rounded-lg bg-white/95 px-3 py-1 text-[12.2px] font-medium uppercase tracking-wide text-[#54656f] shadow-[0_1px_1px_rgba(11,20,26,0.12)] backdrop-blur-sm dark:bg-[#182229]/95 dark:text-[#8696a0]">
                   {item.label}
                 </span>
               </div>
@@ -550,7 +700,7 @@ export function ChatView({
               key={item.key}
               data-mid={item.msg.id}
               className={cn(
-                'mt-0.5 rounded-lg transition-colors duration-700',
+                'animate-in fade-in mt-0.5 rounded-lg duration-300 transition-colors',
                 item.showTail && 'mt-2.5',
                 jumpedId === item.msg.id &&
                   'bg-amber-200/50 ring-1 ring-amber-400/60 dark:bg-amber-500/20'
@@ -606,6 +756,7 @@ export function ChatView({
           isGroup={chat.isGroup}
           open
           onClose={() => setGalleryOpen(false)}
+          onJumpToMessage={jumpToMessageId}
         />
       )}
     </div>
