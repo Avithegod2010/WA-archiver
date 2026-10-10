@@ -18,6 +18,7 @@ export async function GET() {
       lastSender: true,
       lastType: true,
       sourceFile: true,
+      pinned: true,
       createdAt: true,
     },
   })

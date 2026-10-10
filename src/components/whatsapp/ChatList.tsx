@@ -9,6 +9,8 @@ import {
   MapPin,
   Mic,
   PhoneMissed,
+  Pin,
+  PinOff,
   Search,
   Sparkles,
   StickyNote,
@@ -99,8 +101,10 @@ export function ChatList({
   importing,
   onSelect,
   onDelete,
-  onImportFile,
+  onImportFiles,
   onDemo,
+  onTogglePin,
+  onOpenInsights,
 }: {
   chats: ChatSummary[]
   activeId: string | null
@@ -108,8 +112,10 @@ export function ChatList({
   importing: boolean
   onSelect: (id: string) => void
   onDelete: (id: string) => void
-  onImportFile: (file: File) => void
+  onImportFiles: (files: File[]) => void
   onDemo: () => void
+  onTogglePin: (id: string, pinned: boolean) => void
+  onOpenInsights: () => void
 }) {
   const [query, setQuery] = useState('')
   const [pendingDelete, setPendingDelete] = useState<ChatSummary | null>(null)
@@ -117,20 +123,32 @@ export function ChatList({
   const fileInputRef = useRef<HTMLInputElement>(null)
 
   const filtered = useMemo(() => {
-    if (!query.trim()) return chats
-    const q = query.toLowerCase()
-    return chats.filter(
-      (c) =>
-        c.title.toLowerCase().includes(q) ||
-        c.lastPreview.toLowerCase().includes(q)
-    )
+    const base = query.trim()
+      ? chats.filter(
+          (c) =>
+            c.title.toLowerCase().includes(query.toLowerCase()) ||
+            c.lastPreview.toLowerCase().includes(query.toLowerCase())
+        )
+      : chats
+    // Pinned first, then by recency (API already sorts by lastAt desc)
+    return [...base].sort((a, b) => Number(b.pinned) - Number(a.pinned))
   }, [chats, query])
+
+  const pinnedCount = filtered.filter((c) => c.pinned).length
+  const hasBothSections = pinnedCount > 0 && pinnedCount < filtered.length
+
+  function collectFiles(list: FileList | null | undefined): File[] {
+    if (!list) return []
+    return Array.from(list).filter((f) =>
+      /\.(zip|txt)$/i.test(f.name)
+    )
+  }
 
   function handleDrop(e: React.DragEvent) {
     e.preventDefault()
     setDragOver(false)
-    const file = e.dataTransfer.files?.[0]
-    if (file) onImportFile(file)
+    const files = collectFiles(e.dataTransfer?.files)
+    if (files.length > 0) onImportFiles(files)
   }
 
   return (
@@ -147,15 +165,16 @@ export function ChatList({
       onDragLeave={() => setDragOver(false)}
       onDrop={handleDrop}
     >
-      {/* Hidden file input */}
+      {/* Hidden file input (batch import) */}
       <input
         ref={fileInputRef}
         type="file"
         accept=".zip,.txt"
+        multiple
         className="hidden"
         onChange={(e) => {
-          const f = e.target.files?.[0]
-          if (f) onImportFile(f)
+          const files = collectFiles(e.target.files)
+          if (files.length > 0) onImportFiles(files)
           e.target.value = ''
         }}
       />
@@ -167,6 +186,17 @@ export function ChatList({
             Chats
           </h1>
           <div className="flex items-center gap-1">
+            <Button
+              size="icon"
+              variant="ghost"
+              className="h-9 w-9 rounded-full bg-white/10 text-white hover:bg-white/20 dark:text-[#e9edef]"
+              onClick={onOpenInsights}
+              disabled={importing}
+              title="Insights across all chats"
+              aria-label="Insights across all chats"
+            >
+              <BarChart3 className="h-4 w-4" />
+            </Button>
             <Button
               size="sm"
               variant="ghost"
@@ -237,8 +267,9 @@ export function ChatList({
                     Import your chats
                   </p>
                   <p className="mt-2 max-w-[260px] text-[13px] leading-relaxed text-[#667781] dark:text-[#8696a0]">
-                    Drop a WhatsApp export <b>.zip</b> (with media) or <b>.txt</b>{' '}
-                    file here, or use the Import button above.
+                    Drop WhatsApp export <b>.zip</b> (with media) or <b>.txt</b>{' '}
+                    files here — several at once works too — or use the Import
+                    button above.
                   </p>
                   <Button
                     className="mt-5 gap-2 rounded-full bg-[#00a884] text-white hover:bg-[#029374]"
@@ -262,73 +293,125 @@ export function ChatList({
           </div>
         ) : (
           <ul role="list">
-            {filtered.map((chat) => (
-              <li key={chat.id}>
-                <button
-                  className={cn(
-                    'group flex w-full items-center gap-3 px-3 py-2.5 text-left transition-colors hover:bg-[#f5f6f6] dark:hover:bg-[#202c33]',
-                    activeId === chat.id && 'bg-[#f0f2f5] dark:bg-[#2a3942]'
-                  )}
-                  onClick={() => onSelect(chat.id)}
-                >
-                  <Avatar name={chat.title} size={49} />
-                  <div className="min-w-0 flex-1 border-b border-black/5 py-1.5 dark:border-white/5">
-                    <div className="flex items-baseline justify-between gap-2">
-                      <span className="truncate text-[16px] leading-tight text-[#111b21] dark:text-[#e9edef]">
-                        {chat.title}
+            {filtered.map((chat, i) => {
+              const prev = filtered[i - 1]
+              const showPinnedDivider =
+                hasBothSections && chat.pinned && (!prev || !prev.pinned)
+              const showAllDivider =
+                hasBothSections && !chat.pinned && prev?.pinned
+              return (
+                <li key={chat.id}>
+                  {(showPinnedDivider || showAllDivider) && (
+                    <div className="flex items-center gap-3 bg-[#f5f6f6]/80 px-4 pb-1 pt-2.5 dark:bg-[#111b21]/60">
+                      <span className="text-[11px] font-semibold uppercase tracking-wider text-[#667781] dark:text-[#8696a0]">
+                        {showPinnedDivider ? 'Pinned' : 'All chats'}
                       </span>
-                      <span
-                        className={cn(
-                          'shrink-0 text-[12px]',
-                          'text-[#667781] dark:text-[#8696a0]'
-                        )}
-                      >
-                        {formatListTime(chat.lastAt)}
-                      </span>
+                      <span className="h-px flex-1 bg-black/5 dark:bg-white/5" />
                     </div>
-                    <div className="mt-0.5 flex items-center justify-between gap-2">
-                      <div className="min-w-0 flex-1 text-[#667781] dark:text-[#8696a0]">
-                        {chat.isGroup && chat.lastSender ? (
-                          <span className="text-[13.5px]">
-                            {chat.lastSender === 'You' ? (
-                              'You: '
-                            ) : (
-                              <>
-                                <span className="text-[#111b21] dark:text-[#d1d7db]">
-                                  {chat.lastSender}
-                                </span>
-                                {': '}
-                              </>
-                            )}
+                  )}
+                  <button
+                    className={cn(
+                      'group flex w-full items-center gap-3 px-3 py-2.5 text-left transition-colors hover:bg-[#f5f6f6] dark:hover:bg-[#202c33]',
+                      activeId === chat.id && 'bg-[#f0f2f5] dark:bg-[#2a3942]'
+                    )}
+                    onClick={() => onSelect(chat.id)}
+                  >
+                    <Avatar name={chat.title} size={49} />
+                    <div className="min-w-0 flex-1 border-b border-black/5 py-1.5 dark:border-white/5">
+                      <div className="flex items-baseline justify-between gap-2">
+                        <span className="flex min-w-0 items-center gap-1">
+                          <span className="truncate text-[16px] leading-tight text-[#111b21] dark:text-[#e9edef]">
+                            {chat.title}
                           </span>
-                        ) : null}
-                        <span className="align-[1px]">
-                          <Preview chat={chat} />
+                          {chat.pinned && (
+                            <Pin
+                              className="h-3 w-3 shrink-0 fill-[#8696a0] text-[#8696a0]"
+                              aria-label="Pinned"
+                            />
+                          )}
+                        </span>
+                        <span
+                          className={cn(
+                            'shrink-0 text-[12px]',
+                            'text-[#667781] dark:text-[#8696a0]'
+                          )}
+                        >
+                          {formatListTime(chat.lastAt)}
                         </span>
                       </div>
-                      <span
-                        role="button"
-                        tabIndex={0}
-                        aria-label={`Delete ${chat.title}`}
-                        className="hidden shrink-0 rounded p-1 text-[#8696a0] hover:bg-black/10 hover:text-rose-500 group-hover:block dark:hover:bg-white/10"
-                        onClick={(e) => {
-                          e.stopPropagation()
-                          setPendingDelete(chat)
-                        }}
-                        onKeyDown={(e) => {
-                          if (e.key === 'Enter' || e.key === ' ') {
-                            e.stopPropagation()
-                            setPendingDelete(chat)
-                          }
-                        }}
-                      >
-                        <Trash2 className="h-4 w-4" />
-                      </span>
+                      <div className="mt-0.5 flex items-center justify-between gap-2">
+                        <div className="min-w-0 flex-1 text-[#667781] dark:text-[#8696a0]">
+                          {chat.isGroup && chat.lastSender ? (
+                            <span className="text-[13.5px]">
+                              {chat.lastSender === 'You' ? (
+                                'You: '
+                              ) : (
+                                <>
+                                  <span className="text-[#111b21] dark:text-[#d1d7db]">
+                                    {chat.lastSender}
+                                  </span>
+                                  {': '}
+                                </>
+                              )}
+                            </span>
+                          ) : null}
+                          <span className="align-[1px]">
+                            <Preview chat={chat} />
+                          </span>
+                        </div>
+                        <span className="hidden shrink-0 items-center group-hover:flex">
+                          <span
+                            role="button"
+                            tabIndex={0}
+                            aria-label={
+                              chat.pinned
+                                ? `Unpin ${chat.title}`
+                                : `Pin ${chat.title}`
+                            }
+                            title={chat.pinned ? 'Unpin chat' : 'Pin chat'}
+                            className="rounded p-1 text-[#8696a0] hover:bg-black/10 hover:text-[#00a884] dark:hover:bg-white/10"
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              onTogglePin(chat.id, !chat.pinned)
+                            }}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter' || e.key === ' ') {
+                                e.stopPropagation()
+                                onTogglePin(chat.id, !chat.pinned)
+                              }
+                            }}
+                          >
+                            {chat.pinned ? (
+                              <PinOff className="h-4 w-4" />
+                            ) : (
+                              <Pin className="h-4 w-4" />
+                            )}
+                          </span>
+                          <span
+                            role="button"
+                            tabIndex={0}
+                            aria-label={`Delete ${chat.title}`}
+                            className="rounded p-1 text-[#8696a0] hover:bg-black/10 hover:text-rose-500 dark:hover:bg-white/10"
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              setPendingDelete(chat)
+                            }}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter' || e.key === ' ') {
+                                e.stopPropagation()
+                                setPendingDelete(chat)
+                              }
+                            }}
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </span>
+                        </span>
+                      </div>
                     </div>
-                  </div>
-                </button>
-              </li>
-            ))}
+                  </button>
+                </li>
+              )
+            })}
           </ul>
         )}
       </div>

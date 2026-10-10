@@ -10,6 +10,7 @@ export interface ChatSummary {
   lastSender: string | null
   lastType: string
   sourceFile: string
+  pinned: boolean
 }
 
 export interface ChatMessage {
@@ -37,6 +38,36 @@ export interface ChatDetailChat {
 export interface ChatDetail {
   chat: ChatDetailChat
   messages: ChatMessage[]
+}
+
+export interface StatsData {
+  totals: {
+    chats: number
+    groupChats: number
+    messages: number
+    outgoing: number
+    media: number
+    words: number
+    chars: number
+    emojis: number
+  }
+  range: {
+    firstAt: string | null
+    lastAt: string | null
+    busiestDay: { date: string; count: number } | null
+  }
+  types: { type: string; count: number }[]
+  weekdays: { weekday: string; count: number }[]
+  months: { month: string; count: number }[]
+  participants: { sender: string; count: number }[]
+  perChat: {
+    id: string
+    title: string
+    isGroup: boolean
+    count: number
+    media: number
+    words: number
+  }[]
 }
 
 export const AVATAR_COLORS = [

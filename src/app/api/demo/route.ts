@@ -116,30 +116,43 @@ function buildGroupChat(): string {
 
 export async function POST() {
   try {
-    // Skip if demo chats already exist
-    const existing = await db.chat.findFirst({
-      where: { sourceFile: { startsWith: 'demo://' } },
-      select: { id: true },
-    })
-    if (existing) {
-      return NextResponse.json({ ok: true, skipped: true })
+    // Idempotent per chat — recreate whichever demo chat is missing
+    // (e.g. the user deleted one of them on purpose).
+    const [personalExists, groupExists] = await Promise.all([
+      db.chat.findFirst({
+        where: { sourceFile: 'demo://personal' },
+        select: { id: true },
+      }),
+      db.chat.findFirst({
+        where: { sourceFile: 'demo://group' },
+        select: { id: true },
+      }),
+    ])
+
+    let created = false
+    const createdNames: string[] = []
+    if (!personalExists) {
+      const personal = parseWhatsAppText(buildPersonalChat())
+      await persistParsedChat({
+        title: 'Emma Watson',
+        sourceFile: 'demo://personal',
+        parsed: personal,
+      })
+      created = true
+      createdNames.push('Emma Watson')
+    }
+    if (!groupExists) {
+      const group = parseWhatsAppText(buildGroupChat())
+      await persistParsedChat({
+        title: 'Weekend Trip Planning',
+        sourceFile: 'demo://group',
+        parsed: group,
+      })
+      created = true
+      createdNames.push('Weekend Trip Planning')
     }
 
-    const personal = parseWhatsAppText(buildPersonalChat())
-    await persistParsedChat({
-      title: 'Emma Watson',
-      sourceFile: 'demo://personal',
-      parsed: personal,
-    })
-
-    const group = parseWhatsAppText(buildGroupChat())
-    await persistParsedChat({
-      title: 'Weekend Trip Planning',
-      sourceFile: 'demo://group',
-      parsed: group,
-    })
-
-    return NextResponse.json({ ok: true, skipped: false })
+    return NextResponse.json({ ok: true, skipped: !created, created: createdNames })
   } catch (err) {
     console.error('Demo creation failed:', err)
     return NextResponse.json(

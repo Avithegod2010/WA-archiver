@@ -20,6 +20,7 @@ import {
 } from '@/components/ui/dialog'
 import { ChatList } from './ChatList'
 import { ChatView } from './ChatView'
+import { StatsDashboard } from './StatsDashboard'
 import { WhatsAppLogo } from './icons'
 import type { ChatDetail, ChatSummary } from './types'
 import { cn } from '@/lib/utils'
@@ -35,6 +36,7 @@ export function WhatsAppApp() {
   const [importing, setImporting] = useState(false)
   const [deleting, setDeleting] = useState(false)
   const [aboutOpen, setAboutOpen] = useState(false)
+  const [statsOpen, setStatsOpen] = useState(false)
 
   useEffect(() => setMounted(true), [])
 
@@ -92,35 +94,82 @@ export function WhatsAppApp() {
     if (last) openChat(last)
   }, [openChat])
 
-  const importFile = useCallback(
-    async (file: File) => {
+  const importFiles = useCallback(
+    async (files: File[]) => {
+      if (files.length === 0) return
       setImporting(true)
-      const toastId = toast.loading(`Importing ${file.name}...`)
-      try {
-        const form = new FormData()
-        form.append('file', file)
-        const res = await fetch('/api/import', { method: 'POST', body: form })
-        const data = await res.json()
-        if (!res.ok) {
-          throw new Error(data.error ?? 'Import failed')
+      const batchToastId =
+        files.length > 1
+          ? toast.loading(`Importing 1 of ${files.length}...`)
+          : null
+      let lastChatId: string | null = null
+      let ok = 0
+      let failed = 0
+      let totalMessages = 0
+      let totalMedia = 0
+
+      for (let i = 0; i < files.length; i++) {
+        const file = files[i]
+        const singleToastId =
+          files.length > 1 ? undefined : toast.loading(`Importing ${file.name}...`)
+        const progressId = batchToastId ?? singleToastId
+        try {
+          const form = new FormData()
+          form.append('file', file)
+          const res = await fetch('/api/import', { method: 'POST', body: form })
+          const data = await res.json()
+          if (!res.ok) {
+            throw new Error(data.error ?? 'Import failed')
+          }
+          ok++
+          totalMessages += data.messages ?? 0
+          totalMedia += data.mediaFiles ?? 0
+          if (data.chatId) lastChatId = data.chatId
+          if (files.length === 1 && progressId) {
+            toast.success(
+              `Imported ${data.messages.toLocaleString()} messages${
+                data.mediaFiles > 0
+                  ? ` and ${data.mediaFiles.toLocaleString()} media files`
+                  : ''
+              }`,
+              { id: progressId }
+            )
+          } else if (progressId && i < files.length - 1) {
+            toast.loading(`Importing ${i + 2} of ${files.length}...`, {
+              id: progressId,
+            })
+          }
+        } catch (err) {
+          failed++
+          toast.error(
+            `${file.name}: ${
+              err instanceof Error ? err.message : 'Import failed'
+            }`,
+            files.length === 1 && progressId ? { id: progressId } : undefined
+          )
         }
-        toast.success(
-          `Imported ${data.messages.toLocaleString()} messages${
-            data.mediaFiles > 0
-              ? ` and ${data.mediaFiles.toLocaleString()} media files`
-              : ''
-          }`,
-          { id: toastId }
-        )
-        await refreshChats()
-        if (data.chatId) await openChat(data.chatId)
-      } catch (err) {
-        toast.error(err instanceof Error ? err.message : 'Import failed', {
-          id: toastId,
-        })
-      } finally {
-        setImporting(false)
       }
+
+      if (files.length > 1 && batchToastId) {
+        const parts: string[] = []
+        if (ok > 0)
+          parts.push(
+            `Imported ${ok} chat${ok === 1 ? '' : 's'} · ${totalMessages.toLocaleString()} messages${
+              totalMedia > 0
+                ? ` · ${totalMedia.toLocaleString()} media files`
+                : ''
+            }`
+          )
+        if (failed > 0) parts.push(`${failed} failed`)
+        toast[failed > 0 && ok === 0 ? 'error' : ok > 0 ? 'success' : 'error'](
+          parts.join(' — '),
+          { id: batchToastId }
+        )
+      }
+
+      await refreshChats()
+      if (lastChatId) await openChat(lastChatId)
+      setImporting(false)
     },
     [refreshChats, openChat]
   )
@@ -133,7 +182,11 @@ export function WhatsAppApp() {
       const data = await res.json()
       if (!res.ok) throw new Error(data.error ?? 'Failed')
       toast.success(
-        data.skipped ? 'Demo chats already loaded' : 'Demo chats ready',
+        data.skipped
+          ? 'Demo chats already loaded'
+          : data.created?.length === 1
+            ? `Demo chat restored: ${data.created[0]}`
+            : 'Demo chats ready',
         { id: toastId }
       )
       await refreshChats()
@@ -170,6 +223,28 @@ export function WhatsAppApp() {
       }
     },
     [activeId, refreshChats]
+  )
+
+  const togglePin = useCallback(
+    async (id: string, pinned: boolean) => {
+      // Optimistic update — revert on failure
+      const prev = chats
+      setChats((cs) =>
+        cs.map((c) => (c.id === id ? { ...c, pinned } : c))
+      )
+      try {
+        const res = await fetch(`/api/chats/${id}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ pinned }),
+        })
+        if (!res.ok) throw new Error('failed')
+      } catch {
+        setChats(prev)
+        toast.error('Could not update pin')
+      }
+    },
+    [chats]
   )
 
   const totalMessages = chats.reduce((s, c) => s + c.messageCount, 0)
@@ -227,8 +302,10 @@ export function WhatsAppApp() {
             importing={importing}
             onSelect={openChat}
             onDelete={deleteChat}
-            onImportFile={importFile}
+            onImportFiles={importFiles}
             onDemo={loadDemo}
+            onTogglePin={togglePin}
+            onOpenInsights={() => setStatsOpen(true)}
           />
         </div>
         <div className={cn('flex min-h-0 flex-1 flex-col', activeId ? 'flex' : 'hidden md:flex')}>
@@ -267,6 +344,9 @@ export function WhatsAppApp() {
         {chats.length} chat{chats.length === 1 ? '' : 's'} ·{' '}
         {totalMessages.toLocaleString()} messages · all data stays on this device
       </footer>
+
+      {/* Insights dashboard */}
+      <StatsDashboard open={statsOpen} onOpenChange={setStatsOpen} />
 
       {/* About / help dialog */}
       <Dialog open={aboutOpen} onOpenChange={setAboutOpen}>
