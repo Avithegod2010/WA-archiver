@@ -1,8 +1,10 @@
 'use client'
 
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { toast } from 'sonner'
 import {
   ArrowLeft,
+  CalendarDays,
   ChevronDown,
   Loader2,
   Lock,
@@ -19,6 +21,11 @@ import type { ChatDetail, ChatMessage } from './types'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from '@/components/ui/popover'
 
 const PAGE_SIZE = 300
 
@@ -58,10 +65,15 @@ export function ChatView({
 }) {
   const scrollRef = useRef<HTMLDivElement>(null)
   const visibleCountRef = useRef(PAGE_SIZE)
+  const pendingJumpRef = useRef<string | null>(null)
   const [visibleCount, setVisibleCount] = useState(PAGE_SIZE)
   const [searchOpen, setSearchOpen] = useState(false)
   const [query, setQuery] = useState('')
   const [infoOpen, setInfoOpen] = useState(false)
+  const [showFab, setShowFab] = useState(false)
+  const [jumpedId, setJumpedId] = useState<string | null>(null)
+  const [jumpDate, setJumpDate] = useState('')
+  const [jumpOpen, setJumpOpen] = useState(false)
   const chatId = detail?.chat.id ?? ''
 
   const messages = detail?.messages ?? []
@@ -81,6 +93,20 @@ export function ChatView({
     const el = scrollRef.current
     if (el) el.scrollTop = el.scrollHeight
   }, [chatId, loading])
+
+  // Execute pending jump-to-date after the expanded window has rendered
+  useEffect(() => {
+    const id = pendingJumpRef.current
+    if (!id) return
+    const el = scrollRef.current?.querySelector(`[data-mid="${id}"]`)
+    if (el) {
+      el.scrollIntoView({ block: 'center', behavior: 'smooth' })
+      setJumpedId(id)
+      const t = setTimeout(() => setJumpedId(null), 2000)
+      pendingJumpRef.current = null
+      return () => clearTimeout(t)
+    }
+  }, [visibleCount, messages.length])
 
   const shown = useMemo(() => {
     if (filtered) return filtered
@@ -128,6 +154,64 @@ export function ChatView({
       const newHeight = el.scrollHeight
       el.scrollTop = newHeight - oldHeight + el.scrollTop
     })
+  }
+
+  // Escape: close search first, then go back to list
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      if (e.key !== 'Escape') return
+      if (infoOpen || jumpOpen) return
+      if (query) {
+        setQuery('')
+      } else if (searchOpen) {
+        setSearchOpen(false)
+      } else {
+        onBack()
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [infoOpen, jumpOpen, query, searchOpen, onBack])
+
+  function handleScrollToBottom() {
+    const el = scrollRef.current
+    if (el) el.scrollTo({ top: el.scrollHeight, behavior: 'smooth' })
+  }
+
+  function handleJumpToDate() {
+    if (!jumpDate) return
+    const target = new Date(jumpDate + 'T00:00:00')
+    const targetKey = `${target.getFullYear()}-${target.getMonth()}-${target.getDate()}`
+    const idx = messages.findIndex((m) => dayKey(m.ts) === targetKey)
+    if (idx === -1) {
+      toast.info(
+        `No messages on ${target.toLocaleDateString('en-GB', {
+          day: 'numeric',
+          month: 'long',
+          year: 'numeric',
+        })}`
+      )
+      return
+    }
+    const needed = messages.length - idx
+    if (needed > visibleCountRef.current) {
+      visibleCountRef.current = needed
+      setVisibleCount(needed)
+    }
+    pendingJumpRef.current = messages[idx].id
+    // If already rendered, the effect fires via visibleCount change; force check
+    requestAnimationFrame(() => {
+      const el = scrollRef.current?.querySelector(
+        `[data-mid="${messages[idx].id}"]`
+      )
+      if (el) {
+        el.scrollIntoView({ block: 'center', behavior: 'smooth' })
+        setJumpedId(messages[idx].id)
+        setTimeout(() => setJumpedId(null), 2000)
+        pendingJumpRef.current = null
+      }
+    })
+    setJumpOpen(false)
   }
 
   if (loading) {
@@ -207,6 +291,40 @@ export function ChatView({
           >
             <Search className="h-5 w-5 text-[#54656f] dark:text-[#aebac1]" />
           </Button>
+          <Popover open={jumpOpen} onOpenChange={setJumpOpen}>
+            <PopoverTrigger asChild>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-9 w-9"
+                aria-label="Jump to date"
+              >
+                <CalendarDays className="h-5 w-5 text-[#54656f] dark:text-[#aebac1]" />
+              </Button>
+            </PopoverTrigger>
+            <PopoverContent align="end" className="w-64 p-3">
+              <p className="mb-2 text-[13px] font-medium text-[#111b21] dark:text-[#e9edef]">
+                Jump to date
+              </p>
+              <Input
+                type="date"
+                value={jumpDate}
+                onChange={(e) => setJumpDate(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') handleJumpToDate()
+                }}
+                className="h-9 text-[13px] [color-scheme:light] dark:[color-scheme:dark]"
+              />
+              <Button
+                size="sm"
+                className="mt-2 w-full rounded-full bg-[#00a884] text-white hover:bg-[#029374]"
+                onClick={handleJumpToDate}
+                disabled={!jumpDate}
+              >
+                Go to date
+              </Button>
+            </PopoverContent>
+          </Popover>
           <Button
             variant="ghost"
             size="icon"
@@ -262,6 +380,10 @@ export function ChatView({
       {/* Messages */}
       <div
         ref={scrollRef}
+        onScroll={(e) => {
+          const el = e.currentTarget
+          setShowFab(el.scrollHeight - el.scrollTop - el.clientHeight > 400)
+        }}
         className="wa-scroll relative z-[1] flex-1 overflow-y-auto py-3"
         role="log"
         aria-label={`Messages in ${chat.title}`}
@@ -308,7 +430,13 @@ export function ChatView({
           return (
             <div
               key={item.key}
-              className={cn('mt-0.5', item.showTail && 'mt-2.5')}
+              data-mid={item.msg.id}
+              className={cn(
+                'mt-0.5 rounded-lg transition-colors duration-700',
+                item.showTail && 'mt-2.5',
+                jumpedId === item.msg.id &&
+                  'bg-amber-200/50 ring-1 ring-amber-400/60 dark:bg-amber-500/20'
+              )}
             >
               <MessageBubble
                 msg={item.msg}
@@ -321,6 +449,17 @@ export function ChatView({
           )
         })}
       </div>
+
+      {/* Scroll-to-bottom FAB (WhatsApp style) */}
+      {showFab && !searchOpen && (
+        <button
+          onClick={handleScrollToBottom}
+          aria-label="Scroll to latest messages"
+          className="absolute bottom-[68px] right-4 z-20 flex h-10 w-10 items-center justify-center rounded-full bg-white text-[#54656f] shadow-[0_1px_3px_rgba(11,20,26,0.3)] transition-transform hover:scale-105 active:scale-95 dark:bg-[#233138] dark:text-[#aebac1]"
+        >
+          <ChevronDown className="h-6 w-6" />
+        </button>
+      )}
 
       {/* Read-only notice (mimics the WhatsApp composer) */}
       <div className="relative z-10 bg-[#f0f2f5] px-3 py-2.5 dark:bg-[#202c33]">

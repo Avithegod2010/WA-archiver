@@ -32,6 +32,21 @@ function fmtDate(iso: string | null): string {
   })
 }
 
+function topEmojis(messages: ChatMessage[], limit = 4): Array<[string, number]> {
+  const counts = new Map<string, number>()
+  const re = /\p{Extended_Pictographic}/gu
+  for (const m of messages) {
+    const body = m.body ?? ''
+    if (!body) continue
+    const matches = body.match(re)
+    if (!matches) continue
+    for (const e of matches) {
+      counts.set(e, (counts.get(e) ?? 0) + 1)
+    }
+  }
+  return [...counts.entries()].sort((a, b) => b[1] - a[1]).slice(0, limit)
+}
+
 export function ChatInfo({
   open,
   onOpenChange,
@@ -86,6 +101,7 @@ export function ChatInfo({
   }, [messages])
 
   const maxSender = stats.senders.length > 0 ? stats.senders[0][1] : 1
+  const emojis = useMemo(() => topEmojis(messages), [messages])
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -204,6 +220,33 @@ export function ChatInfo({
               ))}
             </div>
           </section>
+
+          {/* Top emojis */}
+          {emojis.length > 0 && (
+            <section>
+              <h3 className="mb-2 text-[13px] font-semibold uppercase tracking-wide text-[#667781] dark:text-[#8696a0]">
+                Most used emojis
+              </h3>
+              <div className="flex gap-2">
+                {emojis.map(([emoji, count], i) => (
+                  <div
+                    key={emoji}
+                    className="flex flex-1 flex-col items-center rounded-lg bg-white p-3 shadow-sm dark:bg-[#202c33]"
+                  >
+                    <span className="text-2xl leading-none">{emoji}</span>
+                    <span className="mt-1.5 text-[12px] font-medium text-[#667781] dark:text-[#8696a0]">
+                      ×{count}
+                    </span>
+                    {i === 0 && (
+                      <span className="mt-0.5 text-[10px] uppercase tracking-wide text-[#00a884]">
+                        favorite
+                      </span>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </section>
+          )}
 
           {/* Busiest day */}
           {stats.busiestDay && (

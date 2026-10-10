@@ -4,12 +4,14 @@ import { useMemo } from 'react'
 import {
   Ban,
   BarChart3,
+  Copy,
   FileText,
   MapPin,
   Mic,
   PhoneMissed,
   UserRound,
 } from 'lucide-react'
+import { toast } from 'sonner'
 import { Avatar } from './Avatar'
 import { BubbleTail, TicksDouble } from './icons'
 import { colorForName, type ChatMessage } from './types'
@@ -25,6 +27,52 @@ function formatTime(iso: string): string {
 function extractUrl(text: string): string | null {
   const m = text.match(/https?:\/\/[^\s]+/)
   return m ? m[0] : null
+}
+
+const COPY_LABEL: Record<string, string> = {
+  image: '[Photo]',
+  video: '[Video]',
+  gif: '[GIF]',
+  audio: '[Voice message]',
+  sticker: '[Sticker]',
+  document: '[Document]',
+  contact: '[Contact card]',
+  location: '[Location]',
+  poll: '[Poll]',
+  media: '[Media omitted]',
+}
+
+function copyTextFor(msg: ChatMessage): string {
+  const prefix = msg.sender && msg.sender !== 'You' ? `${msg.sender}: ` : ''
+  const body =
+    msg.body || COPY_LABEL[msg.type] || (msg.mediaName ? `[${msg.mediaName}]` : '')
+  return prefix + body
+}
+
+function CopyButton({ msg }: { msg: ChatMessage }) {
+  async function handleCopy(e: React.MouseEvent) {
+    e.stopPropagation()
+    const text = copyTextFor(msg)
+    try {
+      await navigator.clipboard.writeText(text)
+      toast.success('Message copied')
+    } catch {
+      toast.error('Could not copy')
+    }
+  }
+  return (
+    <button
+      onClick={handleCopy}
+      aria-label="Copy message"
+      title="Copy message"
+      className={cn(
+        'mb-1 hidden h-7 w-7 shrink-0 items-center justify-center rounded-full bg-white text-[#54656f] shadow-md transition-opacity sm:flex',
+        'opacity-0 group-hover/msg:opacity-100 focus-visible:opacity-100 dark:bg-[#233138] dark:text-[#aebac1]'
+      )}
+    >
+      <Copy className="h-3.5 w-3.5" />
+    </button>
+  )
 }
 
 function mediaSrc(chatId: string, msg: ChatMessage): string | null {
@@ -130,7 +178,7 @@ export function MessageBubble({
   }
 
   return (
-    <div className="flex items-end gap-1.5 px-2 sm:px-4">
+    <div className="group/msg flex items-end gap-1.5 px-2 sm:px-4">
       {isGroup ? (
         showAvatar ? (
           <Avatar name={msg.sender ?? '?'} size={28} className="mb-0.5" />
@@ -164,6 +212,7 @@ export function MessageBubble({
           <Meta msg={msg} outgoing={false} onMedia={false} />
         </div>
       </div>
+      <CopyButton msg={msg} />
     </div>
   )
 }
@@ -180,7 +229,8 @@ function OutgoingBubble({
   src: string | null
 }) {
   return (
-    <div className="flex justify-end px-2 sm:px-4">
+    <div className="group/msg flex justify-end gap-1.5 px-2 sm:px-4">
+      <CopyButton msg={msg} />
       <div className="relative max-w-[78%] sm:max-w-[65%]">
         {showTail && (
           <BubbleTail

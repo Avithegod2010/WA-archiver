@@ -63,13 +63,34 @@ export function WhatsAppApp() {
       if (!res.ok) throw new Error('failed')
       const data = await res.json()
       setDetail(data)
+      try {
+        localStorage.setItem('wa-viewer:last-chat', id)
+      } catch {
+        /* storage unavailable */
+      }
     } catch {
       toast.error('Could not load this chat')
       setActiveId(null)
+      try {
+        localStorage.removeItem('wa-viewer:last-chat')
+      } catch {
+        /* ignore */
+      }
     } finally {
       setDetailLoading(false)
     }
   }, [])
+
+  // Restore the last opened chat across reloads
+  useEffect(() => {
+    let last: string | null = null
+    try {
+      last = localStorage.getItem('wa-viewer:last-chat')
+    } catch {
+      return
+    }
+    if (last) openChat(last)
+  }, [openChat])
 
   const importFile = useCallback(
     async (file: File) => {
@@ -135,6 +156,11 @@ export function WhatsAppApp() {
         if (activeId === id) {
           setActiveId(null)
           setDetail(null)
+          try {
+            localStorage.removeItem('wa-viewer:last-chat')
+          } catch {
+            /* ignore */
+          }
         }
         await refreshChats()
       } catch {
@@ -213,6 +239,11 @@ export function WhatsAppApp() {
             onBack={() => {
               setActiveId(null)
               setDetail(null)
+              try {
+                localStorage.removeItem('wa-viewer:last-chat')
+              } catch {
+                /* ignore */
+              }
             }}
             onDelete={deleteChat}
             deleting={deleting}
@@ -270,6 +301,14 @@ export function WhatsAppApp() {
               <b>Tip:</b> Choose &quot;with media&quot; to see photos, videos and
               voice messages inside the viewer. Exports without media still show
               message text, dates and senders.
+            </div>
+            <div>
+              <h4 className="mb-1 font-semibold">Install like an app</h4>
+              <p>
+                On Android, open the Chrome menu and choose <b>Add to Home
+                Screen</b> (iPhone: Share &gt; Add to Home Screen). The viewer
+                installs as a full-screen app with its own icon.
+              </p>
             </div>
             <p className="text-[12px] text-[#667781] dark:text-[#8696a0]">
               Supported: Android &amp; iOS exports (.zip with media or .txt only).
