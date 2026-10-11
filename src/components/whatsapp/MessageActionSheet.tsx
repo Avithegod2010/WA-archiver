@@ -12,8 +12,10 @@ import {
   PinOff,
   Reply,
   SmilePlus,
+  Square,
   Star,
   StarOff,
+  Volume2,
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { Sheet, SheetContent, SheetDescription, SheetTitle } from '@/components/ui/sheet'
@@ -90,6 +92,19 @@ export function isPinned(msg: ChatMessage): boolean {
   return !!msg.pinned
 }
 
+/** Browser speech synthesis availability (SSR-safe). */
+function speechAvailable(): boolean {
+  return (
+    typeof window !== 'undefined' &&
+    typeof window.speechSynthesis !== 'undefined'
+  )
+}
+
+/** Whether the browser is currently reading text aloud (SSR-safe). */
+function speechActive(): boolean {
+  return speechAvailable() && window.speechSynthesis.speaking
+}
+
 function formatTime(iso: string): string {
   return new Date(iso).toLocaleTimeString([], {
     hour: '2-digit',
@@ -157,6 +172,7 @@ export function MessageActionSheet({
   onToggleSelect,
 }: MessageActionSheetProps) {
   const [reactOpen, setReactOpen] = useState(false)
+  const [speaking, setSpeaking] = useState(false)
 
   // Reset the inline reaction grid on every close path (overlay, X, Esc, action).
   const handleOpenChange = (o: boolean) => {
@@ -170,6 +186,50 @@ export function MessageActionSheet({
   const pinned = isPinned(msg)
   const sender = msg.sender ?? ''
   const senderIsMe = sender === 'You'
+
+  const speakable = !!msg.body?.trim()
+  const isSpeaking = speaking || speechActive()
+
+  /** Reads the message body aloud with the browser's built-in speech engine. */
+  const handleSpeak = () => {
+    if (!speechAvailable()) {
+      toast.error('Speech is not available in this browser')
+      return
+    }
+    const synth = window.speechSynthesis
+    if (synth.speaking) {
+      synth.cancel()
+      setSpeaking(false)
+      return
+    }
+    const text = msg.body.trim()
+    if (!text) return
+    const utterance = new SpeechSynthesisUtterance(text)
+    utterance.rate = 1
+    try {
+      const voices = synth.getVoices()
+      const english = voices.find((v) =>
+        v.lang?.toLowerCase().startsWith('en')
+      )
+      if (english) utterance.voice = english
+    } catch {
+      // Voice list unavailable — the default voice is fine.
+    }
+    utterance.onend = () => setSpeaking(false)
+    utterance.onerror = () => setSpeaking(false)
+    setSpeaking(true)
+    synth.speak(utterance)
+    toast('Reading aloud…', {
+      action: {
+        label: 'Stop',
+        onClick: () => {
+          synth.cancel()
+          setSpeaking(false)
+        },
+      },
+    })
+    close()
+  }
 
   return (
     <Sheet open={open} onOpenChange={handleOpenChange}>
@@ -323,6 +383,19 @@ export function MessageActionSheet({
                 onTranslate(msg)
                 close()
               }}
+            />
+          )}
+          {speakable && (
+            <SheetRow
+              icon={
+                isSpeaking ? (
+                  <Square className="h-5 w-5 text-rose-500" />
+                ) : (
+                  <Volume2 className="h-5 w-5 text-(--wa-accent)" />
+                )
+              }
+              label={isSpeaking ? 'Stop reading' : 'Speak'}
+              onClick={handleSpeak}
             />
           )}
           {src && (

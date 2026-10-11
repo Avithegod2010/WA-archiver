@@ -1,27 +1,30 @@
 'use client'
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { Pause, Play } from 'lucide-react'
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
+import { Mic, Pause, Play } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import {
+  RATES,
+  cycleRate as engineCycleRate,
+  fmtTime,
+  getState as getEngineState,
+  load as engineLoad,
+  seekBy as engineSeekBy,
+  seekRatio as engineSeekRatio,
+  subscribe as subscribeEngine,
+  toggle as engineToggle,
+} from './audio-engine'
+import {
+  getEmptyPlayedSnapshot,
+  getPlayedSnapshot,
+  markPlayed,
+  subscribePlayed,
+} from './unplayed-voice'
 
-const RATES = [1, 1.5, 2] as const
 const BAR_COUNT = 26
 
-/** Only one voice note plays at a time (module-level "who is active" slot). */
-const activeAudio: { current: HTMLAudioElement | null } = { current: null }
-
-/**
- * Chosen speed persists across tracks for the whole session:
- * every VoicePlayer starts at the last speed the user picked.
- */
-let preferredRateIdx = 0
-
-function fmtTime(s: number): string {
-  if (!isFinite(s) || s < 0) s = 0
-  const m = Math.floor(s / 60)
-  const sec = Math.floor(s % 60)
-  return `${m}:${sec.toString().padStart(2, '0')}`
-}
+/** Voice notes already markPlayed() this session (avoids event spam). */
+const playedOnce = new Set<string>()
 
 function hashSeed(seed: string): number {
   let h = 2166136261
@@ -47,64 +50,103 @@ function barHeights(seed: string): number[] {
 /**
  * WhatsApp-style voice message player: play/pause, seekable waveform,
  * elapsed/total time and a 1×/1.5×/2× speed toggle.
+ *
+ * Playback runs through the shared audio-engine (ONE app-wide element), so
+ * a voice note keeps playing when the user switches chats — the floating
+ * AudioDock then controls it. This component keeps a hidden metadata-only
+ * <audio> to show the duration before the track is ever played; it never
+ * plays through the local element.
+ *
+ * Public props are { src, seed }; chatId/chatTitle/sender are optional
+ * context used by the engine/dock and default to '' when unavailable.
  */
 export function VoicePlayer({
   src,
   seed,
+  chatId = '',
+  chatTitle = '',
+  sender = '',
 }: {
   src: string
   seed: string
+  chatId?: string
+  chatTitle?: string
+  sender?: string
 }) {
-  const audioRef = useRef<HTMLAudioElement>(null)
   const waveRef = useRef<HTMLDivElement>(null)
   const draggingRef = useRef(false)
-  const [playing, setPlaying] = useState(false)
-  const [current, setCurrent] = useState(0)
-  const [duration, setDuration] = useState(0)
-  const [rateIdx, setRateIdx] = useState(preferredRateIdx)
-  const [failed, setFailed] = useState(false)
-  const bars = useMemo(() => barHeights(seed), [seed])
-  const rate = RATES[rateIdx]
+  /** Seek requested before the engine knows the duration (load-then-seek). */
+  const pendingSeekRef = useRef<number | null>(null)
 
+  // Shared engine state — every VoicePlayer re-renders on engine changes.
+  const engine = useSyncExternalStore(subscribeEngine, getEngineState, getEngineState)
+  const active = engine.currentId === seed
+  const playing = active && engine.playing
+
+  // Played/unplayed map (flips the play button from unplayed blue to accent).
+  const playedMap = useSyncExternalStore(
+    subscribePlayed,
+    getPlayedSnapshot,
+    getEmptyPlayedSnapshot
+  )
+  const unplayed = playedMap[seed] !== 1
+
+  // Duration preview from a metadata-only element while NOT the active track.
+  const [localDuration, setLocalDuration] = useState(0)
+  const [localFailed, setLocalFailed] = useState(false)
+
+  const duration = active ? engine.duration : localDuration
+  const current = active ? engine.current : 0
+  const failed = localFailed || (active && engine.failed)
+  const rate = RATES[engine.rateIdx]
   const progress = duration > 0 ? Math.min(current / duration, 1) : 0
+  const bars = useMemo(() => barHeights(seed), [seed])
 
-  // Pause (and release the active slot) when the bubble unmounts
+  // Mark a voice note as played on its first successful play this session.
   useEffect(() => {
-    const a = audioRef.current
-    return () => {
-      a?.pause()
-      if (activeAudio.current === a) activeAudio.current = null
+    if (active && engine.playing && !playedOnce.has(seed)) {
+      playedOnce.add(seed)
+      markPlayed(seed)
     }
-  }, [])
+  }, [active, engine.playing, seed])
+
+  // A seek issued while the track was still loading (duration unknown) is
+  // applied as soon as the engine reports a duration.
+  useEffect(() => {
+    if (active && pendingSeekRef.current !== null && engine.duration > 0) {
+      const r = pendingSeekRef.current
+      pendingSeekRef.current = null
+      engineSeekRatio(r)
+    }
+  }, [active, engine.duration])
+
+  const meta = useMemo(
+    () => ({ id: seed, chatId, chatTitle, sender, src }),
+    [seed, chatId, chatTitle, sender, src]
+  )
 
   const togglePlay = useCallback(() => {
-    const a = audioRef.current
-    if (!a || failed) return
-    if (a.paused) {
-      if (activeAudio.current && activeAudio.current !== a) {
-        activeAudio.current.pause()
-      }
-      a.playbackRate = rate
-      a.play().then(() => {
-        activeAudio.current = a
-        setPlaying(true)
-      }).catch(() => setPlaying(false))
-    } else {
-      a.pause()
-      setPlaying(false)
-      if (activeAudio.current === a) activeAudio.current = null
-    }
-  }, [rate, failed])
+    if (failed) return
+    if (getEngineState().currentId !== seed) engineLoad(meta)
+    engineToggle()
+  }, [failed, seed, meta])
 
-  const seekFromClientX = useCallback((clientX: number) => {
-    const el = waveRef.current
-    const a = audioRef.current
-    if (!el || !a || !isFinite(a.duration) || a.duration <= 0) return
-    const rect = el.getBoundingClientRect()
-    const ratio = Math.min(Math.max((clientX - rect.left) / rect.width, 0), 1)
-    a.currentTime = ratio * a.duration
-    setCurrent(a.currentTime)
-  }, [])
+  const seekFromClientX = useCallback(
+    (clientX: number) => {
+      const el = waveRef.current
+      if (!el || failed) return
+      const rect = el.getBoundingClientRect()
+      const ratio = Math.min(Math.max((clientX - rect.left) / rect.width, 0), 1)
+      if (getEngineState().currentId === seed) {
+        engineSeekRatio(ratio)
+      } else if (localDuration > 0) {
+        // Not active yet: load it into the engine (paused) and seek there.
+        engineLoad(meta)
+        pendingSeekRef.current = ratio
+      }
+    },
+    [failed, seed, localDuration, meta]
+  )
 
   function onWavePointerDown(e: React.PointerEvent<HTMLDivElement>) {
     if (failed) return
@@ -131,14 +173,17 @@ export function VoicePlayer({
   }
 
   function onWaveKeyDown(e: React.KeyboardEvent<HTMLDivElement>) {
-    const a = audioRef.current
-    if (!a || failed) return
-    const dur = isFinite(a.duration) ? a.duration : 0
+    if (failed) return
     if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
       e.preventDefault()
       const delta = e.key === 'ArrowLeft' ? -5 : 5
-      a.currentTime = Math.min(Math.max(a.currentTime + delta, 0), dur)
-      setCurrent(a.currentTime)
+      if (getEngineState().currentId === seed) {
+        engineSeekBy(delta)
+      } else if (delta > 0 && localDuration > 0) {
+        // Nothing to rewind on an unstarted track — forward jumps load it.
+        engineLoad(meta)
+        pendingSeekRef.current = Math.min(delta / localDuration, 1)
+      }
     } else if (e.key === ' ' || e.key === 'Enter') {
       e.preventDefault()
       togglePlay()
@@ -146,11 +191,8 @@ export function VoicePlayer({
   }
 
   function cycleRate() {
-    const next = (rateIdx + 1) % RATES.length
-    preferredRateIdx = next
-    setRateIdx(next)
-    const a = audioRef.current
-    if (a) a.playbackRate = RATES[next]
+    // Session-wide: every VoicePlayer (and the dock) follows the new speed.
+    engineCycleRate()
   }
 
   if (failed) {
@@ -171,13 +213,28 @@ export function VoicePlayer({
       <button
         type="button"
         onClick={togglePlay}
-        aria-label={playing ? 'Pause voice message' : 'Play voice message'}
-        className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-(--wa-accent) text-white shadow-[0_1px_2px_rgba(11,20,26,0.2)] transition-transform hover:scale-105 active:scale-95"
+        aria-label={
+          playing
+            ? 'Pause voice message'
+            : unplayed
+              ? 'Play voice message (unplayed)'
+              : 'Play voice message'
+        }
+        className={cn(
+          'relative flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-white shadow-[0_1px_2px_rgba(11,20,26,0.2)] motion-safe:transition-transform motion-safe:hover:scale-105 motion-safe:active:scale-95',
+          unplayed ? 'bg-sky-500' : 'bg-(--wa-accent)'
+        )}
       >
         {playing ? (
           <Pause className="h-4 w-4 fill-current" />
         ) : (
           <Play className="h-4 w-4 translate-x-[1px] fill-current" />
+        )}
+        {unplayed && !playing && (
+          <Mic
+            aria-hidden="true"
+            className="absolute -right-1 -top-1 h-3 w-3 rounded-full bg-sky-500 p-px text-white [filter:drop-shadow(0_1px_1px_rgba(11,20,26,0.45))]"
+          />
         )}
       </button>
 
@@ -230,29 +287,20 @@ export function VoicePlayer({
         {rate}×
       </button>
 
-      <audio
-        ref={audioRef}
-        src={src}
-        preload="metadata"
-        className="hidden"
-        onLoadedMetadata={(e) => {
-          const a = e.currentTarget
-          if (isFinite(a.duration)) setDuration(a.duration)
-          a.playbackRate = rate
-        }}
-        onTimeUpdate={(e) => setCurrent(e.currentTarget.currentTime)}
-        onEnded={(e) => {
-          setPlaying(false)
-          setCurrent(0)
-          e.currentTarget.currentTime = 0
-          if (activeAudio.current === e.currentTarget) {
-            activeAudio.current = null
-          }
-        }}
-        onPlay={() => setPlaying(true)}
-        onPause={() => setPlaying(false)}
-        onError={() => setFailed(true)}
-      />
+      {/* Metadata-only element: duration preview for tracks not yet played
+          through the shared engine (this element never plays). */}
+      {!active && (
+        <audio
+          src={src}
+          preload="metadata"
+          className="hidden"
+          onLoadedMetadata={(e) => {
+            const d = e.currentTarget.duration
+            if (isFinite(d)) setLocalDuration(d)
+          }}
+          onError={() => setLocalFailed(true)}
+        />
+      )}
     </div>
   )
 }

@@ -47,3 +47,16 @@ model Message {
   @@index([chatId, idx])
   @@index([chatId, ts])
 }
+
+model ScheduledMessage {
+  id        String   @id @default(cuid())
+  chatId    String
+  body      String
+  sender    String   @default("You")
+  deliverAt DateTime
+  createdAt DateTime @default(now())
+  status    String   @default("pending")
+
+  @@index([chatId, status])
+  @@index([status, deliverAt])
+}

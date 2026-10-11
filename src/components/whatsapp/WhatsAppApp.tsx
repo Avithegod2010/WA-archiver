@@ -57,6 +57,8 @@ import { AppLock } from './AppLock'
 import { ImportPanel } from './ImportPanel'
 import { PwaInstallBanner } from './PwaInstallBanner'
 import { NotifToasts } from './NotifToasts'
+import { AudioDock } from './AudioDock'
+import { ScheduledDispatchPoller } from './ScheduledDispatchPoller'
 import { useShortcuts } from './useShortcuts'
 import { WhatsAppLogo } from './icons'
 import { SAVED_CHAT_ID, type ChatDetail, type ChatSummary } from './types'
@@ -557,6 +559,20 @@ export function WhatsAppApp() {
       setDetailLoading(false)
     }
   }, [markChatSeen])
+
+  // AudioDock tap (Task 12-a): open — or re-focus — the chat the currently
+  // playing voice note belongs to, optionally jumping to the message.
+  useEffect(() => {
+    const onDockOpen = (e: Event) => {
+      const d = (e as CustomEvent<{ chatId?: string; messageId?: string }>)
+        .detail
+      if (typeof d?.chatId === 'string' && d.chatId) {
+        openChat(d.chatId, d.messageId)
+      }
+    }
+    window.addEventListener('wa-audio-dock-open', onDockOpen)
+    return () => window.removeEventListener('wa-audio-dock-open', onDockOpen)
+  }, [openChat])
 
   // Restore the last opened chat across reloads
   useEffect(() => {
@@ -1171,6 +1187,10 @@ export function WhatsAppApp() {
 
       {/* Notification-style incoming-message toasts (playful simulator) */}
       <NotifToasts chats={chats} onOpenChat={openChat} />
+
+      {/* Floating voice-note mini player — playback survives chat switches */}
+      <AudioDock />
+      <ScheduledDispatchPoller />
 
       {/* PWA install banner — floating, above the sticky footer */}
       <PwaInstallBanner />

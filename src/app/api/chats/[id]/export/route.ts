@@ -19,7 +19,17 @@ export const maxDuration = 120
  * media file that exists on disk (mirrors an official "with media" export).
  * ?format=json → raw data dump: chat metadata + fully serialized messages.
  * ?format=csv → spreadsheet-friendly flat table (one row per message).
+ *
+ * Audio embedding is OPT-IN: `?audio=1` or the `wa_export_audio=1` cookie
+ * (set by Settings → Export). With it, HTML exports embed voice notes as
+ * data URIs and ZIP exports add an `audio/` folder; without it the output is
+ * unchanged. Filenames stay identical either way.
  */
+
+/** ZIP: voice notes go to `audio/` with a 100 MB total budget. */
+const ZIP_AUDIO_TOTAL_CAP = 100 * 1024 * 1024
+/** Cookie written by SettingsDialog → "Embed audio files in exports". */
+const EXPORT_AUDIO_COOKIE = 'wa_export_audio'
 
 /** Spreadsheet formula-injection guard + RFC-4180 quoting for one CSV cell. */
 function csvCell(value: unknown): string {
@@ -62,6 +72,11 @@ export async function GET(
 ) {
   const { id } = await ctx.params
   const format = req.nextUrl.searchParams.get('format')
+  // Embed audio in HTML / add an audio/ folder in ZIP — via ?audio=1 or the
+  // Settings toggle cookie so exports need no ChatView changes.
+  const audioOn =
+    req.nextUrl.searchParams.get('audio') === '1' ||
+    req.cookies.get(EXPORT_AUDIO_COOKIE)?.value === '1'
   const chat = await db.chat.findUnique({
     where: { id },
     select: {
@@ -196,7 +211,9 @@ export async function GET(
         pollOptions: true,
       },
     })
-    const html = await buildChatHtml(id, chat.title, chat.isGroup, rows)
+    const html = await buildChatHtml(id, chat.title, chat.isGroup, rows, {
+      embedAudio: audioOn,
+    })
     const htmlName = `WhatsApp Chat - ${safeFileTitle(chat.title)}.html`
     return new NextResponse(html, {
       status: 200,
@@ -220,32 +237,61 @@ export async function GET(
     })
   }
 
-  // ZIP export — same transcript plus the chat's media files.
+  // ZIP export — same transcript plus the chat's media files. When audio is
+  // enabled, voice notes move into a dedicated `audio/` folder (not duplicated
+  // under media/) with a 100 MB total budget; skipped files get a note.
   const mediaRows = await db.message.findMany({
     where: { chatId: id },
     orderBy: [{ idx: 'asc' }],
-    select: { mediaPath: true },
+    select: { mediaPath: true, type: true },
   })
 
   const zip = new JSZip()
   zip.file('_chat.txt', text)
 
   let bundled = 0
+  let audioBudget = audioOn ? ZIP_AUDIO_TOTAL_CAP : 0
+  const audioSkipped: string[] = []
   const seen = new Set<string>()
   for (const m of mediaRows) {
     if (!m.mediaPath || seen.has(m.mediaPath)) continue
     seen.add(m.mediaPath)
     if (m.mediaPath.endsWith('.poster.jpg')) continue
+    const base = path.basename(m.mediaPath)
     try {
       const abs = await resolveMediaPath(id, m.mediaPath)
       if (!abs) continue // missing on disk — skip
+      if (audioOn && m.type === 'audio') {
+        const size = (await fsp.stat(abs)).size
+        if (size > audioBudget) {
+          audioSkipped.push(base) // over the shared audio budget
+          continue
+        }
+        zip.file(path.join('audio', base), await fsp.readFile(abs))
+        audioBudget -= size
+        continue
+      }
       const buf = await fsp.readFile(abs)
       // Flatten any folder prefix; WhatsApp zips keep media in one folder
-      zip.file(path.join('media', path.basename(m.mediaPath)), buf)
+      zip.file(path.join('media', base), buf)
       bundled++
     } catch {
       // unreadable file — skip silently
     }
+  }
+
+  if (audioSkipped.length > 0) {
+    zip.file(
+      '_audio-skipped.txt',
+      [
+        'Some voice notes were not added to the audio/ folder of this export:',
+        ...audioSkipped.map((n) => `- ${n}`),
+        '',
+        `Reason: the ${Math.round(ZIP_AUDIO_TOTAL_CAP / (1024 * 1024))} MB total audio budget for exports was reached.`,
+        'The messages are still in _chat.txt; re-export with fewer chats/media to include them.',
+        '',
+      ].join('\n')
+    )
   }
 
   const buffer = await zip.generateAsync({

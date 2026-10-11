@@ -10,6 +10,8 @@ const TIMEOUT_MS = 25_000
 const GEMINI_TIMEOUT_MS = 12_000
 const REPLY_CONTEXT_MESSAGES = 12
 const MAX_CONTEXT_MESSAGE_CHARS = 400
+const SUMMARIZE_CONTEXT_MESSAGES = 80
+const MAX_SUMMARY_INPUT_CHARS = 6000
 
 const TRANSLATE_PROMPT =
   "You are a translation engine. Detect the language of the user's text and translate it into English. Reply with ONLY the translated text — no quotes, no explanations, no language name. If the text is already English, improve clarity slightly and return it."
@@ -17,7 +19,29 @@ const TRANSLATE_PROMPT =
 const EXPLAIN_PROMPT =
   'You help someone understand a chat message. In at most 120 words, explain what the message means: its intent/tone, any slang, abbreviations, cultural references or implied meaning. Be direct and friendly. Reply in plain text without markdown headers.'
 
-type AiMode = 'translate' | 'explain' | 'reply'
+const SUMMARIZE_PROMPT =
+  'You summarize WhatsApp chats into a punchy TL;DR. Use EXACTLY this plain-text format (no markdown, no extra lines):\n' +
+  'Overview: one or two sentences about what this conversation is about.\n' +
+  '• one short bullet point (up to 6 bullets — key moments, topics, plans or decisions)\n' +
+  'Verdict: one fun, punchy one-liner about the chat.\n' +
+  "Write in the chat's own language, keep a casual tone, and never invent facts."
+
+type AiMode = 'translate' | 'explain' | 'reply' | 'summarize'
+
+/** Short placeholder shown in the transcript for media-only messages. */
+const MEDIA_LABELS: Record<string, string> = {
+  image: '[photo]',
+  video: '[video]',
+  gif: '[GIF]',
+  audio: '[voice note]',
+  sticker: '[sticker]',
+  document: '[document]',
+  contact: '[contact card]',
+  location: '[location]',
+  poll: '[poll]',
+  media: '[media]',
+  deleted: '[deleted message]',
+}
 
 /** Error carrying a user-friendly message from the Gemini REST path. */
 class GeminiError extends Error {
@@ -40,6 +64,7 @@ interface GeminiResponse {
  * Body:
  *   { mode: 'translate' | 'explain', text: string }
  *   { mode: 'reply', chatId: string }
+ *   { mode: 'summarize', chatId: string }
  * Optional header: x-gemini-key — when present, the request runs through the
  * caller's own Google Gemini key; otherwise the built-in provider is used.
  * Returns { ok, mode, result } with the plain-text result.
@@ -57,9 +82,17 @@ export async function POST(req: NextRequest) {
     chatId?: unknown
   }
 
-  if (mode !== 'translate' && mode !== 'explain' && mode !== 'reply') {
+  if (
+    mode !== 'translate' &&
+    mode !== 'explain' &&
+    mode !== 'reply' &&
+    mode !== 'summarize'
+  ) {
     return NextResponse.json(
-      { error: 'Field "mode" must be "translate", "explain" or "reply"' },
+      {
+        error:
+          'Field "mode" must be "translate", "explain", "reply" or "summarize"',
+      },
       { status: 400 }
     )
   }
@@ -101,6 +134,42 @@ export async function POST(req: NextRequest) {
     const lastText = messageText(last.body, last.type)
     systemPrompt = `You are ${persona} in a casual WhatsApp chat. Reply naturally to the last message as ${persona} would — match the chat's language, tone and energy. Keep it under 40 words. Output ONLY the reply text.`
     userText = last.sender ? `${last.sender}: ${lastText}` : lastText
+  } else if (mode === 'summarize') {
+    if (typeof chatId !== 'string' || !chatId.trim()) {
+      return NextResponse.json(
+        { error: 'Field "chatId" must be a non-empty string' },
+        { status: 400 }
+      )
+    }
+    const chat = await db.chat.findUnique({
+      where: { id: chatId },
+      select: { id: true },
+    })
+    if (!chat) {
+      return NextResponse.json({ error: 'Chat not found' }, { status: 404 })
+    }
+    const recentDesc = await db.message.findMany({
+      where: { chatId },
+      orderBy: { idx: 'desc' },
+      take: SUMMARIZE_CONTEXT_MESSAGES,
+      select: { sender: true, body: true, type: true },
+    })
+    if (recentDesc.length === 0) {
+      return NextResponse.json(
+        { error: 'This chat has no messages to summarize yet' },
+        { status: 400 }
+      )
+    }
+    // Chronological transcript, newest at the bottom; cap the input size by
+    // dropping the oldest lines first.
+    const lines = [...recentDesc].reverse().map(transcriptLine)
+    let transcript = lines.join('\n')
+    while (transcript.length > MAX_SUMMARY_INPUT_CHARS && lines.length > 1) {
+      lines.shift()
+      transcript = lines.join('\n')
+    }
+    systemPrompt = SUMMARIZE_PROMPT
+    userText = `Summarize this WhatsApp chat:\n\n${transcript}`
   } else {
     if (typeof text !== 'string' || !text.trim()) {
       return NextResponse.json(
@@ -230,4 +299,18 @@ function messageText(body: string, type: string): string {
   const trimmed = body.trim()
   if (trimmed) return trimmed.slice(0, MAX_CONTEXT_MESSAGE_CHARS)
   return `[${type === 'text' ? 'message' : type}]`
+}
+
+/** One "Name: text" transcript line for the summarize mode. */
+function transcriptLine(m: {
+  sender: string | null
+  body: string
+  type: string
+}): string {
+  const body = m.body.trim()
+  const content = body
+    ? body.slice(0, MAX_CONTEXT_MESSAGE_CHARS)
+    : (MEDIA_LABELS[m.type] ?? `[${m.type || 'message'}]`)
+  const name = m.sender?.trim() || 'Unknown'
+  return `${name}: ${content}`
 }

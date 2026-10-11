@@ -8,6 +8,7 @@ import {
   ExternalLink,
   Eye,
   EyeOff,
+  FileDown,
   Keyboard,
   KeyRound,
   Loader2,
@@ -49,6 +50,25 @@ const digitsOnly = (v: string) => v.replace(/\D/g, '').slice(0, 4)
 // AI preference keys ('0' toasts = disabled/absent enabled · '1' auto-clean = on)
 const TOASTS_PREF_KEY = 'wa-viewer:toasts'
 const AUTO_CLEAN_PREF_KEY = 'wa-viewer:auto-clean'
+
+// Export preference: embed audio files in exports ('1' = on). Persisted in
+// localStorage AND mirrored to a 1-year `wa_export_audio=1` cookie (path=/)
+// so the server-side export routes can read it without extra headers.
+const EXPORT_AUDIO_KEY = 'wa-viewer:export-audio'
+const EXPORT_AUDIO_COOKIE = 'wa_export_audio'
+
+function setExportAudioCookie(on: boolean): void {
+  try {
+    if (on) {
+      document.cookie = `${EXPORT_AUDIO_COOKIE}=1; path=/; max-age=31536000; samesite=lax`
+    } else {
+      // Expire the cookie so server routes stop embedding audio
+      document.cookie = `${EXPORT_AUDIO_COOKIE}=; path=/; max-age=0; samesite=lax`
+    }
+  } catch {
+    // Cookies unavailable — exports just won't embed audio
+  }
+}
 
 function readLockHash(): string | null {
   try {
@@ -95,6 +115,7 @@ export function SettingsDialog({
   const [testingKey, setTestingKey] = useState(false)
   const [toastsOn, setToastsOn] = useState(true)
   const [autoCleanOn, setAutoCleanOn] = useState(false)
+  const [exportAudioOn, setExportAudioOn] = useState(false)
 
   useEffect(() => {
     const sync = () => {
@@ -122,6 +143,11 @@ export function SettingsDialog({
     try {
       setToastsOn(localStorage.getItem(TOASTS_PREF_KEY) !== '0')
       setAutoCleanOn(localStorage.getItem(AUTO_CLEAN_PREF_KEY) === '1')
+      const exportAudio = localStorage.getItem(EXPORT_AUDIO_KEY) === '1'
+      setExportAudioOn(exportAudio)
+      // Keep the cookie in sync with the stored preference (it may have
+      // expired or been cleared while localStorage survived).
+      setExportAudioCookie(exportAudio)
     } catch {
       // Storage unavailable — keep defaults
     }
@@ -180,6 +206,17 @@ export function SettingsDialog({
     } catch {
       // Storage unavailable — ignore
     }
+  }
+
+  const handleExportAudioChange = (checked: boolean) => {
+    setExportAudioOn(checked)
+    try {
+      if (checked) localStorage.setItem(EXPORT_AUDIO_KEY, '1')
+      else localStorage.removeItem(EXPORT_AUDIO_KEY)
+    } catch {
+      // Storage unavailable — ignore
+    }
+    setExportAudioCookie(checked)
   }
 
   const downloadBackup = async () => {
@@ -478,7 +515,34 @@ export function SettingsDialog({
 
         <div className="h-px bg-black/10 dark:bg-white/10" />
 
-        {/* c) App lock (PIN) */}
+        {/* c) Export */}
+        <section aria-label="Export" className="flex flex-col gap-2">
+          <h3 className="flex items-center gap-1.5 text-[13px] font-semibold text-(--wa-text)">
+            <FileDown className="h-3.5 w-3.5 text-(--wa-accent)" aria-hidden />
+            Export
+          </h3>
+          <div className="flex items-center justify-between gap-3 rounded-lg bg-black/[0.03] p-3 dark:bg-white/[0.04]">
+            <div className="min-w-0">
+              <p className="text-[12.5px] font-medium text-(--wa-text)">
+                Embed audio files in exports
+              </p>
+              <p className="mt-0.5 text-[11.5px] leading-snug text-(--wa-text-2)">
+                HTML exports play voice notes offline; ZIP exports add an
+                audio folder. Larger files.
+              </p>
+            </div>
+            <Switch
+              checked={aiReady && exportAudioOn}
+              disabled={!aiReady}
+              onCheckedChange={handleExportAudioChange}
+              aria-label="Embed audio files in exports"
+            />
+          </div>
+        </section>
+
+        <div className="h-px bg-black/10 dark:bg-white/10" />
+
+        {/* d) App lock (PIN) */}
         <section aria-label="App lock" className="flex flex-col gap-2">
           <div className="flex items-center justify-between gap-3">
             <div className="min-w-0">
@@ -612,7 +676,7 @@ export function SettingsDialog({
 
         <div className="h-px bg-black/10 dark:bg-white/10" />
 
-        {/* d) Keyboard shortcuts */}
+        {/* e) Keyboard shortcuts */}
         <section aria-label="Keyboard shortcuts" className="flex flex-col gap-2">
           <h3 className="text-[13px] font-semibold text-(--wa-text)">
             Keyboard shortcuts
@@ -630,7 +694,7 @@ export function SettingsDialog({
 
         <div className="h-px bg-black/10 dark:bg-white/10" />
 
-        {/* e) Install / offline */}
+        {/* f) Install / offline */}
         <section aria-label="Install and offline" className="flex flex-col gap-1.5">
           <h3 className="flex items-center gap-1.5 text-[13px] font-semibold text-(--wa-text)">
             <Smartphone className="h-3.5 w-3.5 text-(--wa-accent)" aria-hidden />

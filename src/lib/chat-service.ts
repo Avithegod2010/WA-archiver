@@ -77,7 +77,37 @@ function previewText(type: string, body: string, mediaName: string | null): stri
     'deleted',
   ])
   if (LABELED.has(type)) {
-    if (type === 'document' || type === 'contact') {
+    if (type === 'document') {
+      return (body || mediaName || '').slice(0, 120)
+    }
+    // Task 12-d: location/contact cards store a JSON string in body —
+    // surface the human label/name instead of the raw payload. Legacy
+    // plain-text bodies (imported chats) keep working through the fallbacks.
+    if (type === 'location' || type === 'contact') {
+      let rec: Record<string, unknown> | null = null
+      if (body.startsWith('{')) {
+        try {
+          const o: unknown = JSON.parse(body)
+          if (o && typeof o === 'object' && !Array.isArray(o)) {
+            rec = o as Record<string, unknown>
+          }
+        } catch {
+          /* legacy plain-text body */
+        }
+      }
+      if (type === 'location') {
+        const label =
+          rec && typeof rec.label === 'string' ? rec.label.trim() : ''
+        if (label) return label.slice(0, 120)
+        const rest = body.replace(/^(live\s+)?location[:\s]*/i, '').trim()
+        return rest ? rest.slice(0, 120) : ''
+      }
+      const name = rec && typeof rec.name === 'string' ? rec.name.trim() : ''
+      if (name) {
+        const phone =
+          rec && typeof rec.phone === 'string' ? rec.phone.trim() : ''
+        return (phone ? `${name} · ${phone}` : name).slice(0, 120)
+      }
       return (body || mediaName || '').slice(0, 120)
     }
     if (type === 'poll') return body.slice(0, 120)

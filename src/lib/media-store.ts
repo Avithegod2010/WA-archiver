@@ -68,6 +68,33 @@ export function isVideoName(name: string): boolean {
   return VIDEO_EXT.has(ext)
 }
 
+/**
+ * Voice-note / audio extensions (mp3, m4a, ogg, oga, opus, wav, aac, flac,
+ * amr, 3ga and webm audio). Used by the import routes to honor
+ * `includeAudio=0` — matching entries are not written to db/media.
+ * Note: `.webm` is included per the audio spec (webm voice notes from the
+ * composer recorder); the parser types webm as video, so a webm *video*
+ * would also be skipped when audio is excluded (rare in real exports).
+ */
+const AUDIO_EXT = new Set([
+  'mp3',
+  'm4a',
+  'ogg',
+  'oga',
+  'opus',
+  'wav',
+  'aac',
+  'flac',
+  'amr',
+  '3ga',
+  'webm',
+])
+
+export function isAudioName(name: string): boolean {
+  const ext = (name.split('.').pop() ?? '').toLowerCase()
+  return AUDIO_EXT.has(ext)
+}
+
 /** Poster thumbnails are stored next to the video as `<file>.poster.jpg`. */
 export function posterPathFor(storedName: string): string {
   return `${storedName}.poster.jpg`

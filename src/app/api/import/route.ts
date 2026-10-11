@@ -8,6 +8,7 @@ import {
   removeChatMedia,
   generateVideoPoster,
   isVideoName,
+  isAudioName,
 } from '@/lib/media-store'
 
 export const runtime = 'nodejs'
@@ -46,6 +47,10 @@ export async function POST(req: NextRequest) {
     }
 
     const name = file.name
+    // "Include audio files" option (ImportPanel switch / includeAudio=0 form
+    // field): when off, voice-note files are NOT saved to db/media — the
+    // audio messages are still created so the transcript stays complete.
+    const includeAudio = form.get('includeAudio') !== '0'
     const buf = Buffer.from(await file.arrayBuffer())
     const isZip = /\.zip$/i.test(name)
     const isTxt = /\.txt$/i.test(name)
@@ -111,10 +116,12 @@ export async function POST(req: NextRequest) {
         (f) => f.name !== txtName && !/\.txt$/i.test(f.name)
       )
       for (const f of mediaCandidates.slice(0, MAX_MEDIA_FILES)) {
+        const base = f.name.split('/').pop() ?? f.name
+        // Skip voice notes entirely when audio is excluded
+        if (!includeAudio && isAudioName(base)) continue
         try {
           const data = await f.entry.async('nodebuffer')
           if (!data || data.length === 0 || data.length > MAX_ENTRY_BYTES) continue
-          const base = f.name.split('/').pop() ?? f.name
           const stored = await saveMediaFile(chat.id, base, data)
           mediaMap.set(base.toLowerCase(), stored)
           mediaFileCount++
@@ -130,7 +137,18 @@ export async function POST(req: NextRequest) {
       const chatId = await persistParsedChat({
         title,
         sourceFile: name,
-        parsed,
+        // Audio-excluded imports blank the media reference of skipped files
+        // (mediaPath/mediaName end up null) but keep every message row.
+        parsed: includeAudio
+          ? parsed
+          : {
+              ...parsed,
+              messages: parsed.messages.map((m) =>
+                m.mediaName && isAudioName(m.mediaName)
+                  ? { ...m, mediaName: null }
+                  : m
+              ),
+            },
         mediaMap,
         chatId: chat.id,
       })

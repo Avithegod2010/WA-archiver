@@ -100,11 +100,15 @@ async function serializeCreated(message: { id: string }) {
 
 /**
  * POST /api/chats/:id/messages
- * - JSON   { type: 'text' | 'poll', body, pollOptions?, sender?, replyToId?, forwardedFrom? }
+ * - JSON   { type: 'text' | 'poll' | 'location' | 'contact', body, pollOptions?,
+ *            sender?, replyToId?, forwardedFrom? }
  * - multipart (file, caption?, replyToId?, forwardedFrom?)           → uploads media
  * JSON sender is trimmed/≤80 chars and defaults to "You" (used for simulated
  * persona replies). replyToId must reference a message of the same chat —
  * invalid ids are ignored, not rejected. forwardedFrom is trimmed/≤120 chars.
+ * For type 'location' the body is a JSON string {label ≤120, lat?/lng? numeric
+ * (-90..90 / -180..180), url? ≤500}; for 'contact' it is {name 1..80,
+ * phone 1..32}. Both store the raw JSON string as body (≤1000 chars).
  */
 export async function POST(
   req: NextRequest,
@@ -171,9 +175,77 @@ export async function POST(
       return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 })
     }
 
-    const type = payload.type === 'poll' ? 'poll' : 'text'
+    const rawType = typeof payload.type === 'string' ? payload.type : ''
+    const type: 'text' | 'poll' | 'location' | 'contact' =
+      rawType === 'poll' || rawType === 'location' || rawType === 'contact'
+        ? rawType
+        : 'text'
     const body = typeof payload.body === 'string' ? payload.body.trim() : ''
-    if (!body) {
+
+    // Location & contact cards carry a JSON string in `body`; validate its
+    // shape here and store it verbatim (≤1000 chars) for the bubble renderers.
+    if (type === 'location' || type === 'contact') {
+      const invalid = (error: string) =>
+        NextResponse.json({ error }, { status: 400 })
+      if (!body || body.length > 1000) {
+        return invalid(
+          type === 'location'
+            ? 'Invalid location payload'
+            : 'Invalid contact payload'
+        )
+      }
+      let parsed: unknown
+      try {
+        parsed = JSON.parse(body)
+      } catch {
+        parsed = null
+      }
+      if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+        return invalid(
+          type === 'location'
+            ? 'Invalid location payload'
+            : 'Invalid contact payload'
+        )
+      }
+      const rec = parsed as Record<string, unknown>
+      if (type === 'location') {
+        const label = typeof rec.label === 'string' ? rec.label.trim() : ''
+        if (!label || label.length > 120) {
+          return invalid('A location needs a label (max 120 chars)')
+        }
+        const coordOk = (v: unknown, min: number, max: number): boolean => {
+          if (v === undefined || v === null || v === '') return true
+          const n =
+            typeof v === 'number'
+              ? v
+              : typeof v === 'string' && v.trim() !== ''
+                ? Number(v)
+                : NaN
+          return Number.isFinite(n) && n >= min && n <= max
+        }
+        if (!coordOk(rec.lat, -90, 90) || !coordOk(rec.lng, -180, 180)) {
+          return invalid('Latitude must be -90..90 and longitude -180..180')
+        }
+        if (
+          rec.url !== undefined &&
+          rec.url !== null &&
+          typeof rec.url !== 'string'
+        ) {
+          return invalid('Invalid location payload')
+        }
+        if (typeof rec.url === 'string' && rec.url.length > 500) {
+          return invalid('Location URL too long (max 500 chars)')
+        }
+      } else {
+        const name = typeof rec.name === 'string' ? rec.name.trim() : ''
+        const phone = typeof rec.phone === 'string' ? rec.phone.trim() : ''
+        if (!name || name.length > 80 || !phone || phone.length > 32) {
+          return invalid(
+            'A contact needs a name (max 80 chars) and phone (max 32 chars)'
+          )
+        }
+      }
+    } else if (!body) {
       return NextResponse.json({ error: 'Message text is empty' }, { status: 400 })
     }
 

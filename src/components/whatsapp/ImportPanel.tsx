@@ -20,6 +20,7 @@ import {
 } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
 import { Progress } from '@/components/ui/progress'
+import { Switch } from '@/components/ui/switch'
 import { colorForName, initialsForName } from './types'
 
 export interface ImportPanelProps {
@@ -163,6 +164,10 @@ export function ImportPanel({
   const [importedCount, setImportedCount] = useState(0)
   const [errorMsg, setErrorMsg] = useState('')
   const [dragOver, setDragOver] = useState(false)
+  // "Include audio files" — sent as the `includeAudio` form field ('0' skips
+  // voice-note files on the server; '1'/absent keeps the default behavior).
+  // Deliberately NOT reset between imports so a retry keeps the choice.
+  const [includeAudio, setIncludeAudio] = useState(true)
 
   const abortRef = useRef<AbortController | null>(null)
   const inputRef = useRef<HTMLInputElement>(null)
@@ -219,6 +224,7 @@ export function ImportPanel({
       abortRef.current = controller
       const fd = new FormData()
       fd.append('file', file)
+      fd.append('includeAudio', includeAudio ? '1' : '0')
 
       void (async () => {
         try {
@@ -272,7 +278,7 @@ export function ImportPanel({
         }
       })()
     },
-    [reset]
+    [reset, includeAudio]
   )
 
   const onPickFile = () => {
@@ -400,6 +406,30 @@ export function ImportPanel({
               <FileArchive className="h-3.5 w-3.5" aria-hidden />
               .zip or .txt · up to 400 MB
             </span>
+          </div>
+        )}
+
+        {phase === 'idle' && (
+          <div className="flex items-center justify-between gap-3 rounded-xl border border-(--wa-line) bg-(--wa-panel-2) px-3 py-2.5">
+            <label
+              htmlFor="import-include-audio"
+              className="min-w-0 cursor-pointer select-none"
+            >
+              <span className="block text-[12.5px] font-medium text-(--wa-text)">
+                Include audio files
+              </span>
+              <span className="mt-0.5 block text-[11.5px] leading-snug text-(--wa-text-2)">
+                {includeAudio
+                  ? 'Voice notes (.mp3, .m4a, .ogg…) are saved with the chat.'
+                  : 'Voice notes are skipped — the transcript stays complete.'}
+              </span>
+            </label>
+            <Switch
+              id="import-include-audio"
+              checked={includeAudio}
+              onCheckedChange={setIncludeAudio}
+              aria-label="Include audio files"
+            />
           </div>
         )}
 

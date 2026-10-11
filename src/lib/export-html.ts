@@ -3,9 +3,20 @@
  * a WhatsApp transcript: bubbles, day dividers, system lines, reactions,
  * polls, and media embedded as base64 data URIs (within size caps). No
  * JavaScript, opens offline in any browser.
+ *
+ * Audio (voice notes) is opt-in via `options.embedAudio`: audio messages get
+ * a dedicated budget (8 MB per file / 40 MB total) and render as
+ * `<audio controls preload="none">` with a base64 data URI; when disabled or
+ * past the budget they fall back to the "audio not included" chip. The first
+ * time the total budget runs out an HTML comment notes the cap.
  */
 import { promises as fsp } from 'fs'
-import { resolveMediaPath } from '@/lib/media-store'
+import { mimeFromName, resolveMediaPath } from '@/lib/media-store'
+
+export interface ChatHtmlOptions {
+  /** Embed voice notes as data URIs (opt-in: ?audio=1 / wa_export_audio=1). */
+  embedAudio?: boolean
+}
 
 export interface HtmlExportMessage {
   ts: Date
@@ -114,6 +125,20 @@ function dayLabel(d: Date): string {
 
 const PER_FILE_CAP = 2.5 * 1024 * 1024
 const TOTAL_CAP = 24 * 1024 * 1024
+// Voice notes get their own (larger) budget so a chat full of audio still
+// exports playable audio without starving the image/video budget.
+const AUDIO_PER_FILE_CAP = 8 * 1024 * 1024
+const AUDIO_TOTAL_CAP = 40 * 1024 * 1024
+
+/** Audio mime for a media filename — mimeFromName plus audio-only gaps. */
+function audioMimeFromName(name: string): string {
+  const ext = (name.split('.').pop() ?? '').toLowerCase()
+  if (ext === 'oga') return 'audio/ogg'
+  if (ext === '3ga') return 'audio/3gpp'
+  if (ext === 'webm') return 'audio/webm' // audio message — not video/webm
+  const mime = mimeFromName(name)
+  return mime === 'application/octet-stream' ? 'audio/ogg' : mime
+}
 
 /** Read a media file and return a data URI, respecting the size budgets. */
 async function embedMedia(
@@ -128,6 +153,30 @@ async function embedMedia(
     const ext = (mediaPath.split('.').pop() ?? '').toLowerCase()
     const mime = MIME_BY_EXT[ext] ?? 'application/octet-stream'
     return `data:${mime};base64,${buf.toString('base64')}`
+  } catch {
+    return null
+  }
+}
+
+/**
+ * Read an audio file for embedding. Returns null when the file is missing
+ * or over the per-file cap (8 MB) — the caller falls back to the placeholder.
+ */
+async function embedAudioMedia(
+  chatId: string,
+  mediaPath: string
+): Promise<{ uri: string; bytes: number } | null> {
+  try {
+    const abs = await resolveMediaPath(chatId, mediaPath)
+    if (!abs) return null
+    const stat = await fsp.stat(abs)
+    if (stat.size > AUDIO_PER_FILE_CAP) return null
+    const buf = await fsp.readFile(abs)
+    const mime = audioMimeFromName(mediaPath)
+    return {
+      uri: `data:${mime};base64,${buf.toString('base64')}`,
+      bytes: buf.length,
+    }
   } catch {
     return null
   }
@@ -189,7 +238,7 @@ function contentHtml(msg: HtmlExportMessage, uri: string | null): string {
         : chipHtml('🎬', name, 'video not included')
     case 'audio':
       return uri
-        ? `<div class="voice">🎙️ <b>${name === 'Media' ? 'Voice note' : name}</b></div><audio controls preload="metadata" src="${uri}"></audio>`
+        ? `<div class="voice">🎙️ <b>${name === 'Media' ? 'Voice note' : name}</b></div><audio controls preload="none" src="${uri}"></audio>`
         : chipHtml('🎙️', name || 'Voice note', 'audio not included')
     case 'document':
       return uri
@@ -254,9 +303,13 @@ export async function buildChatHtml(
   chatId: string,
   title: string,
   isGroup: boolean,
-  messages: HtmlExportMessage[]
+  messages: HtmlExportMessage[],
+  options: ChatHtmlOptions = {}
 ): Promise<string> {
   let budget = TOTAL_CAP
+  const embedAudio = options.embedAudio === true
+  let audioBudget = embedAudio ? AUDIO_TOTAL_CAP : 0
+  let audioCapNoted = false
   const rows: string[] = []
   let prev: Date | null = null
 
@@ -284,7 +337,23 @@ export async function buildChatHtml(
     const side = outgoing ? 'out' : 'in'
     let uri: string | null = null
     if (msg.mediaPath && !msg.mediaPath.endsWith('.poster.jpg')) {
-      if (budget > 0) {
+      if (msg.type === 'audio') {
+        // Voice notes are opt-in and use the dedicated audio budget.
+        if (embedAudio && audioBudget > 0) {
+          const embedded = await embedAudioMedia(chatId, msg.mediaPath)
+          if (embedded) {
+            if (embedded.bytes <= audioBudget) {
+              uri = embedded.uri
+              audioBudget -= embedded.bytes
+            } else if (!audioCapNoted) {
+              audioCapNoted = true
+              rows.push(
+                `<!-- wa-audio-cap: the ${Math.round(AUDIO_TOTAL_CAP / (1024 * 1024))} MB audio embedding budget was reached — remaining voice notes are listed as placeholders -->`
+              )
+            }
+          }
+        }
+      } else if (budget > 0) {
         uri = await embedMedia(chatId, msg.mediaPath)
         if (uri) budget -= Math.round(uri.length * 0.75)
       }

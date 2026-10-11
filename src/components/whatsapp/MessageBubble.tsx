@@ -55,7 +55,7 @@ import {
   MessageActionSheet,
   QUICK_REACTIONS,
 } from './MessageActionSheet'
-import { colorForName, type ChatMessage } from './types'
+import { colorForName, initialsForName, type ChatMessage } from './types'
 import { cn } from '@/lib/utils'
 
 function formatTime(iso: string): string {
@@ -1332,6 +1332,7 @@ function SelectCircle({ selected }: { selected: boolean }) {
 export function MessageBubble({
   msg,
   chatId,
+  chatTitle,
   isGroup,
   showTail,
   showAvatar,
@@ -1354,6 +1355,8 @@ export function MessageBubble({
 }: {
   msg: ChatMessage
   chatId: string
+  /** Chat display name — feeds the floating audio dock metadata. */
+  chatTitle?: string
   isGroup: boolean
   showTail: boolean
   showAvatar: boolean
@@ -1442,6 +1445,7 @@ export function MessageBubble({
       <OutgoingBubble
         msg={msg}
         chatId={chatId}
+        chatTitle={chatTitle}
         showTail={showTail}
         src={src}
         onToggleStar={onToggleStar}
@@ -1524,6 +1528,7 @@ export function MessageBubble({
             <Content
               msg={msg}
               chatId={chatId}
+              chatTitle={chatTitle}
               src={src}
               outgoing={false}
               highlight={highlight}
@@ -1620,6 +1625,7 @@ export function MessageBubble({
             <Content
               msg={msg}
               chatId={chatId}
+              chatTitle={chatTitle}
               src={src}
               outgoing={false}
               highlight={highlight}
@@ -1703,6 +1709,7 @@ export function MessageBubble({
 function OutgoingBubble({
   msg,
   chatId,
+  chatTitle,
   showTail,
   src,
   onToggleStar,
@@ -1723,6 +1730,7 @@ function OutgoingBubble({
 }: {
   msg: ChatMessage
   chatId: string
+  chatTitle?: string
   showTail: boolean
   src: string | null
   onToggleStar?: (id: string, starred: boolean) => void
@@ -1871,6 +1879,7 @@ function OutgoingBubble({
             <Content
               msg={msg}
               chatId={chatId}
+              chatTitle={chatTitle}
               src={src}
               outgoing
               highlight={highlight}
@@ -1975,9 +1984,204 @@ function OutgoingBubble({
   )
 }
 
+/* ------------------------------------------------------------------ */
+/* Location & contact cards (Task 12-d)                                */
+/* ------------------------------------------------------------------ */
+
+interface ParsedLocation {
+  lat: number | null
+  lng: number | null
+  label: string | null
+  url: string | null
+  /** Raw body — used by the link-less legacy placeholder. */
+  text: string
+  /** Body was a JSON payload — always render the card for these. */
+  json: boolean
+}
+
+/** Trim a coordinate to a compact display form (5 decimals, no zeros). */
+function formatCoord(n: number): string {
+  return String(Number(n.toFixed(5)))
+}
+
+/**
+ * Defensively parse a location message body. New sends store
+ * `{"lat":..,"lng":..,"label":"..","url":".."}` (JSON string); legacy
+ * imports carry plain text like `location: <maps url>` or a bare maps
+ * link, or link-less notes such as "Live location" (see parser).
+ */
+function parseLocationMessage(body: string): ParsedLocation {
+  const text = (body ?? '').trim()
+  if (text.startsWith('{')) {
+    try {
+      const o: unknown = JSON.parse(text)
+      if (o && typeof o === 'object' && !Array.isArray(o)) {
+        const rec = o as Record<string, unknown>
+        const num = (v: unknown): number | null => {
+          if (typeof v === 'number' && Number.isFinite(v)) return v
+          if (
+            typeof v === 'string' &&
+            v.trim() !== '' &&
+            Number.isFinite(Number(v))
+          ) {
+            return Number(v)
+          }
+          return null
+        }
+        return {
+          lat: num(rec.lat),
+          lng: num(rec.lng),
+          label:
+            typeof rec.label === 'string' && rec.label.trim()
+              ? rec.label.trim().slice(0, 120)
+              : null,
+          url:
+            typeof rec.url === 'string' && rec.url.trim()
+              ? rec.url.trim().slice(0, 500)
+              : null,
+          text,
+          json: true,
+        }
+      }
+    } catch {
+      /* fall through to legacy parsing */
+    }
+  }
+  const url = extractUrl(text)
+  let label: string | null = null
+  if (url) {
+    // Legacy: strip a leading `location:` marker and the URL itself.
+    const stripped = text
+      .replace(/^location:\s*/i, '')
+      .replace(url, '')
+      .replace(/[\s·|,–—-]+$/g, '')
+      .trim()
+    label = stripped ? stripped.slice(0, 120) : null
+  }
+  return { lat: null, lng: null, label, url, text, json: false }
+}
+
+/** Decorative map-ish media area (CSS grid pattern + centered pin). */
+function LocationMapArea() {
+  return (
+    <div
+      aria-hidden
+      className="relative h-[140px] w-full"
+      style={{
+        backgroundImage: [
+          'repeating-linear-gradient(0deg, rgba(11,20,26,0.05) 0, rgba(11,20,26,0.05) 1px, transparent 1px, transparent 20px)',
+          'repeating-linear-gradient(90deg, rgba(11,20,26,0.05) 0, rgba(11,20,26,0.05) 1px, transparent 1px, transparent 20px)',
+          'linear-gradient(150deg, #e9f0e6, #dbe8dc 55%, #cfe2d4)',
+        ].join(','),
+      }}
+    >
+      {/* decorative roads + park blobs */}
+      <span className="absolute top-[52px] -left-6 h-[7px] w-[130%] -rotate-6 rounded-full bg-white/80" />
+      <span className="absolute -top-4 left-10 h-[5px] w-[140%] rotate-[24deg] rounded-full bg-white/60" />
+      <span className="absolute right-4 bottom-2 h-9 w-14 rounded-[40%] bg-[#b8d6aa]/45" />
+      <span className="absolute top-2 left-3 h-6 w-9 rounded-[40%] bg-[#b8d6aa]/35" />
+      <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2">
+        <span className="relative flex h-9 w-9 items-center justify-center rounded-full bg-white shadow-md ring-2 ring-(--wa-accent)">
+          <MapPin className="h-[18px] w-[18px] text-(--wa-accent)" />
+        </span>
+      </div>
+    </div>
+  )
+}
+
+/** WhatsApp-style location card: map area + white label strip. */
+function LocationCard({ loc }: { loc: ParsedLocation }) {
+  const hasCoords = loc.lat !== null && loc.lng !== null
+  const label = loc.label ?? 'Location'
+  const coordsLine = hasCoords
+    ? `${formatCoord(loc.lat as number)}, ${formatCoord(loc.lng as number)}`
+    : null
+  const mapArea = <LocationMapArea />
+  return (
+    <div className="w-[260px] max-w-full overflow-hidden rounded-lg border border-black/10 dark:border-white/10">
+      {loc.url ? (
+        <a
+          href={loc.url}
+          target="_blank"
+          rel="noreferrer"
+          title="Open in Maps"
+          className="block"
+        >
+          {mapArea}
+        </a>
+      ) : (
+        mapArea
+      )}
+      <div className="bg-white px-2.5 py-2 dark:bg-black/30">
+        <p className="truncate text-[13.5px] font-semibold text-(--wa-text)">
+          {label}
+        </p>
+        {coordsLine && (
+          <p className="mt-0.5 text-[11.5px] tabular-nums text-(--wa-text-2)">
+            {coordsLine}
+          </p>
+        )}
+        {loc.url && (
+          <a
+            href={loc.url}
+            target="_blank"
+            rel="noreferrer"
+            className="mt-1 inline-flex items-center gap-0.5 text-[12.5px] font-medium text-(--wa-accent-strong) hover:underline dark:text-(--wa-accent)"
+          >
+            Open in Maps ↗
+          </a>
+        )}
+      </div>
+      <span className="sr-only">
+        Shared location: {label}
+        {coordsLine ? `, coordinates ${coordsLine}` : ''}
+        {loc.url ? ', opens in Maps in a new tab' : ''}
+      </span>
+    </div>
+  )
+}
+
+/**
+ * Defensively parse a contact message body. New sends store
+ * `{"name":"..","phone":".."}` (JSON string); legacy imports carry
+ * "<name>.vcf" in mediaName with an optional caption in body (see parser).
+ */
+function parseContactMessage(
+  body: string,
+  mediaName: string | null
+): { name: string; phone: string | null } {
+  const text = (body ?? '').trim()
+  if (text.startsWith('{')) {
+    try {
+      const o: unknown = JSON.parse(text)
+      if (o && typeof o === 'object' && !Array.isArray(o)) {
+        const rec = o as Record<string, unknown>
+        const name =
+          typeof rec.name === 'string' && rec.name.trim()
+            ? rec.name.trim().slice(0, 80)
+            : ''
+        const phone =
+          typeof rec.phone === 'string' && rec.phone.trim()
+            ? rec.phone.trim().slice(0, 32)
+            : null
+        if (name) return { name, phone }
+      }
+    } catch {
+      /* fall through to legacy parsing */
+    }
+  }
+  const legacyName = (mediaName ?? '').replace(/\.vcf$/i, '').trim()
+  const phoneLike = /^[0-9()+\-\s]{4,32}$/.test(text) ? text : null
+  return {
+    name: (legacyName || text || 'Contact card').slice(0, 80),
+    phone: phoneLike,
+  }
+}
+
 function Content({
   msg,
   chatId,
+  chatTitle,
   src,
   outgoing,
   highlight,
@@ -1986,6 +2190,7 @@ function Content({
 }: {
   msg: ChatMessage
   chatId: string
+  chatTitle?: string
   src: string | null
   outgoing: boolean
   highlight?: string
@@ -2010,42 +2215,57 @@ function Content({
     case 'poll':
       return <PollBubble msg={msg} outgoing={outgoing} />
     case 'location': {
-      const url = extractUrl(msg.body)
+      const loc = parseLocationMessage(msg.body)
+      const hasCoords = loc.lat !== null && loc.lng !== null
+      if (hasCoords || loc.url || loc.json) {
+        return <LocationCard loc={loc} />
+      }
+      // Graceful placeholder for link-less legacy notes ("Live location…").
+      const note = /^(live\s+)?location[:\s]/i.test(loc.text) ? '' : loc.text
       return (
         <div className="min-w-[180px]">
           <p className="flex items-center gap-1.5 font-medium">
             <MapPin className="h-4 w-4 shrink-0 text-(--wa-accent)" />
             Location
           </p>
-          {url && (
-            <a
-              href={url}
-              target="_blank"
-              rel="noreferrer"
-              className="mt-0.5 block truncate text-[13px] text-(--wa-link) hover:underline"
-            >
-              {url}
-            </a>
+          {note && (
+            <p className="mt-0.5 line-clamp-2 text-[13px] text-(--wa-text-2)">
+              {note}
+            </p>
           )}
         </div>
       )
     }
-    case 'contact':
+    case 'contact': {
+      const c = parseContactMessage(msg.body, msg.mediaName)
       return (
-        <div className="flex items-center gap-2.5 rounded-md bg-black/5 px-3 py-2.5 dark:bg-white/5">
-          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-(--wa-accent)/10 text-(--wa-accent)">
-            <UserRound className="h-5 w-5" />
+        <div className="flex min-w-[210px] items-center gap-2.5 rounded-md bg-black/5 px-3 py-2.5 dark:bg-white/5">
+          <div className="relative shrink-0">
+            <div className="flex h-12 w-12 items-center justify-center rounded-full bg-[linear-gradient(135deg,var(--wa-accent),var(--wa-accent-strong))] text-[15px] font-semibold text-white shadow-sm">
+              {initialsForName(c.name)}
+            </div>
+            <span className="absolute -right-0.5 -bottom-0.5 flex h-4 w-4 items-center justify-center rounded-full bg-white text-(--wa-accent) ring-1 ring-black/10 dark:bg-(--wa-panel) dark:ring-white/20">
+              <UserRound className="h-2.5 w-2.5" aria-hidden />
+            </span>
           </div>
           <div className="min-w-0">
-            <p className="truncate text-[13.5px] font-medium">
-              {msg.mediaName ?? 'Contact card'}
+            <p className="truncate text-[13.5px] font-semibold text-(--wa-text)">
+              {c.name}
             </p>
-            <p className="text-[11px] text-(--wa-text-2)">
-              Contact card (vCard)
-            </p>
+            {c.phone && (
+              <p className="truncate text-[12.5px] text-(--wa-text-2)">
+                {c.phone}
+              </p>
+            )}
+            <p className="mt-0.5 text-[11px] text-(--wa-text-2)">Contact card</p>
           </div>
+          <span className="sr-only">
+            Contact card: {c.name}
+            {c.phone ? `, phone ${c.phone}` : ''}
+          </span>
         </div>
       )
+    }
     case 'image':
       return (
         <ImageContent
@@ -2092,7 +2312,13 @@ function Content({
       return (
         <div className="min-w-0">
           {src ? (
-            <VoicePlayer src={src} seed={msg.id} />
+            <VoicePlayer
+              src={src}
+              seed={msg.id}
+              chatId={chatId}
+              chatTitle={chatTitle ?? ''}
+              sender={msg.sender ?? ''}
+            />
           ) : (
             <div className="min-w-[230px]">
               <div className="flex items-center gap-2">

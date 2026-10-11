@@ -3,9 +3,11 @@
 import { useEffect, useRef, useState } from 'react'
 import { toast } from 'sonner'
 import {
+  CalendarClock,
   FileText,
   ImageIcon,
   Loader2,
+  MapPin,
   Mic,
   Music,
   Plus,
@@ -13,6 +15,7 @@ import {
   SendHorizontal,
   Smile,
   Trash2,
+  UserRound,
   X,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
@@ -26,8 +29,12 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
+import { LocationDialog } from './LocationDialog'
+import { ContactDialog } from './ContactDialog'
+import { ScheduleDialog } from './ScheduleDialog'
 import type { ChatMessage } from './types'
 import { cn } from '@/lib/utils'
 import './composer-extras.css'
@@ -100,6 +107,9 @@ export function Composer({
   const [text, setText] = useState('')
   const [busy, setBusy] = useState(false)
   const [emojiOpen, setEmojiOpen] = useState(false)
+  const [locOpen, setLocOpen] = useState(false)
+  const [contactOpen, setContactOpen] = useState(false)
+  const [schedOpen, setSchedOpen] = useState(false)
   const mediaInputRef = useRef<HTMLInputElement>(null)
   const docInputRef = useRef<HTMLInputElement>(null)
   const audioInputRef = useRef<HTMLInputElement>(null)
@@ -517,7 +527,7 @@ export function Composer({
               disabled={busy}
               className="wa-iconbtn group/plus h-10 w-10 shrink-0 rounded-full text-(--wa-text-2) hover:bg-black/5 dark:text-(--wa-text-2) dark:hover:bg-white/10"
               aria-label="Attach"
-              title="Attach photo, video, audio, document or poll"
+              title="Attach photo, video, audio, document, location, contact or poll"
             >
               <Plus
                 className={cn(
@@ -555,6 +565,24 @@ export function Composer({
               </span>
               Audio
             </DropdownMenuItem>
+            <DropdownMenuItem
+              className="gap-2.5"
+              onClick={() => setLocOpen(true)}
+            >
+              <span className="flex h-7 w-7 items-center justify-center rounded-full bg-teal-500/15 text-teal-600 dark:text-teal-300">
+                <MapPin className="h-4 w-4" />
+              </span>
+              Location
+            </DropdownMenuItem>
+            <DropdownMenuItem
+              className="gap-2.5"
+              onClick={() => setContactOpen(true)}
+            >
+              <span className="flex h-7 w-7 items-center justify-center rounded-full bg-rose-500/15 text-rose-600 dark:text-rose-300">
+                <UserRound className="h-4 w-4" />
+              </span>
+              Contact
+            </DropdownMenuItem>
             <DropdownMenuItem className="gap-2.5" onClick={onOpenPoll}>
               <span className="flex h-7 w-7 items-center justify-center rounded-full bg-amber-500/15 text-amber-600 dark:text-amber-300">
                 <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2">
@@ -562,6 +590,16 @@ export function Composer({
                 </svg>
               </span>
               Poll
+            </DropdownMenuItem>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem
+              className="gap-2.5"
+              onClick={() => setSchedOpen(true)}
+            >
+              <span className="flex h-7 w-7 items-center justify-center rounded-full bg-slate-500/15 text-slate-600 dark:text-slate-300">
+                <CalendarClock className="h-4 w-4" />
+              </span>
+              Schedule message
             </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
@@ -648,6 +686,26 @@ export function Composer({
         )}
       </div>
       )}
+
+      {/* Location / Contact cards + Scheduled messages (Tasks 12-c, 12-d) */}
+      <LocationDialog
+        chatId={chatId}
+        open={locOpen}
+        onOpenChange={setLocOpen}
+        onSent={onSent}
+      />
+      <ContactDialog
+        chatId={chatId}
+        open={contactOpen}
+        onOpenChange={setContactOpen}
+        onSent={onSent}
+      />
+      <ScheduleDialog
+        chatId={chatId}
+        open={schedOpen}
+        onOpenChange={setSchedOpen}
+        initialText={text}
+      />
     </div>
   )
 }

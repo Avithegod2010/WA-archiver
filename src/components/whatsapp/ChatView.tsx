@@ -16,6 +16,7 @@ import {
   ArrowLeft,
   ArrowUpToLine,
   Braces,
+  CalendarClock,
   CalendarDays,
   ChevronDown,
   ChevronUp,
@@ -42,6 +43,7 @@ import {
   Search,
   Sheet,
   SlidersHorizontal,
+  Sparkles,
   Star,
   Trash2,
   TriangleAlert,
@@ -62,6 +64,7 @@ import { AIToolsDialog } from './AIToolsDialog'
 import { MovieMode } from './MovieMode'
 import { TimelineScrubber, type ScrubMonth } from './TimelineScrubber'
 import { WordCloudDialog } from './WordCloudDialog'
+import { TldrDialog } from './TldrDialog'
 import { CHAT_THEME_EVENT, readChatAccent } from './chat-theme'
 import { DoodleBackground } from './icons'
 import {
@@ -72,6 +75,13 @@ import {
   type WallpaperConfig,
 } from './wallpaper'
 import { SAVED_CHAT_ID, type ChatDetail, type ChatMessage } from './types'
+
+type SchedItem = {
+  id: string
+  body: string
+  sender: string
+  deliverAt: string
+}
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -439,6 +449,128 @@ export function ChatView({
   )
 
   const chatId = detail?.chat.id ?? ''
+  const [tldrOpen, setTldrOpen] = useState(false)
+  const [schedItems, setSchedItems] = useState<SchedItem[]>([])
+  const [schedExpanded, setSchedExpanded] = useState(false)
+
+  // --- Scheduled messages (Task 12-c): pending chip + refresh on delivery ---
+  const loadSched = useCallback(async () => {
+    if (!chatId) return
+    try {
+      const res = await fetch(`/api/scheduled?chatId=${chatId}`, {
+        cache: 'no-store',
+      })
+      if (!res.ok) return
+      const data = await res.json()
+      setSchedItems(Array.isArray(data?.items) ? data.items : [])
+    } catch {
+      /* offline — keep the last known list */
+    }
+  }, [chatId])
+  useEffect(() => {
+    loadSched()
+  }, [loadSched])
+  useEffect(() => {
+    const onChange = () => loadSched()
+    window.addEventListener('wa-scheduled-check', onChange)
+    window.addEventListener('wa-scheduled-delivered', onChange)
+    return () => {
+      window.removeEventListener('wa-scheduled-check', onChange)
+      window.removeEventListener('wa-scheduled-delivered', onChange)
+    }
+  }, [loadSched])
+  // A delivery touched this chat → pull the fresh transcript from the server.
+  useEffect(() => {
+    const onDelivered = (e: Event) => {
+      const ids = (e as CustomEvent<{ chatIds?: string[] }>).detail?.chatIds
+      if (!Array.isArray(ids) || !ids.includes(chatId)) return
+      fetch(`/api/chats/${chatId}/messages`, { cache: 'no-store' })
+        .then((r) => (r.ok ? r.json() : null))
+        .then((data) => {
+          if (!data?.messages) return
+          setDetail((d) =>
+            d && d.chat.id === chatId ? { ...d, messages: data.messages } : d
+          )
+        })
+        .catch(() => {
+          /* offline — the poller fires again later */
+        })
+    }
+    window.addEventListener('wa-scheduled-delivered', onDelivered)
+    return () => window.removeEventListener('wa-scheduled-delivered', onDelivered)
+  }, [chatId, setDetail])
+  async function cancelScheduled(id: string) {
+    setSchedItems((s) => s.filter((x) => x.id !== id))
+    try {
+      const res = await fetch(`/api/scheduled/${id}`, { method: 'DELETE' })
+      if (!res.ok) throw new Error('failed')
+    } catch {
+      toast.error('Could not cancel the scheduled message')
+      loadSched()
+    }
+  }
+  function schedTime(iso: string): string {
+    const d = new Date(iso)
+    if (isNaN(d.getTime())) return ''
+    return d.toLocaleString([], {
+      weekday: 'short',
+      hour: '2-digit',
+      minute: '2-digit',
+    })
+  }
+  const schedBar =
+    schedItems.length > 0 ? (
+      <div className="relative z-10 mx-2 mb-1.5 rounded-lg border border-black/5 bg-(--wa-panel-2) px-3 py-2 text-[13px] shadow-sm dark:border-white/10 dark:bg-(--wa-panel-2)">
+        <button
+          type="button"
+          className="flex w-full items-center gap-2 text-left"
+          onClick={() => setSchedExpanded((v) => !v)}
+          aria-expanded={schedExpanded}
+        >
+          <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-(--wa-accent)/15 text-(--wa-accent)">
+            <CalendarClock className="h-4 w-4" />
+          </span>
+          <span className="min-w-0 flex-1 truncate text-(--wa-text)">
+            {schedItems.length} scheduled message
+            {schedItems.length > 1 ? 's' : ''}
+            {schedItems[0]?.deliverAt &&
+              ` · next ${schedTime(schedItems[0].deliverAt)}`}
+          </span>
+          <ChevronDown
+            className={cn(
+              'h-4 w-4 shrink-0 text-(--wa-text-2) transition-transform',
+              schedExpanded && 'rotate-180'
+            )}
+          />
+        </button>
+        {schedExpanded && (
+          <ul className="mt-2 space-y-1" aria-label="Scheduled messages">
+            {schedItems.map((s) => (
+              <li
+                key={s.id}
+                className="flex items-center gap-2 rounded-md bg-black/[0.03] px-2 py-1.5 dark:bg-white/[0.05]"
+              >
+                <span className="min-w-0 flex-1 truncate text-(--wa-text)">
+                  {s.body}
+                </span>
+                <span className="shrink-0 text-[11px] tabular-nums text-(--wa-text-2)">
+                  {schedTime(s.deliverAt)}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => cancelScheduled(s.id)}
+                  className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-(--wa-text-2) transition-colors hover:bg-black/10 hover:text-rose-600 dark:hover:bg-white/10"
+                  aria-label="Cancel scheduled message"
+                  title="Cancel"
+                >
+                  <X className="h-3.5 w-3.5" />
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+    ) : null
   const wallpaperCfg = useWallpaperConfig(chatId)
   const wpIsPreset = wallpaperCfg.k === 'preset'
   const wallpaperPreset = presetByKey(wpIsPreset ? wallpaperCfg.preset : 'doodle')
@@ -1949,8 +2081,25 @@ export function ChatView({
                 <Hash className="h-4 w-4 text-(--wa-text-2)" />
                 Word cloud
               </DropdownMenuItem>
+              <DropdownMenuItem
+                onClick={() => setTldrOpen(true)}
+                className="gap-2"
+              >
+                <Sparkles className="h-4 w-4 text-(--wa-text-2)" />
+                Summarize with AI
+              </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
+          <Button
+            variant="ghost"
+            size="icon"
+            className="wa-iconbtn hidden h-9 w-9 sm:inline-flex"
+            onClick={() => setTldrOpen(true)}
+            aria-label="Summarize this chat with AI"
+            title="Summarize with AI (TL;DR)"
+          >
+            <Sparkles className="h-5 w-5 text-(--wa-text-2)" />
+          </Button>
           <Button
             variant="ghost"
             size="icon"
@@ -2319,6 +2468,7 @@ export function ChatView({
             <div
               key={item.key}
               data-mid={item.msg.id}
+              data-msg-id={item.msg.id}
               className={cn(
                 'animate-in fade-in slide-in-from-bottom-1 mt-0.5 rounded-lg duration-300 transition-colors',
                 item.showTail && 'mt-2.5',
@@ -2332,6 +2482,7 @@ export function ChatView({
               <MessageBubble
                 msg={item.msg}
                 chatId={chatId}
+                chatTitle={chat.title}
                 isGroup={chat.isGroup}
                 showTail={item.showTail}
                 showAvatar={item.showAvatar}
@@ -2487,24 +2638,30 @@ export function ChatView({
           </div>
         </div>
       ) : readOnly ? (
-        /* Read-only viewing strip — editing is the default (10-b), so this
-           only appears after the user deliberately switches to viewing mode. */
-        <div className="relative z-10 bg-(--wa-panel-2) px-3 py-2.5 dark:bg-(--wa-panel-2)">
-          <div className="flex items-center justify-center gap-2 rounded-lg bg-(--wa-text-2)/10 px-4 py-2.5 text-[13px] text-(--wa-text-2) dark:bg-white/5 dark:text-(--wa-text-2)">
-            <Lock className="h-3.5 w-3.5" />
-            Read-only view — tap the pencil to interact
+        <>
+          {schedBar}
+          {/* Read-only viewing strip — editing is the default (10-b), so this
+           only appears after the user deliberately switches to viewing mode. */}
+          <div className="relative z-10 bg-(--wa-panel-2) px-3 py-2.5 dark:bg-(--wa-panel-2)">
+            <div className="flex items-center justify-center gap-2 rounded-lg bg-(--wa-text-2)/10 px-4 py-2.5 text-[13px] text-(--wa-text-2) dark:bg-white/5 dark:text-(--wa-text-2)">
+              <Lock className="h-3.5 w-3.5" />
+              Read-only view — tap the pencil to interact
+            </div>
           </div>
-        </div>
+        </>
       ) : (
-        /* Composer — ACTIVE by default in every chat, incl. Saved Messages */
-        <Composer
-          chatId={chatId}
-          onSent={handleSent}
-          onOpenPoll={() => setPollOpen(true)}
-          replyTo={replyTo}
-          onCancelReply={() => setReplyTo(null)}
-          onJumpToReply={handleJumpToReply}
-        />
+        <>
+          {schedBar}
+          {/* Composer — ACTIVE by default in every chat, incl. Saved Messages */}
+          <Composer
+            chatId={chatId}
+            onSent={handleSent}
+            onOpenPoll={() => setPollOpen(true)}
+            replyTo={replyTo}
+            onCancelReply={() => setReplyTo(null)}
+            onJumpToReply={handleJumpToReply}
+          />
+        </>
       )}
 
       <ChatInfo
@@ -2646,6 +2803,13 @@ export function ChatView({
         chatId={chatId}
         chatTitle={chat.title}
         onPickWord={handlePickWord}
+      />
+
+      {/* AI chat summary (Task 12-c) — ⋮ menu + desktop Sparkles button */}
+      <TldrDialog
+        chatId={chatId}
+        open={tldrOpen}
+        onOpenChange={setTldrOpen}
       />
 
       {/* Print / Save-as-PDF preview (#10) — plain black-on-white transcript,

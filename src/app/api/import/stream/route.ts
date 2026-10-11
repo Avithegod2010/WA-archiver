@@ -9,6 +9,7 @@ import {
   removeChatMedia,
   generateVideoPoster,
   isVideoName,
+  isAudioName,
 } from '@/lib/media-store'
 
 export const runtime = 'nodejs'
@@ -68,10 +69,16 @@ export async function POST(req: NextRequest) {
   // Any failure here responds with a single NDJSON error line + status.
   // ------------------------------------------------------------------
   let file: File | null = null
+  let includeAudio = true
   try {
     const form = await req.formData()
     const f = form.get('file')
     if (f instanceof File) file = f
+    // "Include audio files" option (ImportPanel switch / includeAudio=0 form
+    // field, same as /api/import): when off, voice-note files are NOT saved
+    // to db/media — the audio messages are still created so the transcript
+    // stays complete.
+    includeAudio = form.get('includeAudio') !== '0'
   } catch {
     return ndjsonError(400, 'Upload could not be read. Please try again.')
   }
@@ -186,12 +193,14 @@ export async function POST(req: NextRequest) {
           )
           for (const f of mediaCandidates.slice(0, MAX_MEDIA_FILES)) {
             if (aborted) break
+            // Skip voice notes entirely when audio is excluded
+            const base = f.name.split('/').pop() ?? f.name
+            if (!includeAudio && isAudioName(base)) continue
             try {
               const data = await f.entry.async('nodebuffer')
               if (!data || data.length === 0 || data.length > MAX_ENTRY_BYTES) {
                 continue
               }
-              const base = f.name.split('/').pop() ?? f.name
               const stored = await saveMediaFile(chat.id, base, data)
               mediaMap.set(base.toLowerCase(), stored)
               // Warm the video poster thumbnail (best effort, non-fatal)
@@ -207,7 +216,16 @@ export async function POST(req: NextRequest) {
         }
 
         // Persist message rows chunk-by-chunk while streaming lines.
-        const rows = parsed.messages.map((m: ParsedMessage, i: number) => {
+        // Audio-excluded imports blank the media reference of skipped files
+        // (mediaPath/mediaName end up null) but keep every message row.
+        const persistedMessages = includeAudio
+          ? parsed.messages
+          : parsed.messages.map((m: ParsedMessage) =>
+              m.mediaName && isAudioName(m.mediaName)
+                ? { ...m, mediaName: null }
+                : m
+            )
+        const rows = persistedMessages.map((m: ParsedMessage, i: number) => {
           let mediaPath: string | null = null
           let mediaName: string | null = m.mediaName
 
@@ -250,7 +268,7 @@ export async function POST(req: NextRequest) {
             // Throttle to ~40 lines/sec; always emit the final message.
             if (isLast || now - lastEmit >= EMIT_INTERVAL_MS) {
               lastEmit = now
-              const m = parsed.messages[i + j]
+              const m = persistedMessages[i + j]
               send({ type: 'progress', parsed: persisted })
               send({
                 type: 'message',
