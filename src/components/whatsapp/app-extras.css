@@ -1,0 +1,89 @@
+/* Task 7-e extras: settings / app lock / shortcuts / offline.
+   Self-contained stylesheet — globals.css is never edited.
+   Colors come from theme CSS vars only. */
+
+/* Wrong-PIN shake for the app-lock card */
+@keyframes wa-shake {
+  0%,
+  100% {
+    transform: translateX(0);
+  }
+  15% {
+    transform: translateX(-10px);
+  }
+  30% {
+    transform: translateX(9px);
+  }
+  45% {
+    transform: translateX(-7px);
+  }
+  60% {
+    transform: translateX(5px);
+  }
+  75% {
+    transform: translateX(-3px);
+  }
+  90% {
+    transform: translateX(1px);
+  }
+}
+
+.wa-shake {
+  animation: wa-shake 0.5s cubic-bezier(0.36, 0.07, 0.19, 0.97) both;
+}
+
+/* Offline banner slide-in under the app bar */
+@keyframes wa-offline-in {
+  from {
+    opacity: 0;
+    transform: translateY(-6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.wa-offline-banner {
+  animation: wa-offline-in 0.25s ease-out both;
+}
+
+/* App-lock overlay + card entrance */
+@keyframes wa-lock-fade {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.wa-lock-overlay {
+  animation: wa-lock-fade 0.18s ease-out both;
+}
+
+.wa-lock-card {
+  animation: wa-offline-in 0.28s ease-out both;
+}
+
+/* PIN pad key */
+.wa-pin-key {
+  transition:
+    background-color 0.15s ease,
+    transform 0.1s ease;
+}
+.wa-pin-key:active {
+  transform: scale(0.92);
+}
+
+/* Respect reduced-motion preferences */
+@media (prefers-reduced-motion: reduce) {
+  .wa-shake,
+  .wa-offline-banner,
+  .wa-lock-overlay,
+  .wa-lock-card,
+  .wa-pin-key {
+    animation: none;
+    transition: none;
+  }
+}

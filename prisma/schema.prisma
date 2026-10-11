@@ -40,6 +40,8 @@ model Message {
   edited        Boolean  @default(false)
   forwardedFrom String?
   pollOptions   String?
+  pinned        Boolean  @default(false)
+  reactions     String?
 
   @@index([chatId, idx])
   @@index([chatId, ts])

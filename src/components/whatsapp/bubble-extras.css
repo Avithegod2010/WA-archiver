@@ -1,0 +1,72 @@
+/* bubble-extras.css — MessageBubble extras (task 7-c).
+   Reaction chips, double-click heart burst, long-press squish.
+   Uses theme vars / currentColor only; motion-reduce safe. */
+
+/* Reaction chips: springy pop-in when a reaction appears */
+@keyframes wa-chip-pop {
+  0% {
+    transform: scale(0.3) translateY(5px);
+    opacity: 0;
+  }
+  62% {
+    transform: scale(1.14) translateY(0);
+    opacity: 1;
+  }
+  100% {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+
+.wa-chip-pop {
+  animation: wa-chip-pop 0.28s cubic-bezier(0.34, 1.56, 0.64, 1) both;
+  will-change: transform, opacity;
+}
+
+/* Double-click heart: floats up from the cursor and fades (700ms) */
+@keyframes wa-heart-float {
+  0% {
+    transform: translate(-50%, -40%) scale(0.4);
+    opacity: 0;
+  }
+  18% {
+    transform: translate(-50%, -75%) scale(1.25);
+    opacity: 1;
+  }
+  100% {
+    transform: translate(-50%, -230%) scale(1.5);
+    opacity: 0;
+  }
+}
+
+.wa-heart-float {
+  position: fixed;
+  z-index: 80;
+  pointer-events: none;
+  font-size: 30px;
+  line-height: 1;
+  filter: drop-shadow(0 2px 6px rgb(0 0 0 / 0.25));
+  animation: wa-heart-float 0.7s ease-out forwards;
+  will-change: transform, opacity;
+}
+
+/* Gentle squish while long-pressing on coarse pointers (150ms) */
+.wa-pressing-bubble {
+  transform: scale(0.97);
+  transition: transform 150ms ease;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .wa-chip-pop {
+    animation: none;
+    transform: none;
+    opacity: 1;
+  }
+  .wa-heart-float {
+    animation: none;
+    opacity: 0;
+  }
+  .wa-pressing-bubble {
+    transition: none;
+  }
+}

@@ -1,6 +1,8 @@
 /**
  * Shared serialization for Message rows across the read/write API routes.
  * `pollOptions` is stored as a JSON string in SQLite and exposed as an array.
+ * `reactions` is stored as a JSON string shaped { emoji: [sender, ...] } and
+ * exposed as a parsed record.
  */
 
 export interface ApiMessage {
@@ -16,6 +18,8 @@ export interface ApiMessage {
   edited: boolean
   forwardedFrom: string | null
   pollOptions: string[] | null
+  pinned: boolean
+  reactions: Record<string, string[]> | null
 }
 
 interface MessageRow {
@@ -31,6 +35,42 @@ interface MessageRow {
   edited: boolean
   forwardedFrom: string | null
   pollOptions: string | null
+  pinned: boolean
+  reactions: string | null
+}
+
+/**
+ * Safely parse the reactions JSON column ("{\"👍\":[\"You\"]}") into a
+ * record. Returns null for missing or malformed data. Values are normalized
+ * to non-empty string arrays; emoji keys are kept as-is.
+ */
+export function parseReactions(
+  raw: string | null | undefined
+): Record<string, string[]> | null {
+  if (!raw) return null
+  try {
+    const parsed: unknown = JSON.parse(raw)
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+      return null
+    }
+    const out: Record<string, string[]> = {}
+    let any = false
+    for (const [emoji, senders] of Object.entries(
+      parsed as Record<string, unknown>
+    )) {
+      if (!emoji || !Array.isArray(senders)) continue
+      const list = senders.filter(
+        (s): s is string => typeof s === 'string' && s.length > 0
+      )
+      if (list.length === 0) continue
+      out[emoji] = list
+      any = true
+    }
+    return any ? out : null
+  } catch {
+    /* malformed — treat as none */
+    return null
+  }
 }
 
 export function serializeMessage(m: MessageRow): ApiMessage {
@@ -61,6 +101,8 @@ export function serializeMessage(m: MessageRow): ApiMessage {
     edited: m.edited,
     forwardedFrom: m.forwardedFrom,
     pollOptions,
+    pinned: m.pinned,
+    reactions: parseReactions(m.reactions),
   }
 }
 
@@ -77,4 +119,6 @@ export const MESSAGE_SELECT = {
   edited: true,
   forwardedFrom: true,
   pollOptions: true,
+  pinned: true,
+  reactions: true,
 } as const

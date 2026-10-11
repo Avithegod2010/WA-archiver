@@ -27,6 +27,8 @@ export interface ChatMessage {
   edited?: boolean
   forwardedFrom?: string | null
   pollOptions?: string[] | null
+  pinned?: boolean
+  reactions?: Record<string, string[]> | null
 }
 
 /** Fixed id of the personal "Saved Messages" (you) chat — always present. */

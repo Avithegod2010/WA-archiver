@@ -1,5 +1,7 @@
 'use client'
 
+import './chat-extras.css'
+
 import {
   useCallback,
   useEffect,
@@ -19,18 +21,25 @@ import {
   ChevronUp,
   Copy,
   Download,
+  FileArchive,
+  FileText,
   Images,
+  Languages,
   ListChecks,
   Loader2,
   Lock,
   Palette,
   Pencil,
+  Pin,
+  PinOff,
+  Printer,
   Regex,
   Search,
   SlidersHorizontal,
   Star,
   Trash2,
   TriangleAlert,
+  Wand2,
   X,
   Info,
 } from 'lucide-react'
@@ -42,6 +51,7 @@ import { StarredMessages } from './StarredMessages'
 import { Composer } from './Composer'
 import { PollDialog } from './PollDialog'
 import { WallpaperPicker } from './WallpaperPicker'
+import { AIToolsDialog } from './AIToolsDialog'
 import { DoodleBackground } from './icons'
 import {
   GLOBAL_WALLPAPER_KEY,
@@ -55,7 +65,7 @@ import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
-import { Calendar } from '@/components/ui/calendar'
+import { Calendar, CalendarDayButton } from '@/components/ui/calendar'
 import {
   AlertDialog,
   AlertDialogAction,
@@ -66,6 +76,13 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu'
 import {
   Dialog,
   DialogContent,
@@ -189,6 +206,94 @@ function dayKey(iso: string): string {
   return `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`
 }
 
+/* ------------------- 7-d helpers (pins / print / AI) ------------------- */
+
+/** Deterministic string hash (same recipe as colorForName in types.ts). */
+function hashStr(s: string): number {
+  let hash = 0
+  for (let i = 0; i < s.length; i++) {
+    hash = (hash * 31 + s.charCodeAt(i)) >>> 0
+  }
+  return hash
+}
+
+/** Reactions map shape on ChatMessage (7-a). */
+type ReactionMap = Record<string, string[]>
+
+const MEDIA_LABELS: Record<string, string> = {
+  image: 'Photo',
+  video: 'Video',
+  gif: 'GIF',
+  audio: 'Voice message',
+  sticker: 'Sticker',
+  document: 'Document',
+  contact: 'Contact card',
+  location: 'Location',
+  poll: 'Poll',
+  media: 'Media omitted',
+}
+
+/** Short one-line preview for the pinned-messages bar. */
+function msgPreviewText(m: ChatMessage): string {
+  const body = (m.body ?? '').trim()
+  if (body) return body
+  if (m.type === 'deleted') return 'This message was deleted'
+  const label = MEDIA_LABELS[m.type]
+  return label ? `[${label}]` : '[Message]'
+}
+
+/** Transcript body for the print overlay — media types become [Label] tags. */
+function printBody(m: ChatMessage): string {
+  if (m.type === 'poll') return `[Poll] ${m.body || 'Poll'}`
+  if (m.type === 'deleted') return m.body || 'This message was deleted'
+  const label = MEDIA_LABELS[m.type]
+  if (label) {
+    const parts = [`[${label}]`]
+    if (m.mediaName) parts.push(m.mediaName)
+    const caption = (m.body ?? '').trim()
+    if (caption) parts.push(caption)
+    return parts.join(' ')
+  }
+  return m.body || '[Message]'
+}
+
+function hhmm(iso: string): string {
+  const d = new Date(iso)
+  if (Number.isNaN(d.getTime())) return '--:--'
+  return d.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', hour12: false })
+}
+
+function dmy(iso: string): string {
+  const d = new Date(iso)
+  if (Number.isNaN(d.getTime())) return ''
+  return d.toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric' })
+}
+
+function labelFromDayKey(key: string): string {
+  const [y, m, d] = key.split('-').map(Number)
+  if (!y || m === undefined || d === undefined) return key
+  return new Date(y, m, d).toLocaleDateString('en-GB', {
+    day: 'numeric',
+    month: 'short',
+    year: 'numeric',
+  })
+}
+
+/** Day-cell factory: shows "N messages" as the native tooltip per day. */
+function makeDayButton(counts: Map<string, number>) {
+  return function CountedDayButton(props: React.ComponentProps<typeof CalendarDayButton>) {
+    const d = props.day.date
+    const key = `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`
+    const count = counts.get(key)
+    return (
+      <CalendarDayButton
+        {...props}
+        title={count ? `${count} message${count === 1 ? '' : 's'}` : undefined}
+      />
+    )
+  }
+}
+
 export function ChatView({
   detail,
   setDetail,
@@ -232,6 +337,14 @@ export function ChatView({
   const [matchIdx, setMatchIdx] = useState(0)
   const [filterKey, setFilterKey] = useState('')
   const [isNarrow, setIsNarrow] = useState(false)
+
+  /* ---- 7-d: pins bar, presence tick, print preview, AI dialog ---- */
+  const [pinsCollapsed, setPinsCollapsed] = useState(false)
+  const [pinIdx, setPinIdx] = useState(0)
+  const [printReady, setPrintReady] = useState(false)
+  const [aiMsg, setAiMsg] = useState<ChatMessage | null>(null)
+  /** null until mounted — keeps the presence subtitle hydration-safe. */
+  const [nowMs, setNowMs] = useState<number | null>(null)
 
   /* ----- Local edit mode (pencil): selection, edit, delete, compose ----- */
   const [editMode, setEditMode] = useState(false)
@@ -283,6 +396,20 @@ export function ChatView({
     mq.addEventListener('change', update)
     return () => mq.removeEventListener('change', update)
   }, [])
+
+  // Simulated presence tick — recompute the online window every 60s.
+  // nowMs stays null during SSR + first paint (hydration-safe), then flips.
+  useEffect(() => {
+    setNowMs(Date.now())
+    const t = window.setInterval(() => setNowMs(Date.now()), 60000)
+    return () => window.clearInterval(t)
+  }, [])
+
+  // Pinned-bar state is per chat — reset when switching conversations
+  useEffect(() => {
+    setPinsCollapsed(false)
+    setPinIdx(0)
+  }, [chatId])
 
   const compiledRegex = useMemo<{ re: RegExp } | 'invalid' | null>(() => {
     const q = query.trim()
@@ -464,6 +591,155 @@ export function ChatView({
     onStarMessage?.(id, starred)
     toast.success(starred ? 'Message starred' : 'Message unstarred')
   }
+
+  /* ----------------- Reactions / pin / translate (7-d) ----------------- */
+
+  /** Optimistically toggle 'You' on an emoji, then persist; revert on failure. */
+  async function handleReact(msgId: string, emoji: string) {
+    const target = messages.find((m) => m.id === msgId)
+    if (!target) return
+    const prev = target.reactions ?? null
+    const next: ReactionMap = { ...(prev ?? {}) }
+    const list = next[emoji] ?? []
+    const hasYou = list.includes('You')
+    const nextList = hasYou ? list.filter((u) => u !== 'You') : [...list, 'You']
+    if (nextList.length > 0) next[emoji] = nextList
+    else delete next[emoji]
+    const nextIsEmpty = Object.keys(next).length === 0
+    setDetail((d) =>
+      d
+        ? {
+            ...d,
+            messages: d.messages.map((m) =>
+              m.id === msgId ? { ...m, reactions: nextIsEmpty ? null : next } : m
+            ),
+          }
+        : d
+    )
+    try {
+      const res = await fetch(`/api/messages/${msgId}/reactions`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ emoji }),
+      })
+      const data = (await res.json().catch(() => null)) as {
+        reactions?: ReactionMap | null
+        error?: string
+      } | null
+      if (!res.ok) throw new Error(data?.error ?? 'Reaction failed')
+      // Sync the server's authoritative map when it provides one
+      if (data && data.reactions && typeof data.reactions === 'object') {
+        const server = data.reactions
+        setDetail((d) =>
+          d
+            ? {
+                ...d,
+                messages: d.messages.map((m) =>
+                  m.id === msgId ? { ...m, reactions: server } : m
+                ),
+              }
+            : d
+        )
+      }
+    } catch {
+      setDetail((d) =>
+        d
+          ? {
+              ...d,
+              messages: d.messages.map((m) =>
+                m.id === msgId ? { ...m, reactions: prev } : m
+              ),
+            }
+          : d
+      )
+      toast.error('Could not save reaction')
+    }
+  }
+
+  /** Optimistically toggle the pin flag, then PATCH; revert on failure. */
+  async function handlePinMessage(msg: ChatMessage) {
+    const current = msg.pinned ?? false
+    const next = !current
+    setDetail((d) =>
+      d
+        ? {
+            ...d,
+            messages: d.messages.map((m) =>
+              m.id === msg.id ? { ...m, pinned: next } : m
+            ),
+          }
+        : d
+    )
+    try {
+      const res = await fetch(`/api/messages/${msg.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ pinned: next }),
+      })
+      if (!res.ok) throw new Error('Pin failed')
+      toast.success(next ? 'Message pinned' : 'Message unpinned')
+    } catch {
+      setDetail((d) =>
+        d
+          ? {
+              ...d,
+              messages: d.messages.map((m) =>
+                m.id === msg.id ? { ...m, pinned: current } : m
+              ),
+            }
+          : d
+      )
+      toast.error('Could not update pin')
+    }
+  }
+
+  /** Open the AI tools dialog prefilled with this message. */
+  function handleTranslate(msg: ChatMessage) {
+    setAiMsg(msg)
+  }
+
+  /* --------------------- Export / print (7-d) --------------------- */
+
+  function handleExportZip() {
+    if (!detail) return
+    const a = document.createElement('a')
+    a.href = `/api/chats/${detail.chat.id}/export?format=zip`
+    a.download = ''
+    document.body.appendChild(a)
+    a.click()
+    a.remove()
+    toast.success('Exporting .zip with text + media — check your downloads')
+  }
+
+  function openPrint() {
+    setPrintReady(true)
+  }
+
+  // Print flow: render the transcript overlay → give it a frame → window.print()
+  // → close the preview on afterprint (or a fallback timeout).
+  useEffect(() => {
+    if (!printReady) return
+    const onAfterPrint = () => setPrintReady(false)
+    window.addEventListener('afterprint', onAfterPrint)
+    let fallback = 0
+    let raf2 = 0
+    const raf1 = requestAnimationFrame(() => {
+      raf2 = requestAnimationFrame(() => {
+        try {
+          window.print()
+        } catch {
+          /* print unavailable — the on-screen preview stays usable */
+        }
+        fallback = window.setTimeout(() => setPrintReady(false), 500)
+      })
+    })
+    return () => {
+      cancelAnimationFrame(raf1)
+      cancelAnimationFrame(raf2)
+      window.clearTimeout(fallback)
+      window.removeEventListener('afterprint', onAfterPrint)
+    }
+  }, [printReady])
 
   /* ---------------------- Local edit mode (pencil) ---------------------- */
 
@@ -724,6 +1000,54 @@ export function ChatView({
     [messages]
   )
 
+  /* -------------------------- Pinned messages (#11) -------------------------- */
+  const pinnedMessages = useMemo(
+    () => messages.filter((m) => m.pinned),
+    [messages]
+  )
+  const safePinIdx =
+    pinnedMessages.length > 0 ? Math.min(pinIdx, pinnedMessages.length - 1) : 0
+  const currentPinned = pinnedMessages[safePinIdx] ?? null
+
+  /* ------------------- Simulated presence (#9, non-group) ------------------- */
+  const presence = useMemo(() => {
+    if (!detail || isSavedChat || detail.chat.isGroup || nowMs === null) return null
+    // Deterministic online windows: minute-of-epoch + chat id hash
+    const online = ((Math.floor(nowMs / 60000) * 31 + hashStr(detail.chat.id)) % 97) < 18
+    if (online) return { online: true, text: 'online' }
+    const last = detail.chat.lastAt ? new Date(detail.chat.lastAt) : null
+    let text = 'last seen recently'
+    if (last && !Number.isNaN(last.getTime())) {
+      const now = new Date(nowMs)
+      const sameDay =
+        last.getFullYear() === now.getFullYear() &&
+        last.getMonth() === now.getMonth() &&
+        last.getDate() === now.getDate()
+      text = sameDay
+        ? `last seen today at ${hhmm(detail.chat.lastAt as string)}`
+        : `last seen ${dmy(detail.chat.lastAt as string)}`
+    }
+    return { online: false, text }
+  }, [detail, isSavedChat, nowMs])
+
+  /* --------------------- Jump-to-date day counts (#4) ---------------------- */
+  const chatDayCounts = useMemo(() => {
+    const map = new Map<string, number>()
+    for (const m of messages) {
+      const k = dayKey(m.ts)
+      map.set(k, (map.get(k) ?? 0) + 1)
+    }
+    return map
+  }, [messages])
+  const chatPeakDay = useMemo(() => {
+    let best: { key: string; count: number } | null = null
+    for (const [key, count] of chatDayCounts) {
+      if (!best || count > best.count) best = { key, count }
+    }
+    return best
+  }, [chatDayCounts])
+  const countedDayButton = useMemo(() => makeDayButton(chatDayCounts), [chatDayCounts])
+
   const chatDaySet = useMemo(() => {
     const s = new Set<string>()
     for (const m of messages) s.add(dayKey(m.ts))
@@ -777,12 +1101,21 @@ export function ChatView({
               `${date.getFullYear()}-${date.getMonth()}-${date.getDate()}`
             ),
         }}
+        components={{ DayButton: countedDayButton }}
         modifiersClassNames={{
           hasMsg:
             'relative after:absolute after:bottom-[3px] after:left-1/2 after:h-[3px] after:w-[3px] after:-translate-x-1/2 after:rounded-full after:bg-(--wa-accent) after:content-[""]',
         }}
         className="w-[272px] rounded-xl p-2 [&_[data-selected-single=true]]:bg-(--wa-accent) [&_[data-selected-single=true]]:text-white"
       />
+      {/* Per-day activity footer (#4): active days + busiest day */}
+      {chatPeakDay && chatDayCounts.size > 0 && (
+        <p className="w-full px-3 pb-1.5 text-center text-[11px] leading-snug text-(--wa-text-2)">
+          {chatDayCounts.size} active day{chatDayCounts.size === 1 ? '' : 's'} ·{' '}
+          {chatPeakDay.count} message{chatPeakDay.count === 1 ? '' : 's'} on the
+          busiest day ({labelFromDayKey(chatPeakDay.key)})
+        </p>
+      )}
       <div className="flex w-full gap-1.5 border-t px-2 pb-1.5 pt-2">
         <Button
           variant="ghost"
@@ -858,7 +1191,9 @@ export function ChatView({
     ? 'Your personal space — notes, links & media'
     : chat.isGroup
       ? `${countParticipants(messages)} participants`
-      : 'click here for chat info'
+      : presence
+        ? presence.text
+        : 'click here for chat info'
 
   return (
     <div className="anim-fade-up relative flex min-h-0 flex-1 flex-col">
@@ -938,7 +1273,20 @@ export function ChatView({
             <h2 className="truncate text-[16px] font-medium leading-tight text-(--wa-text)">
               {chat.title}
             </h2>
-            <p className="truncate text-[12.5px] text-(--wa-text-2)">
+            <p
+              className="truncate text-[12.5px] text-(--wa-text-2)"
+              title={
+                presence
+                  ? "Simulated presence — exports don't carry live status"
+                  : undefined
+              }
+            >
+              {presence?.online && (
+                <span className="relative mr-1.5 inline-flex h-2 w-2 align-middle" aria-hidden>
+                  <span className="absolute inline-flex h-full w-full rounded-full bg-[#25d366] opacity-60 motion-safe:animate-ping" />
+                  <span className="relative inline-flex h-2 w-2 rounded-full bg-[#25d366]" />
+                </span>
+              )}
               {subtitle}
             </p>
           </div>
@@ -1045,16 +1393,35 @@ export function ChatView({
               <Palette className="h-5 w-5 text-(--wa-text-2)" />
             </Button>
           </WallpaperPicker>
-          <Button
-            variant="ghost"
-            size="icon"
-            className="wa-iconbtn hidden h-9 w-9 lg:inline-flex"
-            onClick={handleExport}
-            aria-label="Export chat as text"
-            title="Export chat as .txt"
-          >
-            <Download className="h-5 w-5 text-(--wa-text-2)" />
-          </Button>
+          {/* Export / print menu (#10): .txt, .zip (text + media), print/PDF */}
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="wa-iconbtn hidden h-9 w-9 lg:inline-flex"
+                aria-label="Export or print chat"
+                title="Export / print"
+              >
+                <Download className="h-5 w-5 text-(--wa-text-2)" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-60">
+              <DropdownMenuItem onClick={handleExport} className="gap-2">
+                <FileText className="h-4 w-4 text-(--wa-text-2)" />
+                Export as .txt
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={handleExportZip} className="gap-2">
+                <FileArchive className="h-4 w-4 text-(--wa-text-2)" />
+                Export .zip (text + media)
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem onClick={openPrint} className="gap-2">
+                <Printer className="h-4 w-4 text-(--wa-text-2)" />
+                Print / Save as PDF
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
           <Button
             variant="ghost"
             size="icon"
@@ -1079,6 +1446,75 @@ export function ChatView({
           )}
         </div>
       </header>
+
+      {/* Pinned messages bar (#11) — WhatsApp-style strip under the header.
+          Click jumps to the current pin; chevrons cycle when several are
+          pinned; PinOff unpins the current one; X collapses the bar. */}
+      {!pinsCollapsed && currentPinned && (
+        <div className="wa-pins-bar relative z-10 flex items-center gap-1.5 border-t border-black/5 bg-(--wa-panel-2) px-3 py-1.5 dark:border-white/5 dark:bg-(--wa-panel-2)">
+          <Pin className="h-4 w-4 shrink-0 text-(--wa-accent)" aria-hidden />
+          <button
+            type="button"
+            onClick={() => jumpToMessageId(currentPinned.id)}
+            className="flex min-w-0 flex-1 items-center rounded-md py-0.5 text-left"
+            title="Jump to pinned message"
+          >
+            <span className="min-w-0">
+              <span className="block truncate text-[12px] font-semibold leading-tight text-(--wa-text)">
+                {currentPinned.sender ?? 'WhatsApp'}
+              </span>
+              <span className="block truncate text-[12px] leading-tight text-(--wa-text-2)">
+                {msgPreviewText(currentPinned)}
+              </span>
+            </span>
+          </button>
+          {pinnedMessages.length > 1 && (
+            <span className="flex shrink-0 items-center gap-0.5">
+              <span className="px-0.5 text-[11px] font-medium tabular-nums text-(--wa-text-2)">
+                {safePinIdx + 1}/{pinnedMessages.length}
+              </span>
+              <button
+                type="button"
+                onClick={() =>
+                  setPinIdx((i) => (i - 1 + pinnedMessages.length) % pinnedMessages.length)
+                }
+                aria-label="Previous pinned message"
+                title="Previous pinned message"
+                className="flex h-6 w-6 items-center justify-center rounded-full text-(--wa-text-2) transition-colors hover:bg-black/10 hover:text-(--wa-text) dark:hover:bg-white/10"
+              >
+                <ChevronUp className="h-3.5 w-3.5" />
+              </button>
+              <button
+                type="button"
+                onClick={() => setPinIdx((i) => (i + 1) % pinnedMessages.length)}
+                aria-label="Next pinned message"
+                title="Next pinned message"
+                className="flex h-6 w-6 items-center justify-center rounded-full text-(--wa-text-2) transition-colors hover:bg-black/10 hover:text-(--wa-text) dark:hover:bg-white/10"
+              >
+                <ChevronDown className="h-3.5 w-3.5" />
+              </button>
+            </span>
+          )}
+          <button
+            type="button"
+            onClick={() => handlePinMessage(currentPinned)}
+            aria-label="Unpin message"
+            title="Unpin"
+            className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-(--wa-text-2) transition-colors hover:bg-black/10 hover:text-(--wa-text) dark:hover:bg-white/10"
+          >
+            <PinOff className="h-3.5 w-3.5" />
+          </button>
+          <button
+            type="button"
+            onClick={() => setPinsCollapsed(true)}
+            aria-label="Hide pinned messages bar"
+            title="Hide pinned messages"
+            className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-(--wa-text-2) transition-colors hover:bg-black/10 hover:text-(--wa-text) dark:hover:bg-white/10"
+          >
+            <X className="h-3.5 w-3.5" />
+          </button>
+        </div>
+      )}
 
       {/* In-chat search (text + optional date range) */}
       {searchOpen && (
@@ -1368,6 +1804,9 @@ export function ChatView({
                 showTail={item.showTail}
                 showAvatar={item.showAvatar}
                 onToggleStar={editMode ? undefined : handleToggleStar}
+                onReact={editMode ? undefined : handleReact}
+                onPinMessage={editMode ? undefined : handlePinMessage}
+                onTranslate={editMode ? undefined : handleTranslate}
                 highlight={query.trim() || undefined}
                 highlightRegex={regexMode && !!query.trim()}
                 selectMode={editMode}
@@ -1604,6 +2043,67 @@ export function ChatView({
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {/* AI message tools (translate / explain) — #13 */}
+      <AIToolsDialog
+        open={!!aiMsg}
+        message={aiMsg}
+        onOpenChange={(v) => {
+          if (!v) setAiMsg(null)
+        }}
+      />
+
+      {/* Print / Save-as-PDF preview (#10) — plain black-on-white transcript,
+          ignores wallpaper + dark mode. Screen = preview sheet; @media print
+          rules in chat-extras.css isolate this subtree for printing. */}
+      {printReady && (
+        <div className="print-overlay" role="dialog" aria-label="Print preview">
+          <div className="mx-auto max-w-[820px] px-8 py-10">
+            <header className="mb-5 border-b-2 border-black pb-4">
+              <h1 className="text-[22px] font-bold leading-tight">{chat.title}</h1>
+              <p className="mt-1 text-[12px] text-neutral-600">
+                {chat.isGroup ? 'Group chat' : 'Direct chat'} · {messages.length}{' '}
+                message{messages.length === 1 ? '' : 's'}
+                {chat.firstAt ? ` · ${dmy(chat.firstAt)}` : ''}
+                {chat.lastAt ? ` – ${dmy(chat.lastAt)}` : ''}
+              </p>
+              <p className="mt-0.5 text-[11px] text-neutral-500">
+                Exported {new Date().toLocaleString('en-GB')}
+              </p>
+            </header>
+            {messages.map((m) => {
+              const isSystem = m.type === 'system' || !m.sender
+              return (
+                <div
+                  key={m.id}
+                  className="flex gap-2 border-b border-neutral-200 py-1 text-[12.5px] leading-snug"
+                >
+                  <span className="w-[54px] shrink-0 tabular-nums text-neutral-500">
+                    [{hhmm(m.ts)}]
+                  </span>
+                  {isSystem ? (
+                    <span className="italic text-neutral-600">
+                      {m.body || '[system]'}
+                    </span>
+                  ) : (
+                    <span className="min-w-0 break-words">
+                      <span className="font-semibold">{m.sender}:</span>{' '}
+                      {printBody(m)}
+                    </span>
+                  )}
+                </div>
+              )
+            })}
+          </div>
+          <button
+            type="button"
+            className="print-close-btn"
+            onClick={() => setPrintReady(false)}
+          >
+            Close preview
+          </button>
+        </div>
+      )}
     </div>
   )
 }

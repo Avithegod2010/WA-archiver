@@ -11,6 +11,7 @@ import {
   Pipette,
   RotateCcw,
   SlidersHorizontal,
+  Sparkles,
   SwatchBook,
   Trash2,
   Layers,
@@ -36,6 +37,7 @@ import {
   writeWallpaper,
   type WallpaperConfig,
 } from './wallpaper'
+import { colorForName } from './types'
 
 /**
  * A self-tracking slider: while the pointer drags, the thumb follows local
@@ -148,6 +150,33 @@ function ColorSwatch({
   )
 }
 
+/** Deterministic string hash (same recipe as colorForName). */
+function hashStr(s: string): number {
+  let hash = 0
+  for (let i = 0; i < s.length; i++) {
+    hash = (hash * 31 + s.charCodeAt(i)) >>> 0
+  }
+  return hash
+}
+
+/** Multiply a #rrggbb color's channels by `f` (0..1) for a dark variant. */
+function darkenHex(hex: string, f: number): string {
+  const raw = hex.replace('#', '')
+  const full =
+    raw.length === 3
+      ? raw
+          .split('')
+          .map((c) => c + c)
+          .join('')
+      : raw
+  const n = parseInt(full, 16)
+  if (Number.isNaN(n) || full.length !== 6) return hex
+  const r = Math.round(((n >> 16) & 255) * f)
+  const g = Math.round(((n >> 8) & 255) * f)
+  const b = Math.round((n & 255) * f)
+  return `#${((r << 16) | (g << 8) | b).toString(16).padStart(6, '0')}`
+}
+
 /** Pattern / pre-built tile with a small label under the swatch. */
 function DesignTile({
   active,
@@ -172,6 +201,47 @@ function DesignTile({
       <span
         className={cn(
           'relative h-10 w-full overflow-hidden rounded-md ring-1 ring-black/10 transition-shadow group-hover:shadow-md dark:ring-white/10',
+          active && 'ring-2 ring-(--wa-accent)'
+        )}
+      >
+        {children}
+        {active && (
+          <span className="anim-pop absolute inset-0 flex items-center justify-center">
+            <Check className="h-4 w-4 text-(--wa-accent) drop-shadow" />
+          </span>
+        )}
+      </span>
+      <span className="w-full truncate text-center text-[9.5px] font-medium text-(--wa-text-2)">
+        {label}
+      </span>
+    </button>
+  )
+}
+
+/** Suggestion tile (h-14) — same visual language as DesignTile. */
+function SuggestionTile({
+  active,
+  label,
+  title,
+  onClick,
+  children,
+}: {
+  active: boolean
+  label: string
+  title?: string
+  onClick: () => void
+  children: React.ReactNode
+}) {
+  return (
+    <button
+      onClick={onClick}
+      aria-pressed={active}
+      title={title ?? label}
+      className="group flex flex-col items-center gap-1 rounded-lg p-1 transition-transform duration-150 hover:scale-[1.05] active:scale-95"
+    >
+      <span
+        className={cn(
+          'relative h-14 w-full overflow-hidden rounded-md ring-1 ring-black/10 transition-shadow group-hover:shadow-md dark:ring-white/10',
           active && 'ring-2 ring-(--wa-accent)'
         )}
       >
@@ -223,6 +293,77 @@ export function WallpaperPicker({
   const cfg = useMemo<WallpaperConfig>(() => readWallpaper(chatId), [chatId, raw])
   const override = useMemo(() => hasWallpaperOverride(chatId), [chatId, raw])
   const isPhoto = cfg.k === 'custom' && !!cfg.photo
+
+  /* ------- Suggested for this chat (#8): deterministic from the title ------- */
+  const suggestions = useMemo(() => {
+    const h = hashStr(chatTitle)
+    const base = colorForName(chatTitle)
+    const dark = darkenHex(base, 0.22)
+    const pattern = WALLPAPER_PATTERNS[h % WALLPAPER_PATTERNS.length]
+    const p1 = WALLPAPER_PRESETS[(h >>> 3) % WALLPAPER_PRESETS.length]
+    let p2 =
+      WALLPAPER_PRESETS[((h >>> 6) + 3) % WALLPAPER_PRESETS.length]
+    if (p2.key === p1.key) {
+      p2 =
+        WALLPAPER_PRESETS[
+          (WALLPAPER_PRESETS.indexOf(p1) + 1) % WALLPAPER_PRESETS.length
+        ]
+    }
+    return [
+      {
+        key: 's-color',
+        label: 'Avatar color',
+        title: `Color matched to ${chatTitle}'s avatar`,
+        active: (c: WallpaperConfig) =>
+          c.k === 'color' && c.color?.toLowerCase() === base.toLowerCase(),
+        apply: () => setColor(base, dark),
+        preview: (
+          <span
+            className="absolute inset-0"
+            style={{ background: `linear-gradient(180deg, ${base} 50%, ${dark} 50%)` }}
+          />
+        ),
+      },
+      {
+        key: 's-combo',
+        label: `+ ${pattern.label}`,
+        title: `Avatar color with the ${pattern.label} pattern`,
+        active: (c: WallpaperConfig) =>
+          c.k === 'pattern' &&
+          c.pattern === pattern.key &&
+          c.color?.toLowerCase() === base.toLowerCase(),
+        apply: () =>
+          writeWallpaper(chatId, {
+            k: 'pattern',
+            color: base,
+            colorDark: dark,
+            pattern: pattern.key,
+          }),
+        preview: (
+          <>
+            <span className="absolute inset-0" style={{ background: base }} />
+            <span className={cn('absolute inset-0 wpat-bg', `wpat-${pattern.key}`)} />
+          </>
+        ),
+      },
+      {
+        key: `s-p1-${p1.key}`,
+        label: p1.label,
+        title: `Pre-built: ${p1.label}`,
+        active: (c: WallpaperConfig) => c.k === 'preset' && c.preset === p1.key,
+        apply: () => setPrebuilt(p1.key),
+        preview: <span className={cn('absolute inset-0', p1.swatch)} />,
+      },
+      {
+        key: `s-p2-${p2.key}`,
+        label: p2.label,
+        title: `Pre-built: ${p2.label}`,
+        active: (c: WallpaperConfig) => c.k === 'preset' && c.preset === p2.key,
+        apply: () => setPrebuilt(p2.key),
+        preview: <span className={cn('absolute inset-0', p2.swatch)} />,
+      },
+    ]
+  }, [chatTitle, chatId])
 
   /** A pattern can only be "on" when we're not showing a pre-built design */
   const patternOn = cfg.k !== 'preset' ? cfg.pattern : null
@@ -379,6 +520,26 @@ export function WallpaperPicker({
               aria-hidden
               onChange={(e) => setColor(e.target.value, null)}
             />
+
+            {/* Section 0 — Suggested for this chat (#8) */}
+            <SectionLabel
+              icon={<Sparkles className="h-3 w-3" />}
+              title={`Suggested for ${chatTitle}`}
+              hint="tap to apply"
+            />
+            <div className="grid grid-cols-4 gap-2">
+              {suggestions.map((s) => (
+                <SuggestionTile
+                  key={s.key}
+                  label={s.label}
+                  title={s.title}
+                  active={s.active(cfg)}
+                  onClick={s.apply}
+                >
+                  {s.preview}
+                </SuggestionTile>
+              ))}
+            </div>
 
             {/* Section 1 — Colors */}
             <SectionLabel

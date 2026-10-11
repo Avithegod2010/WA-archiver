@@ -1,6 +1,15 @@
 'use client'
 
-import { useMemo, useRef, useState } from 'react'
+import './bubble-extras.css'
+
+import {
+  useEffect,
+  useCallback,
+  useMemo,
+  useRef,
+  useState,
+  useSyncExternalStore,
+} from 'react'
 import {
   Ban,
   BarChart3,
@@ -10,15 +19,18 @@ import {
   Download,
   FileText,
   Forward,
+  Languages,
   MapPin,
   Mic,
   Pencil,
   PhoneMissed,
+  Pin,
+  PinOff,
+  SmilePlus,
   Star,
   StarOff,
   UserRound,
 } from 'lucide-react'
-import { toast } from 'sonner'
 import {
   ContextMenu,
   ContextMenuContent,
@@ -26,11 +38,21 @@ import {
   ContextMenuSeparator,
   ContextMenuTrigger,
 } from '@/components/ui/context-menu'
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { Avatar } from './Avatar'
 import { BubbleTail, TicksDouble } from './icons'
 import { Lightbox } from './Lightbox'
 import { VoicePlayer } from './VoicePlayer'
 import { PollBubble } from './PollBubble'
+import {
+  copyMessage,
+  getReactions,
+  iReacted,
+  isPinned,
+  MENU_REACTIONS,
+  MessageActionSheet,
+  QUICK_REACTIONS,
+} from './MessageActionSheet'
 import { colorForName, type ChatMessage } from './types'
 import { cn } from '@/lib/utils'
 
@@ -44,35 +66,6 @@ function formatTime(iso: string): string {
 function extractUrl(text: string): string | null {
   const m = text.match(/https?:\/\/[^\s]+/)
   return m ? m[0] : null
-}
-
-const COPY_LABEL: Record<string, string> = {
-  image: '[Photo]',
-  video: '[Video]',
-  gif: '[GIF]',
-  audio: '[Voice message]',
-  sticker: '[Sticker]',
-  document: '[Document]',
-  contact: '[Contact card]',
-  location: '[Location]',
-  poll: '[Poll]',
-  media: '[Media omitted]',
-}
-
-function copyTextFor(msg: ChatMessage): string {
-  const prefix = msg.sender && msg.sender !== 'You' ? `${msg.sender}: ` : ''
-  const body =
-    msg.body || COPY_LABEL[msg.type] || (msg.mediaName ? `[${msg.mediaName}]` : '')
-  return prefix + body
-}
-
-async function copyMessage(msg: ChatMessage) {
-  try {
-    await navigator.clipboard.writeText(copyTextFor(msg))
-    toast.success('Message copied')
-  } catch {
-    toast.error('Could not copy')
-  }
 }
 
 /** Visual press feedback while long-pressing (Radix opens the context menu). */
@@ -104,6 +97,219 @@ function usePressFeedback() {
       onPointerLeave: clear,
     },
   }
+}
+
+const COARSE_POINTER_QUERY = '(pointer: coarse)'
+
+function subscribeCoarsePointer(onChange: () => void) {
+  const mq = window.matchMedia(COARSE_POINTER_QUERY)
+  mq.addEventListener('change', onChange)
+  return () => mq.removeEventListener('change', onChange)
+}
+
+const serverCoarsePointer = () => false
+
+/** SSR-safe coarse-pointer detection (touch phones / tablets), live-updating. */
+function useCoarsePointer(): boolean {
+  const getSnapshot = useCallback(
+    () => window.matchMedia(COARSE_POINTER_QUERY).matches,
+    []
+  )
+  return useSyncExternalStore(
+    subscribeCoarsePointer,
+    getSnapshot,
+    serverCoarsePointer
+  )
+}
+
+/**
+ * Custom long-press for coarse pointers — fires after 450ms unless the finger
+ * moves >10px (scroll) or lifts/cancels. On touch devices the Radix
+ * ContextMenu is skipped entirely to avoid double long-press menus.
+ */
+function useLongPress(onFire: () => void, enabled: boolean) {
+  const timer = useRef<number | null>(null)
+  const startXY = useRef<{ x: number; y: number } | null>(null)
+  const [pressing, setPressing] = useState(false)
+
+  function clear() {
+    if (timer.current !== null) {
+      window.clearTimeout(timer.current)
+      timer.current = null
+    }
+    startXY.current = null
+    setPressing(false)
+  }
+
+  useEffect(() => {
+    return () => {
+      if (timer.current !== null) window.clearTimeout(timer.current)
+    }
+  }, [])
+
+  return {
+    pressing,
+    handlers: {
+      onPointerDown(e: React.PointerEvent) {
+        if (!enabled || timer.current !== null) return
+        startXY.current = { x: e.clientX, y: e.clientY }
+        setPressing(true)
+        timer.current = window.setTimeout(() => {
+          timer.current = null
+          navigator.vibrate?.(15)
+          onFire()
+        }, 450)
+      },
+      onPointerMove(e: React.PointerEvent) {
+        if (!startXY.current) return
+        const dx = e.clientX - startXY.current.x
+        const dy = e.clientY - startXY.current.y
+        if (dx * dx + dy * dy > 100) clear() // moved >10px — it's a scroll
+      },
+      onPointerUp: clear,
+      onPointerCancel: clear,
+      onPointerLeave: clear,
+    },
+  }
+}
+
+/** Floating ❤️ burst spawned at the cursor on double-click. */
+function useHeartBurst() {
+  const [hearts, setHearts] = useState<{ id: number; x: number; y: number }[]>([])
+  const seq = useRef(0)
+
+  const spawnHeart = (x: number, y: number) => {
+    const id = ++seq.current
+    setHearts((list) => [...list, { id, x, y }])
+    window.setTimeout(() => {
+      setHearts((list) => list.filter((h) => h.id !== id))
+    }, 750)
+  }
+
+  const heartsNode =
+    hearts.length > 0 ? (
+      <div className="pointer-events-none fixed inset-0 z-[80]" aria-hidden="true">
+        {hearts.map((h) => (
+          <span
+            key={h.id}
+            className="wa-heart-float"
+            style={{ left: h.x, top: h.y }}
+            onAnimationEnd={() =>
+              setHearts((list) => list.filter((t) => t.id !== h.id))
+            }
+          >
+            ❤️
+          </span>
+        ))}
+      </div>
+    ) : null
+
+  return { spawnHeart, heartsNode }
+}
+
+/** Per-bubble extras: coarse long-press → action sheet, double-click → ❤️. */
+function useMessageExtras(
+  msg: ChatMessage,
+  opts: {
+    selectMode?: boolean
+    onReact?: (msgId: string, emoji: string) => void
+  }
+) {
+  const coarse = useCoarsePointer()
+  const [sheetOpen, setSheetOpen] = useState(false)
+  const longPress = useLongPress(
+    () => setSheetOpen(true),
+    coarse && !opts.selectMode
+  )
+  const { spawnHeart, heartsNode } = useHeartBurst()
+
+  const onBubbleDoubleClick = (e: React.MouseEvent) => {
+    if (opts.selectMode || !opts.onReact) return
+    const target = e.target as HTMLElement | null
+    if (
+      target?.closest(
+        'a, button, img, video, audio, input, textarea, [role="button"]'
+      )
+    )
+      return
+    spawnHeart(e.clientX, e.clientY)
+    opts.onReact(msg.id, '❤️')
+  }
+
+  return {
+    coarse,
+    sheetOpen,
+    setSheetOpen,
+    longPress,
+    onBubbleDoubleClick,
+    heartsNode,
+  }
+}
+
+/**
+ * Reaction chips under the bubble — my reaction first, then by count.
+ * Clicking a chip toggles my reaction with that emoji.
+ */
+function ReactionChips({
+  msg,
+  side,
+  onReact,
+}: {
+  msg: ChatMessage
+  side: 'in' | 'out'
+  onReact?: (msgId: string, emoji: string) => void
+}) {
+  const reactions = getReactions(msg)
+  if (!onReact || !reactions) return null
+  const list = Object.entries(reactions)
+    .map(([emoji, senders]) => ({
+      emoji,
+      senders,
+      mine: senders.includes('You'),
+    }))
+    .sort(
+      (a, b) =>
+        Number(b.mine) - Number(a.mine) || b.senders.length - a.senders.length
+    )
+  if (list.length === 0) return null
+  return (
+    <div
+      className={cn(
+        'flex max-w-full flex-wrap gap-1',
+        side === 'out' ? 'justify-end' : 'justify-start'
+      )}
+    >
+      {list.map(({ emoji, senders, mine }) => (
+        <button
+          key={emoji}
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation()
+            onReact(msg.id, emoji)
+          }}
+          title={`${senders
+            .map((s) => (s === 'You' ? 'You' : s))
+            .join(', ')} reacted ${emoji}`}
+          aria-label={`${senders
+            .map((s) => (s === 'You' ? 'You' : s))
+            .join(', ')} reacted ${emoji}. Tap to toggle your reaction.`}
+          className={cn(
+            'wa-chip-pop flex items-center gap-1 rounded-full border px-1.5 py-0.5 shadow-sm transition-transform active:scale-90',
+            mine
+              ? 'border-(--wa-accent)/50 bg-(--wa-accent)/10 ring-2 ring-(--wa-accent) dark:bg-(--wa-accent)/20'
+              : 'border-black/10 bg-(--wa-in) dark:border-white/10 dark:bg-white/10'
+          )}
+        >
+          <span className="text-[13px] leading-none">{emoji}</span>
+          {senders.length > 1 && (
+            <span className="text-[11px] font-medium leading-none text-(--wa-text-2)">
+              {senders.length}
+            </span>
+          )}
+        </button>
+      ))}
+    </div>
+  )
 }
 
 function mediaSrc(chatId: string, msg: ChatMessage): string | null {
@@ -277,6 +483,15 @@ function Meta({ msg, outgoing, onMedia }: MetaProps) {
             : 'text-(--wa-text-2)'
       )}
     >
+      {isPinned(msg) && (
+        <Pin
+          className={cn(
+            'h-3 w-3 shrink-0 rotate-45',
+            onMedia ? 'text-white/80' : 'text-(--wa-text-2)'
+          )}
+          aria-hidden="true"
+        />
+      )}
       <span className="whitespace-nowrap">{formatTime(msg.ts)}</span>
       {msg.edited && (
         <span className="whitespace-nowrap italic opacity-80">edited</span>
@@ -398,6 +613,9 @@ interface BubbleMenuProps {
   onToggleStar?: (id: string, starred: boolean) => void
   onForwardSaved?: (msg: ChatMessage) => void
   onEditMessage?: (msg: ChatMessage) => void
+  onReact?: (msgId: string, emoji: string) => void
+  onPinMessage?: (msg: ChatMessage) => void
+  onTranslate?: (msg: ChatMessage) => void
 }
 
 /** WhatsApp-style message context menu (right-click / long-press). */
@@ -407,6 +625,9 @@ function BubbleMenu({
   onToggleStar,
   onForwardSaved,
   onEditMessage,
+  onReact,
+  onPinMessage,
+  onTranslate,
 }: BubbleMenuProps) {
   const editable =
     !!onEditMessage &&
@@ -414,6 +635,47 @@ function BubbleMenu({
     (msg.type === 'text' || msg.type === 'poll')
   return (
     <ContextMenuContent className="min-w-[200px]">
+      {onReact && (
+        <ContextMenuItem
+          onContextMenu={(e) => e.preventDefault()}
+          className="gap-1"
+        >
+          <div className="flex items-center gap-0.5">
+            {MENU_REACTIONS.map((em) => (
+              <span
+                key={em}
+                role="button"
+                aria-label={`React ${em}`}
+                title={`React ${em}`}
+                onClick={() => onReact(msg.id, em)}
+                className="flex h-7 w-7 cursor-pointer items-center justify-center rounded-full text-lg transition-transform hover:scale-125 motion-reduce:transition-none"
+              >
+                {em}
+              </span>
+            ))}
+          </div>
+        </ContextMenuItem>
+      )}
+      {onReact && <ContextMenuSeparator />}
+      {onPinMessage && (
+        <ContextMenuItem onClick={() => onPinMessage(msg)} className="gap-2">
+          {isPinned(msg) ? (
+            <>
+              <PinOff className="h-4 w-4" /> Unpin message
+            </>
+          ) : (
+            <>
+              <Pin className="h-4 w-4" /> Pin message
+            </>
+          )}
+        </ContextMenuItem>
+      )}
+      {onTranslate && (
+        <ContextMenuItem onClick={() => onTranslate(msg)} className="gap-2">
+          <Languages className="h-4 w-4 text-(--wa-accent)" /> Translate with AI
+        </ContextMenuItem>
+      )}
+      {(onPinMessage || onTranslate) && <ContextMenuSeparator />}
       {onForwardSaved && (
         <ContextMenuItem
           onClick={() => onForwardSaved(msg)}
@@ -465,6 +727,7 @@ interface HoverActionsProps {
   msg: ChatMessage
   onToggleStar?: (id: string, starred: boolean) => void
   onForwardSaved?: (msg: ChatMessage) => void
+  onReact?: (msgId: string, emoji: string) => void
   /** Which side of the bubble the actions sit on — drives slide direction. */
   side: 'in' | 'out'
 }
@@ -473,15 +736,24 @@ const ACTION_STAGGER = [
   'group-hover/msg:delay-1000',
   'group-hover/msg:delay-[1.08s]',
   'group-hover/msg:delay-[1.16s]',
+  'group-hover/msg:delay-[1.24s]',
 ]
 
 function HoverActions({
   msg,
   onToggleStar,
   onForwardSaved,
+  onReact,
   side,
 }: HoverActionsProps) {
-  const btn = (stagger: string) =>
+  const [reactOpen, setReactOpen] = useState(false)
+  // Buttons take their stagger slot in render order — when the reaction button
+  // is absent the remaining buttons keep the exact original 1s/1.08s/1.16s
+  // delays (never write ms-suffixed arbitrary delays here: twMerge mangles them).
+  let step = 0
+  const nextStagger = () =>
+    ACTION_STAGGER[Math.min(step++, ACTION_STAGGER.length - 1)]
+  const btn = (stagger: string, extra?: string) =>
     cn(
       'mb-1 hidden h-7 w-7 shrink-0 items-center justify-center rounded-full bg-(--wa-in) text-(--wa-text-2) shadow-md sm:flex',
       'opacity-0 scale-75 will-change-transform',
@@ -491,10 +763,57 @@ function HoverActions({
       // 1s deliberate pause before the actions pop out (instant on leave)
       'group-hover/msg:translate-x-0 group-hover/msg:scale-100 group-hover/msg:opacity-100',
       'focus-visible:translate-x-0 focus-visible:scale-100 focus-visible:opacity-100 focus-visible:delay-0',
-      stagger
+      stagger,
+      extra
     )
   return (
     <>
+      {onReact && (
+        <Popover open={reactOpen} onOpenChange={setReactOpen}>
+          <PopoverTrigger asChild>
+            <button
+              onClick={(e) => e.stopPropagation()}
+              aria-label="React to message"
+              title="React to message"
+              className={btn(
+                nextStagger(),
+                reactOpen
+                  ? 'opacity-100 translate-x-0 scale-100 delay-0'
+                  : undefined
+              )}
+            >
+              <SmilePlus className="h-3.5 w-3.5 transition-[color,transform] duration-150 hover:scale-125 hover:text-(--wa-accent)" />
+            </button>
+          </PopoverTrigger>
+          <PopoverContent
+            side={side === 'in' ? 'right' : 'left'}
+            align="end"
+            onClick={(e) => e.stopPropagation()}
+            className="w-auto rounded-2xl p-2"
+          >
+            <div className="grid grid-cols-4 gap-1">
+              {QUICK_REACTIONS.map((em) => (
+                <button
+                  key={em}
+                  onClick={() => {
+                    onReact(msg.id, em)
+                    setReactOpen(false)
+                  }}
+                  aria-label={`React ${em}`}
+                  title={`React ${em}`}
+                  className={cn(
+                    'flex h-9 w-9 items-center justify-center rounded-full text-xl transition-transform hover:scale-125 motion-reduce:transition-none',
+                    iReacted(msg, em) &&
+                      'bg-(--wa-accent)/15 ring-2 ring-(--wa-accent)'
+                  )}
+                >
+                  {em}
+                </button>
+              ))}
+            </div>
+          </PopoverContent>
+        </Popover>
+      )}
       {onForwardSaved && (
         <button
           onClick={(e) => {
@@ -503,7 +822,7 @@ function HoverActions({
           }}
           aria-label="Forward to Saved Messages"
           title="Forward to Saved Messages"
-          className={btn(ACTION_STAGGER[0])}
+          className={btn(nextStagger())}
         >
           <BookmarkPlus className="h-3.5 w-3.5 transition-[color,transform] duration-150 hover:scale-125 hover:text-(--wa-accent)" />
         </button>
@@ -516,7 +835,7 @@ function HoverActions({
           }}
           aria-label={msg.starred ? 'Unstar message' : 'Star message'}
           title={msg.starred ? 'Unstar message' : 'Star message'}
-          className={btn(ACTION_STAGGER[1])}
+          className={btn(nextStagger())}
         >
           <Star
             className={cn(
@@ -535,7 +854,7 @@ function HoverActions({
         }}
         aria-label="Copy message"
         title="Copy message"
-        className={btn(ACTION_STAGGER[2])}
+        className={btn(nextStagger())}
       >
         <Copy className="h-3.5 w-3.5 transition-transform duration-150 hover:scale-125" />
       </button>
@@ -575,6 +894,9 @@ export function MessageBubble({
   onToggleSelect,
   onForwardSaved,
   onEditMessage,
+  onReact,
+  onPinMessage,
+  onTranslate,
 }: {
   msg: ChatMessage
   chatId: string
@@ -590,6 +912,9 @@ export function MessageBubble({
   onToggleSelect?: (id: string) => void
   onForwardSaved?: (msg: ChatMessage) => void
   onEditMessage?: (msg: ChatMessage) => void
+  onReact?: (msgId: string, emoji: string) => void
+  onPinMessage?: (msg: ChatMessage) => void
+  onTranslate?: (msg: ChatMessage) => void
 }) {
   const outgoing = msg.sender === 'You'
   const senderColor = useMemo(
@@ -598,6 +923,7 @@ export function MessageBubble({
   )
   const src = mediaSrc(chatId, msg)
   const press = usePressFeedback()
+  const extras = useMessageExtras(msg, { selectMode, onReact })
 
   if (outgoing) {
     return (
@@ -615,6 +941,9 @@ export function MessageBubble({
         onToggleSelect={onToggleSelect}
         onForwardSaved={onForwardSaved}
         onEditMessage={onEditMessage}
+        onReact={onReact}
+        onPinMessage={onPinMessage}
+        onTranslate={onTranslate}
       />
     )
   }
@@ -684,6 +1013,52 @@ export function MessageBubble({
     )
   }
 
+  const bubbleWithTail = (
+    <div className="relative min-w-0 max-w-full drop-shadow-[0_1px_0.5px_rgba(11,20,26,0.13)] dark:drop-shadow-[0_1px_0.5px_rgba(0,0,0,0.25)]">
+      {showTail && (
+        <BubbleTail
+          side="left"
+          className="absolute -left-[7px] top-0 fill-(--wa-in)"
+        />
+      )}
+      <div
+        {...(extras.coarse ? extras.longPress.handlers : press.handlers)}
+        data-bubble
+        onDoubleClick={extras.onBubbleDoubleClick}
+        onContextMenu={
+          extras.coarse ? (e) => e.preventDefault() : undefined
+        }
+        className={cn(
+          'relative rounded-[7.5px] px-2.5 py-1.5 text-(length:--wa-msg-size,14.2px) leading-[1.34] transition-transform duration-150',
+          'bg-(--wa-in) text-(--wa-text)',
+          // Sharp corner where the tail attaches — merges seamlessly
+          showTail && 'rounded-tl-none',
+          extras.coarse
+            ? extras.longPress.pressing && 'wa-pressing-bubble'
+            : press.pressing && 'scale-[0.98]'
+        )}
+      >
+        {isGroup && msg.sender && (
+          <p
+            className="mb-0.5 text-[12.5px] font-semibold leading-tight"
+            style={{ color: senderColor }}
+          >
+            <Highlight text={msg.sender} query={highlight} regex={highlightRegex} />
+          </p>
+        )}
+        <Content
+          msg={msg}
+          chatId={chatId}
+          src={src}
+          outgoing={false}
+          highlight={highlight}
+          highlightRegex={highlightRegex}
+        />
+        <Meta msg={msg} outgoing={false} onMedia={false} />
+      </div>
+    </div>
+  )
+
   return (
     <div className="group/msg flex items-end gap-1.5 px-2 sm:px-4">
       {isGroup ? (
@@ -693,59 +1068,45 @@ export function MessageBubble({
           <div className="w-7 shrink-0" />
         )
       ) : null}
-      <ContextMenu>
-        <ContextMenuTrigger asChild>
-          <div className="relative min-w-0 max-w-[78%] drop-shadow-[0_1px_0.5px_rgba(11,20,26,0.13)] dark:drop-shadow-[0_1px_0.5px_rgba(0,0,0,0.25)] sm:max-w-[65%]">
-            {showTail && (
-              <BubbleTail
-                side="left"
-                className="absolute -left-[7px] top-0 fill-(--wa-in)"
-              />
-            )}
-            <div
-              {...press.handlers}
-              data-bubble
-              className={cn(
-                'relative rounded-[7.5px] px-2.5 py-1.5 text-(length:--wa-msg-size,14.2px) leading-[1.34] transition-transform duration-150',
-                'bg-(--wa-in) text-(--wa-text)',
-                // Sharp corner where the tail attaches — merges seamlessly
-                showTail && 'rounded-tl-none',
-                press.pressing && 'scale-[0.98]'
-              )}
-            >
-              {isGroup && msg.sender && (
-                <p
-                  className="mb-0.5 text-[12.5px] font-semibold leading-tight"
-                  style={{ color: senderColor }}
-                >
-                  <Highlight text={msg.sender} query={highlight} regex={highlightRegex} />
-                </p>
-              )}
-              <Content
-                msg={msg}
-                chatId={chatId}
-                src={src}
-                outgoing={false}
-                highlight={highlight}
-                highlightRegex={highlightRegex}
-              />
-              <Meta msg={msg} outgoing={false} onMedia={false} />
-            </div>
-          </div>
-        </ContextMenuTrigger>
-        <BubbleMenu
-          msg={msg}
-          src={src}
-          onToggleStar={onToggleStar}
-          onForwardSaved={onForwardSaved}
-          onEditMessage={onEditMessage}
-        />
-      </ContextMenu>
+      <div className="flex min-w-0 max-w-[78%] flex-col items-start gap-1 sm:max-w-[65%]">
+        {extras.coarse ? (
+          bubbleWithTail
+        ) : (
+          <ContextMenu>
+            <ContextMenuTrigger asChild>{bubbleWithTail}</ContextMenuTrigger>
+            <BubbleMenu
+              msg={msg}
+              src={src}
+              onToggleStar={onToggleStar}
+              onForwardSaved={onForwardSaved}
+              onEditMessage={onEditMessage}
+              onReact={onReact}
+              onPinMessage={onPinMessage}
+              onTranslate={onTranslate}
+            />
+          </ContextMenu>
+        )}
+        <ReactionChips msg={msg} side="in" onReact={onReact} />
+      </div>
       <HoverActions
         msg={msg}
         side="in"
         onToggleStar={onToggleStar}
         onForwardSaved={onForwardSaved}
+        onReact={onReact}
+      />
+      {extras.heartsNode}
+      <MessageActionSheet
+        msg={msg}
+        open={extras.sheetOpen}
+        onOpenChange={extras.setSheetOpen}
+        src={src}
+        onReact={onReact}
+        onToggleStar={onToggleStar}
+        onForwardSaved={onForwardSaved}
+        onPinMessage={onPinMessage}
+        onTranslate={onTranslate}
+        onToggleSelect={onToggleSelect}
       />
     </div>
   )
@@ -765,6 +1126,9 @@ function OutgoingBubble({
   onToggleSelect,
   onForwardSaved,
   onEditMessage,
+  onReact,
+  onPinMessage,
+  onTranslate,
 }: {
   msg: ChatMessage
   chatId: string
@@ -779,11 +1143,15 @@ function OutgoingBubble({
   onToggleSelect?: (id: string) => void
   onForwardSaved?: (msg: ChatMessage) => void
   onEditMessage?: (msg: ChatMessage) => void
+  onReact?: (msgId: string, emoji: string) => void
+  onPinMessage?: (msg: ChatMessage) => void
+  onTranslate?: (msg: ChatMessage) => void
 }) {
   const press = usePressFeedback()
+  const extras = useMessageExtras(msg, { selectMode, onReact })
 
-  const bubble = (
-    <div className="relative min-w-0 max-w-[78%] drop-shadow-[0_1px_0.5px_rgba(11,20,26,0.13)] dark:drop-shadow-[0_1px_0.5px_rgba(0,0,0,0.25)] sm:max-w-[65%]">
+  const bubbleWithTail = (
+    <div className="relative min-w-0 max-w-full drop-shadow-[0_1px_0.5px_rgba(11,20,26,0.13)] dark:drop-shadow-[0_1px_0.5px_rgba(0,0,0,0.25)]">
       {showTail && (
         <BubbleTail
           side="right"
@@ -791,14 +1159,25 @@ function OutgoingBubble({
         />
       )}
       <div
-        {...(selectMode ? {} : press.handlers)}
+        {...(selectMode
+          ? {}
+          : extras.coarse
+            ? extras.longPress.handlers
+            : press.handlers)}
         data-bubble
+        onDoubleClick={!selectMode ? extras.onBubbleDoubleClick : undefined}
+        onContextMenu={
+          !selectMode && extras.coarse ? (e) => e.preventDefault() : undefined
+        }
         className={cn(
           'relative rounded-[7.5px] px-2.5 py-1.5 text-(length:--wa-msg-size,14.2px) leading-[1.34] transition-transform duration-150',
           'bg-(--wa-out) text-(--wa-text) dark:text-(--wa-text)',
           // Sharp corner where the tail attaches — merges seamlessly
           showTail && 'rounded-tr-none',
-          !selectMode && press.pressing && 'scale-[0.98]',
+          !selectMode &&
+            (extras.coarse
+              ? extras.longPress.pressing && 'wa-pressing-bubble'
+              : press.pressing && 'scale-[0.98]'),
           selectMode && selected && 'ring-2 ring-(--wa-accent)'
         )}
       >
@@ -834,7 +1213,9 @@ function OutgoingBubble({
           }
         }}
       >
-        {bubble}
+        <div className="flex min-w-0 max-w-[78%] flex-col items-end sm:max-w-[65%]">
+          {bubbleWithTail}
+        </div>
         <SelectCircle selected={!!selected} />
       </div>
     )
@@ -847,17 +1228,41 @@ function OutgoingBubble({
         side="out"
         onToggleStar={onToggleStar}
         onForwardSaved={onForwardSaved}
+        onReact={onReact}
       />
-      <ContextMenu>
-        <ContextMenuTrigger asChild>{bubble}</ContextMenuTrigger>
-        <BubbleMenu
-          msg={msg}
-          src={src}
-          onToggleStar={onToggleStar}
-          onForwardSaved={onForwardSaved}
-          onEditMessage={onEditMessage}
-        />
-      </ContextMenu>
+      <div className="flex min-w-0 max-w-[78%] flex-col items-end gap-1 sm:max-w-[65%]">
+        {extras.coarse ? (
+          bubbleWithTail
+        ) : (
+          <ContextMenu>
+            <ContextMenuTrigger asChild>{bubbleWithTail}</ContextMenuTrigger>
+            <BubbleMenu
+              msg={msg}
+              src={src}
+              onToggleStar={onToggleStar}
+              onForwardSaved={onForwardSaved}
+              onEditMessage={onEditMessage}
+              onReact={onReact}
+              onPinMessage={onPinMessage}
+              onTranslate={onTranslate}
+            />
+          </ContextMenu>
+        )}
+        <ReactionChips msg={msg} side="out" onReact={onReact} />
+      </div>
+      {extras.heartsNode}
+      <MessageActionSheet
+        msg={msg}
+        open={extras.sheetOpen}
+        onOpenChange={extras.setSheetOpen}
+        src={src}
+        onReact={onReact}
+        onToggleStar={onToggleStar}
+        onForwardSaved={onForwardSaved}
+        onPinMessage={onPinMessage}
+        onTranslate={onTranslate}
+        onToggleSelect={onToggleSelect}
+      />
     </div>
   )
 }

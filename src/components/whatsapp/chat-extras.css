@@ -1,0 +1,118 @@
+/*
+ * chat-extras.css — Task 7-d additions (owned by agent 7-d)
+ * Kept separate from globals.css on purpose.
+ *   1. Pinned-messages bar entrance animation (motion-reduce safe)
+ *   2. Print / Save-as-PDF overlay (screen preview + @media print rules)
+ */
+
+/* ------------------------------------------------------------------ */
+/* 1. Pinned messages bar                                              */
+/* ------------------------------------------------------------------ */
+
+@keyframes wa-pins-in {
+  from {
+    opacity: 0;
+    transform: translateY(-10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.wa-pins-bar {
+  animation: wa-pins-in 220ms cubic-bezier(0.25, 0.8, 0.35, 1) both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .wa-pins-bar {
+    animation: none;
+  }
+}
+
+/* ------------------------------------------------------------------ */
+/* 2. Print / Save-as-PDF                                              */
+/*    Screen: a full-screen white "paper sheet" preview so the user    */
+/*    sees exactly what will print (also covers browsers where the     */
+/*    print dialog is cancelled). Theme-independent: plain black on    */
+/*    white, ignores wallpaper + dark mode.                            */
+/* ------------------------------------------------------------------ */
+
+.print-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 200;
+  overflow-y: auto;
+  background: #ffffff;
+  color: #000000;
+  font-family:
+    ui-sans-serif,
+    system-ui,
+    -apple-system,
+    'Segoe UI',
+    Roboto,
+    Helvetica,
+    Arial,
+    sans-serif;
+}
+
+.print-overlay .print-close-btn {
+  position: fixed;
+  right: 20px;
+  bottom: 20px;
+  z-index: 210;
+  padding: 10px 18px;
+  border: none;
+  border-radius: 9999px;
+  background: #111827;
+  color: #ffffff;
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.28);
+  cursor: pointer;
+}
+
+.print-overlay .print-close-btn:hover {
+  background: #1f2937;
+}
+
+.print-overlay .print-close-btn:focus-visible {
+  outline: 2px solid #111827;
+  outline-offset: 2px;
+}
+
+@media print {
+  @page {
+    margin: 14mm;
+  }
+
+  html,
+  body {
+    overflow: visible !important;
+    height: auto !important;
+  }
+
+  body * {
+    visibility: hidden !important;
+  }
+
+  .print-overlay,
+  .print-overlay * {
+    visibility: visible !important;
+  }
+
+  .print-overlay {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: auto;
+    overflow: visible;
+    background: #ffffff;
+    color: #000000;
+  }
+
+  .print-overlay .print-close-btn {
+    display: none !important;
+  }
+}

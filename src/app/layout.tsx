@@ -21,7 +21,10 @@ export const metadata: Metadata = {
     "Import WhatsApp chat exports (.zip or .txt) and read them in a familiar WhatsApp-style interface. Private and local — your chats never leave this device.",
   keywords: ["WhatsApp", "chat viewer", "export", "chat history", "PWA"],
   icons: {
-    icon: "https://z-cdn.chatglm.cn/z-ai/static/logo.svg",
+    icon: {
+      url: "/icon.svg",
+      type: "image/svg+xml",
+    },
   },
   openGraph: {
     title: "WhatsApp Viewer",
@@ -34,7 +37,7 @@ export const metadata: Metadata = {
     title: "WA Viewer",
     statusBarStyle: "black-translucent",
   },
-  manifest: "/manifest.json",
+  manifest: "/manifest.webmanifest",
 };
 
 export const viewport: Viewport = {

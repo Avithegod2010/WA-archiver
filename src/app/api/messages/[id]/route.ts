@@ -10,6 +10,7 @@ export const runtime = 'nodejs'
  * PATCH /api/messages/:id
  * - { starred: boolean }  → viewer-local bookmark
  * - { body: string }      → local edit of the message text (marks "edited")
+ * - { pinned: boolean }   → keep this message pinned to the top of the chat
  */
 export async function PATCH(
   req: NextRequest,
@@ -22,12 +23,18 @@ export async function PATCH(
   } catch {
     return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 })
   }
-  const { starred, body } = (payload ?? {}) as {
+  const { starred, body, pinned } = (payload ?? {}) as {
     starred?: unknown
     body?: unknown
+    pinned?: unknown
   }
 
-  const data: { starred?: boolean; body?: string; edited?: boolean } = {}
+  const data: {
+    starred?: boolean
+    body?: string
+    edited?: boolean
+    pinned?: boolean
+  } = {}
   if (starred !== undefined) {
     if (typeof starred !== 'boolean') {
       return NextResponse.json(
@@ -47,9 +54,18 @@ export async function PATCH(
     data.body = body.trim().slice(0, 8000)
     data.edited = true
   }
+  if (pinned !== undefined) {
+    if (typeof pinned !== 'boolean') {
+      return NextResponse.json(
+        { error: 'Field "pinned" must be a boolean' },
+        { status: 400 }
+      )
+    }
+    data.pinned = pinned
+  }
   if (Object.keys(data).length === 0) {
     return NextResponse.json(
-      { error: 'Provide "starred" and/or "body"' },
+      { error: 'Provide "starred", "body" and/or "pinned"' },
       { status: 400 }
     )
   }
@@ -64,6 +80,7 @@ export async function PATCH(
         body: true,
         starred: true,
         edited: true,
+        pinned: true,
       },
     })
     if (data.body !== undefined) {

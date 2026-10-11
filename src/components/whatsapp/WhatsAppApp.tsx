@@ -1,5 +1,7 @@
 'use client'
 
+import './app-extras.css'
+
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import { useTheme } from 'next-themes'
 import { toast } from 'sonner'
@@ -10,8 +12,10 @@ import {
   Loader2,
   Moon,
   Paintbrush,
+  Settings,
   Sun,
   Upload,
+  WifiOff,
 } from 'lucide-react'
 import {
   APP_THEMES,
@@ -47,9 +51,40 @@ import { StatsDashboard } from './StatsDashboard'
 import { GlobalSearch } from './GlobalSearch'
 import { GuideDialog } from './GuideDialog'
 import { DemoPickerDialog } from './DemoPickerDialog'
+import { SettingsDialog } from './SettingsDialog'
+import { ShortcutsDialog } from './ShortcutsDialog'
+import { AppLock } from './AppLock'
+import { useShortcuts } from './useShortcuts'
 import { WhatsAppLogo } from './icons'
 import type { ChatDetail, ChatSummary } from './types'
 import { cn } from '@/lib/utils'
+
+// ---- Offline caches (Task 7-e #6) --------------------------------------
+const CHATS_CACHE_KEY = 'wa-viewer:cache:chats'
+const CHAT_CACHE_PREFIX = 'wa-viewer:cache:chat:'
+const SEEN_CHATS_KEY = 'wa-viewer:seen-chats'
+const MAX_CACHE_JSON_LENGTH = 1_500_000
+
+/** Size-guarded localStorage write — quota/serialization failures are ignored. */
+function cacheSet(key: string, value: unknown) {
+  try {
+    const json = JSON.stringify(value)
+    if (json.length > MAX_CACHE_JSON_LENGTH) return
+    localStorage.setItem(key, json)
+  } catch {
+    /* quota exceeded or storage unavailable — ignore */
+  }
+}
+
+function cacheGet<T>(key: string): T | null {
+  try {
+    const raw = localStorage.getItem(key)
+    if (!raw) return null
+    return JSON.parse(raw) as T
+  } catch {
+    return null
+  }
+}
 
 export function WhatsAppApp() {
   const { resolvedTheme, setTheme } = useTheme()
@@ -64,6 +99,9 @@ export function WhatsAppApp() {
   const [aboutOpen, setAboutOpen] = useState(false)
   const [statsOpen, setStatsOpen] = useState(false)
   const [demoPickerOpen, setDemoPickerOpen] = useState(false)
+  const [settingsOpen, setSettingsOpen] = useState(false)
+  const [shortcutsOpen, setShortcutsOpen] = useState(false)
+  const [isOffline, setIsOffline] = useState(false)
   const importTriggerRef = useRef<(() => void) | null>(null)
   const [textSizeOpen, setTextSizeOpen] = useState(false)
   const [globalSearchOpen, setGlobalSearchOpen] = useState(false)
@@ -85,7 +123,29 @@ export function WhatsAppApp() {
     () => 'classic'
   )
 
+  // Latest chats / activeId without stale closures (markChatSeen + shortcuts)
+  const chatsRef = useRef(chats)
+  useEffect(() => {
+    chatsRef.current = chats
+  }, [chats])
+  const activeIdRef = useRef(activeId)
+  useEffect(() => {
+    activeIdRef.current = activeId
+  }, [activeId])
+
   useEffect(() => setMounted(true), [])
+
+  // Offline detection for the reading banner
+  useEffect(() => {
+    const update = () => setIsOffline(!navigator.onLine)
+    update()
+    window.addEventListener('online', update)
+    window.addEventListener('offline', update)
+    return () => {
+      window.removeEventListener('online', update)
+      window.removeEventListener('offline', update)
+    }
+  }, [])
 
   // First visit: auto-open the interactive guide once
   useEffect(() => {
@@ -127,9 +187,18 @@ export function WhatsAppApp() {
     try {
       const res = await fetch('/api/chats', { cache: 'no-store' })
       const data = await res.json()
-      setChats(data.chats ?? [])
+      const list: ChatSummary[] = data.chats ?? []
+      setChats(list)
+      // Keep the list available for offline reads (size-guarded)
+      cacheSet(CHATS_CACHE_KEY, list)
     } catch {
-      toast.error('Could not load chats')
+      // Offline: fall back to the cached chat list when present
+      const cached = cacheGet<ChatSummary[]>(CHATS_CACHE_KEY)
+      if (cached && Array.isArray(cached) && cached.length > 0) {
+        setChats(cached)
+      } else {
+        toast.error('Could not load chats')
+      }
     } finally {
       setChatsLoading(false)
     }
@@ -138,6 +207,30 @@ export function WhatsAppApp() {
   useEffect(() => {
     refreshChats()
   }, [refreshChats])
+
+  /**
+   * Mark a chat as seen/read — Task 7-e contract:
+   * `wa-viewer:seen-chats` = Record<chatId, { lastAt: string; count: number }>
+   * where count = chat.messageCount and lastAt = chat.lastAt ?? ''.
+   * Dispatches `wa-seen-changed` so ChatList (folders module) updates.
+   * NOTE: deliberately local — chat-folders.ts is owned by a parallel agent.
+   */
+  const markChatSeen = useCallback((id: string) => {
+    try {
+      const chat = chatsRef.current.find((c) => c.id === id)
+      if (!chat) return
+      const raw = localStorage.getItem(SEEN_CHATS_KEY)
+      const map: Record<string, { lastAt: string; count: number }> = raw
+        ? JSON.parse(raw)
+        : {}
+      if (typeof map !== 'object' || map === null || Array.isArray(map)) return
+      map[id] = { lastAt: chat.lastAt ?? '', count: chat.messageCount }
+      localStorage.setItem(SEEN_CHATS_KEY, JSON.stringify(map))
+      window.dispatchEvent(new Event('wa-seen-changed'))
+    } catch {
+      /* storage unavailable — ignore */
+    }
+  }, [])
 
   const openChat = useCallback(async (id: string, jumpMessageId?: string) => {
     setActiveId(id)
@@ -149,23 +242,35 @@ export function WhatsAppApp() {
       if (!res.ok) throw new Error('failed')
       const data = await res.json()
       setDetail(data)
+      // Keep an offline copy of this chat (size-guarded)
+      cacheSet(CHAT_CACHE_PREFIX + id, data)
+      markChatSeen(id)
       try {
         localStorage.setItem('wa-viewer:last-chat', id)
       } catch {
         /* storage unavailable */
       }
     } catch {
-      toast.error('Could not load this chat')
-      setActiveId(null)
-      try {
-        localStorage.removeItem('wa-viewer:last-chat')
-      } catch {
-        /* ignore */
+      // Offline / failed: fall back to the cached copy when present
+      const cached = cacheGet<ChatDetail>(CHAT_CACHE_PREFIX + id)
+      if (cached && cached.chat && Array.isArray(cached.messages)) {
+        setDetail(cached)
+        toast.info('Offline — showing cached messages')
+        markChatSeen(id)
+        // activeId intentionally kept — the cached chat stays open
+      } else {
+        toast.error('Could not load this chat')
+        setActiveId(null)
+        try {
+          localStorage.removeItem('wa-viewer:last-chat')
+        } catch {
+          /* ignore */
+        }
       }
     } finally {
       setDetailLoading(false)
     }
-  }, [])
+  }, [markChatSeen])
 
   // Restore the last opened chat across reloads
   useEffect(() => {
@@ -381,6 +486,29 @@ export function WhatsAppApp() {
 
   const totalMessages = chats.reduce((s, c) => s + c.messageCount, 0)
 
+  // Global keyboard shortcuts (Task 7-e #7)
+  useShortcuts({
+    onOpenSearch: () => setGlobalSearchOpen(true),
+    onOpenInsights: () => setStatsOpen(true),
+    onOpenGuide: () => setAboutOpen(true),
+    onToggleDark: () => setTheme(resolvedTheme === 'dark' ? 'light' : 'dark'),
+    onNextChat: () => {
+      const list = chatsRef.current
+      if (list.length === 0) return
+      const idx = list.findIndex((c) => c.id === activeIdRef.current)
+      const next = idx === -1 ? 0 : (idx + 1) % list.length
+      openChat(list[next].id)
+    },
+    onPrevChat: () => {
+      const list = chatsRef.current
+      if (list.length === 0) return
+      const idx = list.findIndex((c) => c.id === activeIdRef.current)
+      const prev = idx === -1 ? 0 : (idx - 1 + list.length) % list.length
+      openChat(list[prev].id)
+    },
+    onShowShortcuts: () => setShortcutsOpen(true),
+  })
+
   /** Open a chat from a global-search hit and jump straight to the message. */
   const openFromSearch = useCallback(
     (chatId: string, messageId: string) => {
@@ -581,6 +709,16 @@ export function WhatsAppApp() {
               </p>
             </PopoverContent>
           </Popover>
+          <Button
+            variant="ghost"
+            size="icon"
+            className="wa-iconbtn h-9 w-9 text-white hover:bg-white/10"
+            onClick={() => setSettingsOpen(true)}
+            aria-label="Settings"
+            title="Settings — backup, app lock & shortcuts"
+          >
+            <Settings className="h-5 w-5" />
+          </Button>
           {mounted && (
             <Button
               variant="ghost"
@@ -607,6 +745,17 @@ export function WhatsAppApp() {
           </Button>
         </div>
       </div>
+
+      {/* Offline reading banner (Task 7-e #6) */}
+      {isOffline && (
+        <div
+          role="status"
+          className="wa-offline-banner flex items-center gap-2 bg-amber-400/90 px-4 py-1 text-[12.5px] text-black"
+        >
+          <WifiOff className="h-3.5 w-3.5 shrink-0" aria-hidden />
+          <span>You&apos;re offline — recently opened chats are still readable.</span>
+        </div>
+      )}
 
       {/* Main area */}
       <div className="relative flex min-h-0 min-w-0 flex-1">
@@ -702,6 +851,20 @@ export function WhatsAppApp() {
         onOpenChange={setDemoPickerOpen}
         onLoaded={handleDemoLoaded}
       />
+
+      {/* Settings: backup/restore, app lock, shortcuts, install/offline (#14) */}
+      <SettingsDialog
+        open={settingsOpen}
+        onOpenChange={setSettingsOpen}
+        onOpenShortcuts={() => setShortcutsOpen(true)}
+        onRefreshChats={refreshChats}
+      />
+
+      {/* Keyboard shortcuts list (#7) */}
+      <ShortcutsDialog open={shortcutsOpen} onOpenChange={setShortcutsOpen} />
+
+      {/* App lock overlay — top-most (#15) */}
+      <AppLock />
     </div>
   )
 }

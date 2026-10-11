@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <!-- WhatsApp-style app icon: green rounded square + white chat bubble (Task 7-e) -->
+  <rect width="512" height="512" rx="112" fill="#008069"/>
+  <ellipse cx="256" cy="238" rx="152" ry="126" fill="#ffffff"/>
+  <path d="M148 318 L114 404 L216 352 Z" fill="#ffffff"/>
+  <circle cx="184" cy="238" r="19" fill="#008069"/>
+  <circle cx="256" cy="238" r="19" fill="#008069"/>
+  <circle cx="328" cy="238" r="19" fill="#008069"/>
+</svg>
