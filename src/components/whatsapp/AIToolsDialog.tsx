@@ -1,8 +1,10 @@
 'use client'
 
+import './ai-tools.css'
+
 import { useEffect, useState } from 'react'
 import { toast } from 'sonner'
-import { Copy, Languages, Loader2, Wand2 } from 'lucide-react'
+import { Copy, Languages, Wand2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import {
   Dialog,
@@ -82,8 +84,8 @@ export function AIToolsDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-lg">
-        <DialogHeader>
+      <DialogContent className="wa-ai-pop sm:max-w-lg">
+        <DialogHeader className="wa-ai-rise" style={{ animationDelay: '40ms' }}>
           <DialogTitle>AI message tools</DialogTitle>
           <DialogDescription>
             Translate this message or get a plain-language explanation — runs on
@@ -93,7 +95,10 @@ export function AIToolsDialog({
 
         {/* Quoted message (reply-quote style) */}
         {message && (
-          <div className="rounded-md border-l-4 border-(--wa-accent) bg-black/5 p-2 text-[13px] dark:bg-white/5">
+          <div
+            className="wa-ai-rise rounded-md border-l-4 border-(--wa-accent) bg-black/5 p-2 text-[13px] dark:bg-white/5"
+            style={{ animationDelay: '110ms' }}
+          >
             <p className="text-[12px] font-semibold text-(--wa-accent-strong) dark:text-(--wa-accent)">
               {message.sender ?? 'WhatsApp'}
             </p>
@@ -105,7 +110,8 @@ export function AIToolsDialog({
 
         {/* Mode toggle (segmented) */}
         <div
-          className="flex gap-1 rounded-full bg-black/5 p-1 dark:bg-white/5"
+          className="wa-ai-rise flex gap-1 rounded-full bg-black/5 p-1 dark:bg-white/5"
+          style={{ animationDelay: '180ms' }}
           role="tablist"
           aria-label="AI tool mode"
         >
@@ -151,16 +157,28 @@ export function AIToolsDialog({
 
         {error && (
           <p
-            className="text-[12.5px] font-medium text-rose-600 dark:text-rose-400"
+            className="wa-ai-rise text-[12.5px] font-medium text-rose-600 dark:text-rose-400"
             role="alert"
           >
             {error} — press Run to retry.
           </p>
         )}
 
+        {/* Loading skeleton with a shimmer sweep */}
+        {running && (
+          <div
+            className="wa-ai-shimmer wa-ai-rise rounded-lg border border-(--wa-line) bg-black/[0.03] p-3 dark:bg-white/5"
+            aria-hidden="true"
+          >
+            <div className="h-3 w-2/3 rounded-full bg-black/10 dark:bg-white/10" />
+            <div className="mt-2 h-3 w-5/6 rounded-full bg-black/10 dark:bg-white/10" />
+            <div className="mt-2 h-3 w-1/2 rounded-full bg-black/10 dark:bg-white/10" />
+          </div>
+        )}
+
         {result !== null && !error && (
           <div
-            className="wa-scroll max-h-64 overflow-y-auto whitespace-pre-wrap rounded-lg border border-(--wa-line) bg-black/[0.03] p-3 text-[13.5px] leading-relaxed text-(--wa-text) dark:bg-white/5"
+            className="wa-ai-rise wa-scroll max-h-64 overflow-y-auto whitespace-pre-wrap rounded-lg border border-(--wa-line) bg-black/[0.03] p-3 text-[13.5px] leading-relaxed text-(--wa-text) dark:bg-white/5"
             aria-live="polite"
             aria-label="AI result"
           >
@@ -168,7 +186,10 @@ export function AIToolsDialog({
           </div>
         )}
 
-        <div className="flex items-center gap-2">
+        <div
+          className="wa-ai-rise flex items-center gap-2"
+          style={{ animationDelay: '240ms' }}
+        >
           <Button
             className="flex-1 gap-1.5 rounded-full bg-(--wa-accent) text-white hover:bg-(--wa-accent-strong)"
             disabled={!hasText || running}
@@ -176,7 +197,14 @@ export function AIToolsDialog({
           >
             {running ? (
               <>
-                <Loader2 className="h-4 w-4 animate-spin" />
+                <span
+                  className="wa-ai-dots inline-flex items-center gap-1"
+                  aria-hidden="true"
+                >
+                  <span />
+                  <span />
+                  <span />
+                </span>
                 Thinking…
               </>
             ) : mode === 'translate' ? (

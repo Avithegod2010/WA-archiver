@@ -247,10 +247,11 @@ function useMessageExtras(
 }
 
 /**
- * Reaction chips under the bubble — my reaction first, then by count.
- * Clicking a chip toggles my reaction with that emoji.
+ * Telegram-style reaction pills — rendered INSIDE the bubble along its floor
+ * (never floating outside it). My reaction sorts first with an accent tint;
+ * the key includes the count so the pill re-pops whenever it changes.
  */
-function ReactionChips({
+function ReactionPills({
   msg,
   side,
   onReact,
@@ -260,7 +261,7 @@ function ReactionChips({
   onReact?: (msgId: string, emoji: string) => void
 }) {
   const reactions = getReactions(msg)
-  if (!onReact || !reactions) return null
+  if (!reactions) return null
   const list = Object.entries(reactions)
     .map(([emoji, senders]) => ({
       emoji,
@@ -272,42 +273,82 @@ function ReactionChips({
         Number(b.mine) - Number(a.mine) || b.senders.length - a.senders.length
     )
   if (list.length === 0) return null
+  const who = (senders: string[]) =>
+    senders.map((s) => (s === 'You' ? 'You' : s)).join(', ')
   return (
     <div
       className={cn(
-        'flex max-w-full flex-wrap gap-1',
+        'flex min-w-0 flex-wrap items-center gap-1',
         side === 'out' ? 'justify-end' : 'justify-start'
       )}
     >
       {list.map(({ emoji, senders, mine }) => (
         <button
-          key={emoji}
+          key={`${emoji}:${senders.length}:${mine ? 'me' : 'x'}`}
           type="button"
           onClick={(e) => {
             e.stopPropagation()
-            onReact(msg.id, emoji)
+            onReact?.(msg.id, emoji)
           }}
-          title={`${senders
-            .map((s) => (s === 'You' ? 'You' : s))
-            .join(', ')} reacted ${emoji}`}
-          aria-label={`${senders
-            .map((s) => (s === 'You' ? 'You' : s))
-            .join(', ')} reacted ${emoji}. Tap to toggle your reaction.`}
+          title={`${who(senders)} reacted ${emoji}`}
+          aria-label={`${who(senders)} reacted ${emoji}. Tap to toggle your reaction.`}
           className={cn(
-            'wa-chip-pop flex items-center gap-1 rounded-full border px-1.5 py-0.5 shadow-sm transition-transform active:scale-90',
+            'wa-chip-pop flex items-center gap-1 rounded-full px-2 py-[3px] shadow-sm transition-transform hover:scale-105 active:scale-90',
             mine
-              ? 'border-(--wa-accent)/50 bg-(--wa-accent)/10 ring-2 ring-(--wa-accent) dark:bg-(--wa-accent)/20'
-              : 'border-black/10 bg-(--wa-in) dark:border-white/10 dark:bg-white/10'
+              ? 'bg-(--wa-accent)/[0.16] ring-1 ring-inset ring-(--wa-accent)/50 dark:bg-(--wa-accent)/30'
+              : 'bg-black/[0.06] ring-1 ring-inset ring-black/[0.06] dark:bg-white/[0.14] dark:ring-white/[0.08]'
           )}
         >
-          <span className="text-[13px] leading-none">{emoji}</span>
-          {senders.length > 1 && (
-            <span className="text-[11px] font-medium leading-none text-(--wa-text-2)">
-              {senders.length}
-            </span>
-          )}
+          <span className="text-[13.5px] leading-none">{emoji}</span>
+          <span
+            className={cn(
+              'text-[11.5px] font-semibold leading-none',
+              mine
+                ? 'text-(--wa-accent-strong) dark:text-(--wa-accent)'
+                : 'text-(--wa-text-2)'
+            )}
+          >
+            {senders.length}
+          </span>
         </button>
       ))}
+    </div>
+  )
+}
+
+/**
+ * Bubble floor: when reactions exist, Telegram lays the pills along the
+ * bubble's inside floor with the timestamp pushed to the far edge — mirror
+ * that. Without reactions, keep the classic inline meta untouched.
+ */
+function BubbleMetaRow({
+  msg,
+  outgoing,
+  side,
+  onReact,
+}: {
+  msg: ChatMessage
+  outgoing: boolean
+  side: 'in' | 'out'
+  onReact?: (msgId: string, emoji: string) => void
+}) {
+  const reactions = getReactions(msg)
+  const hasReactions = !!reactions && Object.keys(reactions).length > 0
+  if (!hasReactions) {
+    return <Meta msg={msg} outgoing={outgoing} onMedia={false} />
+  }
+  return (
+    <div
+      className="wa-pill-land mt-1 flex flex-wrap items-center gap-x-2 gap-y-1"
+      onDoubleClick={(e) => e.stopPropagation()}
+    >
+      <ReactionPills msg={msg} side={side} onReact={onReact} />
+      <Meta
+        msg={msg}
+        outgoing={outgoing}
+        onMedia={false}
+        className="ml-auto translate-y-0"
+      />
     </div>
   )
 }
@@ -467,9 +508,10 @@ interface MetaProps {
   msg: ChatMessage
   outgoing: boolean
   onMedia: boolean
+  className?: string
 }
 
-function Meta({ msg, outgoing, onMedia }: MetaProps) {
+function Meta({ msg, outgoing, onMedia, className }: MetaProps) {
   return (
     <span
       className={cn(
@@ -480,7 +522,8 @@ function Meta({ msg, outgoing, onMedia }: MetaProps) {
             : 'text-(--wa-text-2)'
           : onMedia
             ? 'text-white/80'
-            : 'text-(--wa-text-2)'
+            : 'text-(--wa-text-2)',
+        className
       )}
     >
       {isPinned(msg) && (
@@ -1006,7 +1049,7 @@ export function MessageBubble({
               highlight={highlight}
               highlightRegex={highlightRegex}
             />
-            <Meta msg={msg} outgoing={false} onMedia={false} />
+            <BubbleMetaRow msg={msg} outgoing={false} side="in" />
           </div>
         </div>
       </div>
@@ -1054,7 +1097,7 @@ export function MessageBubble({
           highlight={highlight}
           highlightRegex={highlightRegex}
         />
-        <Meta msg={msg} outgoing={false} onMedia={false} />
+        <BubbleMetaRow msg={msg} outgoing={false} side="in" onReact={onReact} />
       </div>
     </div>
   )
@@ -1086,7 +1129,6 @@ export function MessageBubble({
             />
           </ContextMenu>
         )}
-        <ReactionChips msg={msg} side="in" onReact={onReact} />
       </div>
       <HoverActions
         msg={msg}
@@ -1190,7 +1232,12 @@ function OutgoingBubble({
           highlight={highlight}
           highlightRegex={highlightRegex}
         />
-        <Meta msg={msg} outgoing onMedia={false} />
+        <BubbleMetaRow
+          msg={msg}
+          outgoing
+          side="out"
+          onReact={selectMode ? undefined : onReact}
+        />
       </div>
     </div>
   )
@@ -1248,7 +1295,6 @@ function OutgoingBubble({
             />
           </ContextMenu>
         )}
-        <ReactionChips msg={msg} side="out" onReact={onReact} />
       </div>
       {extras.heartsNode}
       <MessageActionSheet

@@ -206,6 +206,23 @@ export function WhatsAppApp() {
 
   useEffect(() => {
     refreshChats()
+    // One-shot v1→v2 demo upgrade: swap the short v1 demo conversations for
+    // the richer v2 scripts. Idempotent — a no-op once chats are on @v2.
+    fetch('/api/demo', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ migrateOnly: true }),
+    })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data: { migrated?: string[] } | null) => {
+        if (data?.migrated?.length) {
+          void refreshChats()
+          toast.info(
+            `Demo chats upgraded with richer stories: ${data.migrated.join(', ')}`
+          )
+        }
+      })
+      .catch(() => {})
   }, [refreshChats])
 
   /**

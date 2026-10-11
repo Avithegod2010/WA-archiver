@@ -22,6 +22,7 @@ import {
   Copy,
   Download,
   FileArchive,
+  FileCode2,
   FileText,
   Images,
   Languages,
@@ -711,6 +712,17 @@ export function ChatView({
     toast.success('Exporting .zip with text + media — check your downloads')
   }
 
+  function handleExportHtml() {
+    if (!detail) return
+    const a = document.createElement('a')
+    a.href = `/api/chats/${detail.chat.id}/export?format=html`
+    a.download = ''
+    document.body.appendChild(a)
+    a.click()
+    a.remove()
+    toast.success('Exporting .html — a standalone page of this chat')
+  }
+
   function openPrint() {
     setPrintReady(true)
   }
@@ -1393,7 +1405,7 @@ export function ChatView({
               <Palette className="h-5 w-5 text-(--wa-text-2)" />
             </Button>
           </WallpaperPicker>
-          {/* Export / print menu (#10): .txt, .zip (text + media), print/PDF */}
+          {/* Export / print menu (#10): .txt, .html, .zip (text + media), print/PDF */}
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <Button
@@ -1414,6 +1426,10 @@ export function ChatView({
               <DropdownMenuItem onClick={handleExportZip} className="gap-2">
                 <FileArchive className="h-4 w-4 text-(--wa-text-2)" />
                 Export .zip (text + media)
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={handleExportHtml} className="gap-2">
+                <FileCode2 className="h-4 w-4 text-(--wa-text-2)" />
+                Export .html (viewable page)
               </DropdownMenuItem>
               <DropdownMenuSeparator />
               <DropdownMenuItem onClick={openPrint} className="gap-2">

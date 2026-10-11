@@ -2,7 +2,8 @@
    Reaction chips, double-click heart burst, long-press squish.
    Uses theme vars / currentColor only; motion-reduce safe. */
 
-/* Reaction chips: springy pop-in when a reaction appears */
+/* Reaction pills: springy pop-in — fills BACKWARDS so hover/active
+   transforms on the pill still work after the entrance settles */
 @keyframes wa-chip-pop {
   0% {
     transform: scale(0.3) translateY(5px);
@@ -19,8 +20,24 @@
 }
 
 .wa-chip-pop {
-  animation: wa-chip-pop 0.28s cubic-bezier(0.34, 1.56, 0.64, 1) both;
+  animation: wa-chip-pop 0.28s cubic-bezier(0.34, 1.56, 0.64, 1) backwards;
   will-change: transform, opacity;
+}
+
+/* Telegram-style floor row: pills sit inside the bubble above the seam */
+@keyframes wa-pill-land {
+  0% {
+    transform: translateY(6px);
+    opacity: 0;
+  }
+  100% {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+.wa-pill-land {
+  animation: wa-pill-land 0.24s cubic-bezier(0.22, 1, 0.36, 1) backwards;
 }
 
 /* Double-click heart: floats up from the cursor and fades (700ms) */
@@ -58,6 +75,11 @@
 
 @media (prefers-reduced-motion: reduce) {
   .wa-chip-pop {
+    animation: none;
+    transform: none;
+    opacity: 1;
+  }
+  .wa-pill-land {
     animation: none;
     transform: none;
     opacity: 1;

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
 import { buildWhatsAppText, safeFileTitle } from '@/lib/export-text'
+import { buildChatHtml } from '@/lib/export-html'
 import { resolveMediaPath } from '@/lib/media-store'
 import JSZip from 'jszip'
 import path from 'path'
@@ -12,6 +13,7 @@ export const maxDuration = 120
 /**
  * GET /api/chats/:id/export
  * Plain GET  → authentic WhatsApp-format .txt transcript.
+ * ?format=html → standalone HTML page (bubbles + reactions + embedded media).
  * ?format=zip → ZIP bundle: `_chat.txt` transcript + `media/<file>` for every
  * media file that exists on disk (mirrors an official "with media" export).
  */
@@ -23,7 +25,7 @@ export async function GET(
   const format = req.nextUrl.searchParams.get('format')
   const chat = await db.chat.findUnique({
     where: { id },
-    select: { title: true, sourceFile: true },
+    select: { title: true, sourceFile: true, isGroup: true },
   })
   if (!chat) {
     return NextResponse.json({ error: 'Chat not found' }, { status: 404 })
@@ -36,6 +38,37 @@ export async function GET(
   })
 
   const text = buildWhatsAppText(messages)
+
+  if (format === 'html') {
+    const rows = await db.message.findMany({
+      where: { chatId: id },
+      orderBy: [{ idx: 'asc' }],
+      select: {
+        ts: true,
+        sender: true,
+        body: true,
+        type: true,
+        mediaName: true,
+        mediaPath: true,
+        reactions: true,
+        pinned: true,
+        starred: true,
+        edited: true,
+        forwardedFrom: true,
+        pollOptions: true,
+      },
+    })
+    const html = await buildChatHtml(id, chat.title, chat.isGroup, rows)
+    const htmlName = `WhatsApp Chat - ${safeFileTitle(chat.title)}.html`
+    return new NextResponse(html, {
+      status: 200,
+      headers: {
+        'Content-Type': 'text/html; charset=utf-8',
+        'Content-Disposition': `attachment; filename="${htmlName}"`,
+        'Cache-Control': 'no-store',
+      },
+    })
+  }
 
   if (format !== 'zip') {
     const filename = `WhatsApp Chat - ${safeFileTitle(chat.title)}.txt`
