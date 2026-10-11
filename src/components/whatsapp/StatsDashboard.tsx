@@ -1,5 +1,7 @@
 'use client'
 
+import './stats-extras.css'
+
 import { useEffect, useState } from 'react'
 import {
   BarChart3,
@@ -51,19 +53,57 @@ const TYPE_LABELS: Record<string, string> = {
 
 const WEEKDAY_FULL = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
 
+/** Ease-out count from 0 → target on mount (KPI numbers). Respects
+    prefers-reduced-motion by jumping straight to the target. */
+function useCountUp(target: number, delay = 0, duration = 900): number {
+  const [val, setVal] = useState(0)
+  useEffect(() => {
+    let raf = 0
+    let start: number | null = null
+    const reduce =
+      typeof window !== 'undefined' &&
+      window.matchMedia?.('(prefers-reduced-motion: reduce)').matches
+    const dur = reduce ? 0 : duration
+    const t0 = performance.now() + (reduce ? 0 : delay)
+    const step = (now: number) => {
+      if (start === null) start = Math.max(now, t0)
+      const p = dur === 0 ? 1 : Math.min(1, (now - start) / dur)
+      const eased = 1 - Math.pow(1 - p, 3)
+      setVal(Math.round(target * eased))
+      if (p < 1) raf = requestAnimationFrame(step)
+    }
+    raf = requestAnimationFrame(step)
+    return () => cancelAnimationFrame(raf)
+  }, [target, delay, duration])
+  return val
+}
+
 function Kpi({
   icon,
   label,
   value,
   accent,
+  countTo,
+  countSuffix,
+  delay = 0,
 }: {
   icon: React.ReactNode
   label: string
   value: string
   accent: string
+  /** When set, the number counts up from 0 on mount instead of showing value. */
+  countTo?: number
+  countSuffix?: string
+  delay?: number
 }) {
+  const animated = useCountUp(countTo ?? 0, delay)
+  const display =
+    countTo != null ? animated.toLocaleString() + (countSuffix ?? '') : value
   return (
-    <div className="flex items-center gap-3 rounded-xl border border-black/5 bg-(--wa-panel-2)/60 p-3 dark:border-white/5 dark:bg-(--wa-panel-2)/60">
+    <div
+      className="wa-kpi-pop flex items-center gap-3 rounded-xl border border-black/5 bg-(--wa-panel-2)/60 p-3 dark:border-white/5 dark:bg-(--wa-panel-2)/60"
+      style={{ animationDelay: `${delay}ms` }}
+    >
       <div
         className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg"
         style={{ backgroundColor: `${accent}1f`, color: accent }}
@@ -71,8 +111,8 @@ function Kpi({
         {icon}
       </div>
       <div className="min-w-0">
-        <p className="truncate text-[17px] font-semibold leading-tight text-(--wa-text)">
-          {value}
+        <p className="truncate text-[17px] font-semibold leading-tight tabular-nums text-(--wa-text)">
+          {display}
         </p>
         <p className="truncate text-[11.5px] text-(--wa-text-2)">
           {label}
@@ -86,13 +126,18 @@ function Section({
   title,
   icon,
   children,
+  delay = 0,
 }: {
   title: string
   icon?: React.ReactNode
   children: React.ReactNode
+  delay?: number
 }) {
   return (
-    <section>
+    <section
+      className="wa-stats-rise"
+      style={{ animationDelay: `${delay}ms` }}
+    >
       <h4 className="mb-2 flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wider text-(--wa-text-2)">
         {icon}
         {title}
@@ -110,6 +155,7 @@ function BarRow({
   accent = 'var(--wa-accent)',
   leading,
   formatValue,
+  delay = 0,
 }: {
   label: string
   value: number
@@ -118,6 +164,7 @@ function BarRow({
   accent?: string
   leading?: React.ReactNode
   formatValue?: (v: number) => string
+  delay?: number
 }) {
   const pct = max > 0 ? Math.max((value / max) * 100, 2) : 0
   return (
@@ -128,8 +175,12 @@ function BarRow({
       </span>
       <div className="h-2.5 min-w-0 flex-1 overflow-hidden rounded-full bg-black/5 dark:bg-white/10">
         <div
-          className="h-full rounded-full transition-[width] duration-500"
-          style={{ width: `${pct}%`, backgroundColor: accent }}
+          className="wa-bar-grow h-full rounded-full transition-[width] duration-500"
+          style={{
+            width: `${pct}%`,
+            backgroundColor: accent,
+            animationDelay: `${delay}ms`,
+          }}
         />
       </div>
       <span className="w-14 shrink-0 text-right text-[11.5px] tabular-nums text-(--wa-text-2)">
@@ -206,8 +257,11 @@ function Heatmap({ grid, total }: { grid: number[][]; total: number }) {
         {grid.map((row, day) => (
           <div
             key={day}
-            className="grid gap-[3px]"
-            style={{ gridTemplateColumns: '30px repeat(24, minmax(0, 1fr))' }}
+            className="wa-heat-row grid gap-[3px]"
+            style={{
+              gridTemplateColumns: '30px repeat(24, minmax(0, 1fr))',
+              animationDelay: `${day * 55}ms`,
+            }}
           >
             <span className="text-[9px] leading-[14px] text-(--wa-text-2)">
               {WEEKDAY_FULL[day]}
@@ -261,7 +315,7 @@ function HoursChart({ hours }: { hours: StatsData['hours'] }) {
   return (
     <div>
       <div className="flex h-24 items-end gap-[3px] rounded-xl bg-(--wa-panel-2)/60 p-3 dark:bg-(--wa-panel-2)/60">
-        {hours.map((h) => (
+        {hours.map((h, i) => (
           <div
             key={h.hour}
             className="group relative flex h-full min-w-0 flex-1 flex-col justify-end"
@@ -269,13 +323,14 @@ function HoursChart({ hours }: { hours: StatsData['hours'] }) {
           >
             <div
               className={cn(
-                'w-full rounded-t-[3px] transition-colors',
+                'wa-col-grow w-full rounded-t-[3px] transition-colors',
                 h.hour === peak.hour && peak.count > 0
                   ? 'bg-[#f2a33c]'
                   : 'bg-(--wa-accent)/70 group-hover:bg-(--wa-accent)'
               )}
               style={{
                 height: `${Math.max((h.count / max) * 100, h.count > 0 ? 4 : 1.5)}%`,
+                animationDelay: `${i * 18}ms`,
               }}
             />
           </div>
@@ -305,14 +360,26 @@ function FunFact({
   value,
   label,
   accent,
+  countTo,
+  countSuffix,
+  delay = 0,
 }: {
   icon: React.ReactNode
   value: string
   label: string
   accent: string
+  countTo?: number
+  countSuffix?: string
+  delay?: number
 }) {
+  const animated = useCountUp(countTo ?? 0, delay)
+  const display =
+    countTo != null ? animated.toLocaleString() + (countSuffix ?? '') : value
   return (
-    <div className="flex items-center gap-2.5 rounded-xl border border-black/5 bg-(--wa-panel-2)/60 p-2.5 dark:border-white/5 dark:bg-(--wa-panel-2)/60">
+    <div
+      className="wa-kpi-pop flex items-center gap-2.5 rounded-xl border border-black/5 bg-(--wa-panel-2)/60 p-2.5 dark:border-white/5 dark:bg-(--wa-panel-2)/60"
+      style={{ animationDelay: `${delay}ms` }}
+    >
       <div
         className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg"
         style={{ backgroundColor: `${accent}1f`, color: accent }}
@@ -320,8 +387,8 @@ function FunFact({
         {icon}
       </div>
       <div className="min-w-0">
-        <p className="truncate text-[15px] font-semibold leading-tight text-(--wa-text)">
-          {value}
+        <p className="truncate text-[15px] font-semibold leading-tight tabular-nums text-(--wa-text)">
+          {display}
         </p>
         <p className="truncate text-[11px] text-(--wa-text-2)">
           {label}
@@ -386,8 +453,8 @@ export function StatsDashboard({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="flex max-h-[85vh] flex-col overflow-hidden sm:max-w-2xl">
-        <DialogHeader>
+      <DialogContent className="wa-stats-pop flex max-h-[85vh] flex-col overflow-hidden sm:max-w-2xl">
+        <DialogHeader className="wa-stats-rise">
           <DialogTitle className="flex items-center gap-2">
             <BarChart3 className="h-5 w-5 text-(--wa-accent)" />
             Insights
@@ -415,7 +482,9 @@ export function StatsDashboard({
                   icon={<MessageSquare className="h-4 w-4" />}
                   label="Messages"
                   value={data.totals.messages.toLocaleString()}
+                  countTo={data.totals.messages}
                   accent="var(--wa-accent)"
+                  delay={0}
                 />
                 <Kpi
                   icon={<Group className="h-4 w-4" />}
@@ -423,25 +492,33 @@ export function StatsDashboard({
                     data.totals.groupChats === 1 ? 'group' : 'groups'
                   })`}
                   value={data.totals.chats.toLocaleString()}
+                  countTo={data.totals.chats}
                   accent="#e542a3"
+                  delay={45}
                 />
                 <Kpi
                   icon={<Images className="h-4 w-4" />}
                   label="Media items"
                   value={data.totals.media.toLocaleString()}
+                  countTo={data.totals.media}
                   accent="#f2a33c"
+                  delay={90}
                 />
                 <Kpi
                   icon={<Type className="h-4 w-4" />}
                   label="Words"
                   value={data.totals.words.toLocaleString()}
+                  countTo={data.totals.words}
                   accent="#0ea5a4"
+                  delay={135}
                 />
                 <Kpi
                   icon={<Smile className="h-4 w-4" />}
                   label="Emojis sent"
                   value={data.totals.emojis.toLocaleString()}
+                  countTo={data.totals.emojis}
                   accent="#b06ad4"
+                  delay={180}
                 />
                 <Kpi
                   icon={<CalendarDays className="h-4 w-4" />}
@@ -451,19 +528,33 @@ export function StatsDashboard({
                       ? `${Math.round((data.totals.outgoing / data.totals.messages) * 100)}%`
                       : '—'
                   }
+                  countTo={
+                    data.totals.messages > 0
+                      ? Math.round(
+                          (data.totals.outgoing / data.totals.messages) * 100
+                        )
+                      : undefined
+                  }
+                  countSuffix="%"
                   accent="#ef6c6c"
+                  delay={225}
                 />
                 <Kpi
                   icon={<CalendarCheck2 className="h-4 w-4" />}
                   label="Active days"
                   value={data.range.activeDays.toLocaleString()}
+                  countTo={data.range.activeDays}
                   accent="#12b886"
+                  delay={270}
                 />
                 <Kpi
                   icon={<Flame className="h-4 w-4" />}
                   label="Longest streak"
                   value={`${data.streak.longest} day${data.streak.longest === 1 ? '' : 's'}`}
+                  countTo={data.streak.longest}
+                  countSuffix={data.streak.longest === 1 ? ' day' : ' days'}
                   accent="#ef8c6c"
+                  delay={315}
                 />
                 <Kpi
                   icon={<HardDrive className="h-4 w-4" />}
@@ -474,6 +565,7 @@ export function StatsDashboard({
                       : '0 B'
                   }
                   accent="#0ea5a4"
+                  delay={360}
                 />
               </div>
 
@@ -484,7 +576,7 @@ export function StatsDashboard({
               ) : (
                 <>
                   {data.range.busiestDay && (
-                    <p className="rounded-lg bg-(--wa-accent)/10 px-3 py-2 text-[12.5px] text-(--wa-accent-strong)">
+                    <p className="wa-stats-rise rounded-lg bg-(--wa-accent)/10 px-3 py-2 text-[12.5px] text-(--wa-accent-strong)" style={{ animationDelay: '30ms' }}>
                       Busiest day:{' '}
                       <b>
                         {new Date(
@@ -506,18 +598,19 @@ export function StatsDashboard({
                   <Section
                     title="Activity heatmap"
                     icon={<CalendarDays className="h-3 w-3" />}
+                    delay={40}
                   >
                     <Heatmap grid={data.heatmap} total={data.totals.messages} />
                   </Section>
 
-                  <Section title="Messages per month">
+                  <Section title="Messages per month" delay={90}>
                     <div className="flex h-28 items-end gap-1.5 rounded-xl bg-(--wa-panel-2)/60 p-3 dark:bg-(--wa-panel-2)/60">
                       {data.months.length === 0 ? (
                         <p className="w-full text-center text-[12px] text-(--wa-text-2)">
                           No dated messages
                         </p>
                       ) : (
-                        data.months.map((m) => (
+                        data.months.map((m, i) => (
                           <div
                             key={m.month}
                             className="group flex h-full min-w-0 flex-1 flex-col items-center justify-end gap-1"
@@ -527,9 +620,10 @@ export function StatsDashboard({
                               {m.count}
                             </span>
                             <div
-                              className="w-full max-w-7 rounded-t-sm bg-(--wa-accent)/80 transition-colors group-hover:bg-(--wa-accent)"
+                              className="wa-col-grow w-full max-w-7 rounded-t-sm bg-(--wa-accent)/80 transition-colors group-hover:bg-(--wa-accent)"
                               style={{
                                 height: `${Math.max((m.count / maxMonth) * 100, 3)}%`,
+                                animationDelay: `${i * 40}ms`,
                               }}
                             />
                             <span className="w-full truncate text-center text-[8.5px] text-(--wa-text-2)">
@@ -544,19 +638,21 @@ export function StatsDashboard({
                   <Section
                     title="Most active hours"
                     icon={<CalendarCheck2 className="h-3 w-3" />}
+                    delay={140}
                   >
                     <HoursChart hours={data.hours} />
                   </Section>
 
-                  <Section title="Activity by weekday">
+                  <Section title="Activity by weekday" delay={190}>
                     <div className="space-y-1.5">
-                      {data.weekdays.map((w) => (
+                      {data.weekdays.map((w, i) => (
                         <BarRow
                           key={w.weekday}
                           label={w.weekday}
                           value={w.count}
                           max={maxWeekday}
                           total={data.totals.messages}
+                          delay={i * 60}
                         />
                       ))}
                     </div>
@@ -566,12 +662,13 @@ export function StatsDashboard({
                   {(data.topWords.length > 0 || data.topEmojis.length > 0) && (
                     <div className="grid gap-5 sm:grid-cols-2">
                       {data.topWords.length > 0 && (
-                        <Section title="Top words">
+                        <Section title="Top words" delay={240}>
                           <div className="flex flex-wrap gap-1.5">
-                            {data.topWords.map((w) => (
+                            {data.topWords.map((w, i) => (
                               <span
                                 key={w.word}
-                                className="rounded-full border border-black/5 bg-(--wa-panel-2)/70 px-2.5 py-1 text-[12px] text-(--wa-text) dark:border-white/5 dark:bg-(--wa-panel-2)/70 dark:text-(--wa-text)"
+                                className="wa-chip-in rounded-full border border-black/5 bg-(--wa-panel-2)/70 px-2.5 py-1 text-[12px] text-(--wa-text) dark:border-white/5 dark:bg-(--wa-panel-2)/70 dark:text-(--wa-text)"
+                                style={{ animationDelay: `${i * 30}ms` }}
                               >
                                 {w.word}
                                 <b className="ml-1.5 tabular-nums text-(--wa-accent)">
@@ -583,12 +680,13 @@ export function StatsDashboard({
                         </Section>
                       )}
                       {data.topEmojis.length > 0 && (
-                        <Section title="Top emojis">
+                        <Section title="Top emojis" delay={240}>
                           <div className="flex flex-wrap gap-2">
                             {data.topEmojis.map((e, i) => (
                               <div
                                 key={e.emoji}
-                                className="flex w-[68px] flex-col items-center rounded-lg border border-black/5 bg-(--wa-panel-2)/70 py-2 dark:border-white/5 dark:bg-(--wa-panel-2)/70"
+                                className="wa-kpi-pop flex w-[68px] flex-col items-center rounded-lg border border-black/5 bg-(--wa-panel-2)/70 py-2 dark:border-white/5 dark:bg-(--wa-panel-2)/70"
+                                style={{ animationDelay: `${240 + i * 60}ms` }}
                               >
                                 <span className="text-[22px] leading-none">
                                   {e.emoji}
@@ -609,37 +707,48 @@ export function StatsDashboard({
                     </div>
                   )}
 
-                  <Section title="Fun facts">
+                  <Section title="Fun facts" delay={290}>
                     <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
                       <FunFact
                         icon={<Flame className="h-4 w-4" />}
                         value={`${data.streak.current} day${data.streak.current === 1 ? '' : 's'}`}
                         label="Current streak"
                         accent="#ef8c6c"
+                        countTo={data.streak.current}
+                        countSuffix={data.streak.current === 1 ? ' day' : ' days'}
+                        delay={300}
                       />
                       <FunFact
                         icon={<Link2 className="h-4 w-4" />}
                         value={data.fun.links.toLocaleString()}
                         label="Links shared"
                         accent="#0ea5a4"
+                        countTo={data.fun.links}
+                        delay={355}
                       />
                       <FunFact
                         icon={<HelpCircle className="h-4 w-4" />}
                         value={data.fun.questions.toLocaleString()}
                         label="Questions asked"
                         accent="#f2a33c"
+                        countTo={data.fun.questions}
+                        delay={410}
                       />
                       <FunFact
                         icon={<Trash2 className="h-4 w-4" />}
                         value={deletedCount.toLocaleString()}
                         label="Deleted messages"
                         accent="#ef6c6c"
+                        countTo={deletedCount}
+                        delay={465}
                       />
                       <FunFact
                         icon={<CalendarCheck2 className="h-4 w-4" />}
                         value={`${data.range.avgPerDay.toLocaleString()}`}
                         label="Avg msgs / active day"
                         accent="#12b886"
+                        countTo={data.range.avgPerDay}
+                        delay={520}
                       />
                       <FunFact
                         icon={<Type className="h-4 w-4" />}
@@ -650,6 +759,8 @@ export function StatsDashboard({
                         }
                         label="Longest message (chars)"
                         accent="#b06ad4"
+                        countTo={data.fun.longest?.chars}
+                        delay={575}
                       />
                     </div>
                     {data.fun.longest && (
@@ -670,7 +781,7 @@ export function StatsDashboard({
                     )}
                   </Section>
 
-                  <Section title="Top chats">
+                  <Section title="Top chats" delay={340}>
                     {(data.perChat.length > 2 || q) && (
                       <div className="relative mb-2">
                         <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-(--wa-text-2)" />
@@ -689,7 +800,7 @@ export function StatsDashboard({
                       </p>
                     ) : (
                       <div className="space-y-1.5">
-                        {filteredChats.map((c) => (
+                        {filteredChats.map((c, i) => (
                           <BarRow
                             key={c.id}
                             label={c.title}
@@ -697,6 +808,7 @@ export function StatsDashboard({
                             max={filteredChatMax}
                             total={data.totals.messages}
                             accent={c.isGroup ? '#e542a3' : 'var(--wa-accent)'}
+                            delay={i * 50}
                             leading={
                               <span className="shrink-0">
                                 <Avatar name={c.title} size={24} />
@@ -709,10 +821,14 @@ export function StatsDashboard({
                   </Section>
 
                   {data.participants.length > 0 && (
-                    <Section title="Most active people">
+                    <Section title="Most active people" delay={390}>
                       <div className="space-y-2.5">
-                        {data.participants.map((p) => (
-                          <div key={p.sender} className="flex items-center gap-2.5">
+                        {data.participants.map((p, i) => (
+                          <div
+                            key={p.sender}
+                            className="wa-stats-rise flex items-center gap-2.5"
+                            style={{ animationDelay: `${400 + i * 70}ms` }}
+                          >
                             <span className="shrink-0">
                               <Avatar name={p.sender} size={26} />
                             </span>
@@ -731,10 +847,11 @@ export function StatsDashboard({
                               </div>
                               <div className="h-2 min-w-0 overflow-hidden rounded-full bg-black/5 dark:bg-white/10">
                                 <div
-                                  className="h-full rounded-full transition-[width] duration-500"
+                                  className="wa-bar-grow h-full rounded-full transition-[width] duration-500"
                                   style={{
                                     width: `${Math.max((p.count / maxParticipant) * 100, 3)}%`,
                                     backgroundColor: colorForName(p.sender),
+                                    animationDelay: `${520 + i * 70}ms`,
                                   }}
                                 />
                               </div>
@@ -749,15 +866,16 @@ export function StatsDashboard({
                     </Section>
                   )}
 
-                  <Section title="Message types">
+                  <Section title="Message types" delay={440}>
                     <div className="flex flex-wrap gap-1.5">
-                      {data.types.map((t) => (
+                      {data.types.map((t, i) => (
                         <span
                           key={t.type}
                           className={cn(
-                            'rounded-full border border-black/5 bg-(--wa-panel-2)/70 px-2.5 py-1 text-[11.5px]',
+                            'wa-chip-in rounded-full border border-black/5 bg-(--wa-panel-2)/70 px-2.5 py-1 text-[11.5px]',
                             'text-(--wa-text) dark:border-white/5 dark:bg-(--wa-panel-2)/70 dark:text-(--wa-text)'
                           )}
+                          style={{ animationDelay: `${440 + i * 35}ms` }}
                         >
                           {TYPE_LABELS[t.type] ?? t.type}
                           <b className="ml-1.5 tabular-nums text-(--wa-accent)">
@@ -769,9 +887,9 @@ export function StatsDashboard({
                   </Section>
 
                   {data.storage.perChat.length > 0 && (
-                    <Section title="Media storage by chat">
+                    <Section title="Media storage by chat" delay={490}>
                       <div className="space-y-1.5">
-                        {filteredStorage.map((s) => (
+                        {filteredStorage.map((s, i) => (
                           <BarRow
                             key={s.chatId}
                             label={s.title}
@@ -780,6 +898,7 @@ export function StatsDashboard({
                             total={data.storage.totalBytes}
                             accent="#12b886"
                             formatValue={formatBytes}
+                            delay={i * 50}
                             leading={
                               <span className="shrink-0">
                                 <Avatar name={s.title} size={24} />

@@ -1,0 +1,149 @@
+/* stats-extras.css — Insights dialog ("chat analyser") motion (task 9).
+   Springy pop on open, staggered section rise, KPI cards popping in with
+   count-up numbers, bars/columns growing from zero, heatmap rows sweeping
+   in weekday by weekday. Unlayered CSS beats Tailwind's layered utilities
+   for the dialog shell; Tailwind 4 centers dialogs via the standalone
+   `translate` property so transform keyframes compose cleanly on top. */
+
+/* Dialog shell: springy pop */
+.wa-stats-pop[data-state='open'] {
+  animation: wa-stats-pop-in 380ms cubic-bezier(0.34, 1.45, 0.64, 1) both;
+}
+
+.wa-stats-pop[data-state='closed'] {
+  animation: wa-stats-pop-out 160ms ease-in both;
+}
+
+@keyframes wa-stats-pop-in {
+  0% {
+    opacity: 0;
+    transform: scale(0.88) translateY(20px);
+  }
+  60% {
+    opacity: 1;
+    transform: scale(1.015) translateY(-3px);
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}
+
+@keyframes wa-stats-pop-out {
+  from {
+    opacity: 1;
+    transform: scale(1);
+  }
+  to {
+    opacity: 0;
+    transform: scale(0.92) translateY(10px);
+  }
+}
+
+/* Staggered rise for whole sections */
+.wa-stats-rise {
+  animation: wa-stats-rise 460ms cubic-bezier(0.22, 1, 0.36, 1) backwards;
+}
+
+@keyframes wa-stats-rise {
+  0% {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* KPI / fun-fact cards: little springy pop (backwards fill so hover
+   transforms keep working after the entrance finishes) */
+.wa-kpi-pop {
+  animation: wa-kpi-pop 420ms cubic-bezier(0.34, 1.45, 0.64, 1) backwards;
+}
+
+@keyframes wa-kpi-pop {
+  0% {
+    opacity: 0;
+    transform: scale(0.9) translateY(10px);
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}
+
+/* Horizontal bars grow from the left edge */
+.wa-bar-grow {
+  transform-origin: left center;
+  animation: wa-bar-grow 650ms cubic-bezier(0.22, 1, 0.36, 1) backwards;
+}
+
+@keyframes wa-bar-grow {
+  0% {
+    transform: scaleX(0);
+  }
+  100% {
+    transform: scaleX(1);
+  }
+}
+
+/* Vertical chart columns grow from the bottom */
+.wa-col-grow {
+  transform-origin: bottom center;
+  animation: wa-col-grow 600ms cubic-bezier(0.22, 1, 0.36, 1) backwards;
+}
+
+@keyframes wa-col-grow {
+  0% {
+    transform: scaleY(0);
+  }
+  100% {
+    transform: scaleY(1);
+  }
+}
+
+/* Heatmap rows sweep in left-to-right, one weekday at a time */
+.wa-heat-row {
+  animation: wa-heat-row 400ms ease-out backwards;
+}
+
+@keyframes wa-heat-row {
+  0% {
+    opacity: 0;
+    transform: translateX(-8px);
+  }
+  100% {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+/* Small chips (top words, message types) pop in */
+.wa-chip-in {
+  animation: wa-chip-in 380ms cubic-bezier(0.34, 1.45, 0.64, 1) backwards;
+}
+
+@keyframes wa-chip-in {
+  0% {
+    opacity: 0;
+    transform: scale(0.6);
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .wa-stats-pop[data-state='open'],
+  .wa-stats-pop[data-state='closed'],
+  .wa-stats-rise,
+  .wa-kpi-pop,
+  .wa-bar-grow,
+  .wa-col-grow,
+  .wa-heat-row,
+  .wa-chip-in {
+    animation: none;
+  }
+}

@@ -29,6 +29,7 @@ import {
   ListChecks,
   Loader2,
   Lock,
+  MoreVertical,
   Palette,
   Pencil,
   Pin,
@@ -1308,7 +1309,7 @@ export function ChatView({
             variant="ghost"
             size="icon"
             className={cn(
-              'wa-iconbtn h-9 w-9',
+              'wa-iconbtn hidden h-9 w-9 sm:inline-flex',
               editMode &&
                 'bg-(--wa-accent)/15 text-(--wa-accent-strong) dark:text-(--wa-accent)'
             )}
@@ -1332,7 +1333,7 @@ export function ChatView({
           <Button
             variant="ghost"
             size="icon"
-            className="wa-iconbtn h-9 w-9"
+            className="wa-iconbtn hidden h-9 w-9 sm:inline-flex"
             onClick={() => setGalleryOpen(true)}
             aria-label="Media gallery"
             title="Media gallery"
@@ -1398,7 +1399,7 @@ export function ChatView({
             <Button
               variant="ghost"
               size="icon"
-              className="wa-iconbtn h-9 w-9"
+              className="wa-iconbtn hidden h-9 w-9 sm:inline-flex"
               aria-label="Chat wallpaper"
               title="Chat wallpaper & photo"
             >
@@ -1411,9 +1412,9 @@ export function ChatView({
               <Button
                 variant="ghost"
                 size="icon"
-                className="wa-iconbtn hidden h-9 w-9 lg:inline-flex"
+                className="wa-iconbtn h-9 w-9"
                 aria-label="Export or print chat"
-                title="Export / print"
+                title="Export / print — .txt, .zip, .html, PDF"
               >
                 <Download className="h-5 w-5 text-(--wa-text-2)" />
               </Button>
@@ -1435,6 +1436,54 @@ export function ChatView({
               <DropdownMenuItem onClick={openPrint} className="gap-2">
                 <Printer className="h-4 w-4 text-(--wa-text-2)" />
                 Print / Save as PDF
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+          {/* Narrow screens: tools whose buttons hide below sm (edit / gallery /
+              wallpaper) collapse into this overflow menu so nothing is lost. */}
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="wa-iconbtn h-9 w-9 sm:hidden"
+                aria-label="More chat tools"
+                title="More"
+              >
+                <MoreVertical className="h-5 w-5 text-(--wa-text-2)" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-52">
+              <DropdownMenuItem
+                onClick={() => {
+                  if (editMode) {
+                    exitEditMode()
+                  } else {
+                    setEditMode(true)
+                    toast.info(
+                      'Local editing on — tap messages to select, or send new ones below',
+                      { duration: 3500 }
+                    )
+                  }
+                }}
+                className="gap-2"
+              >
+                <Pencil className="h-4 w-4 text-(--wa-text-2)" />
+                {editMode ? 'Stop editing' : 'Edit messages'}
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                onClick={() => setGalleryOpen(true)}
+                className="gap-2"
+              >
+                <Images className="h-4 w-4 text-(--wa-text-2)" />
+                Media gallery
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                onClick={() => setWallpaperOpen(true)}
+                className="gap-2"
+              >
+                <Palette className="h-4 w-4 text-(--wa-text-2)" />
+                Chat wallpaper
               </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
