@@ -150,10 +150,20 @@ function firstUrlIn(text: string): string | null {
 
 /** Module-level per-URL cache so chat switches render previews instantly. */
 const linkPreviewCache = new Map<string, LinkPreviewData | null>()
+/** Cap on the module cache (evict oldest — Map keeps insertion order). */
+const LINK_PREVIEW_CACHE_MAX = 300
 /** In-flight fetches per URL (dedupes concurrent workers). */
 const linkPreviewInflight = new Map<string, Promise<LinkPreviewData | null>>()
 /** Max messages per chat that get a link preview lookup (document order). */
 const LINK_PREVIEW_CAP = 24
+
+function cachePreview(url: string, preview: LinkPreviewData | null) {
+  linkPreviewCache.set(url, preview)
+  if (linkPreviewCache.size > LINK_PREVIEW_CACHE_MAX) {
+    const oldest = linkPreviewCache.keys().next().value
+    if (oldest !== undefined) linkPreviewCache.delete(oldest)
+  }
+}
 
 /** Defensive parse of the /api/link-preview payload (never throws). */
 function parsePreviewPayload(data: unknown): LinkPreviewData | null {
@@ -699,7 +709,7 @@ export function ChatView({
             linkPreviewInflight.set(c.url, job)
             preview = await job
             linkPreviewInflight.delete(c.url)
-            linkPreviewCache.set(c.url, preview)
+            cachePreview(c.url, preview)
           }
         }
         if (!alive) return
@@ -1413,6 +1423,9 @@ export function ChatView({
   }
 
   function handleSent(msg: ChatMessage) {
+    // Stale-send guard: an upload started in chat A but finishing after the
+    // user switched to chat B must not append to B's transcript.
+    if (msg.chatId && msg.chatId !== chatId) return
     setDetail((d) => (d ? { ...d, messages: [...d.messages, msg] } : d))
     requestAnimationFrame(() => {
       const el = scrollRef.current

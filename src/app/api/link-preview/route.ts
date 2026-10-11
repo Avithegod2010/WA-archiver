@@ -136,6 +136,103 @@ function truncate(s: string, max: number): string {
   return t.length <= max ? t : `${t.slice(0, max - 1).trimEnd()}…`
 }
 
+/**
+ * SSRF guard: refuse hostnames that resolve to loopback / private /
+ * link-local / cloud-metadata targets. Covers IP-literal forms (v4, v6,
+ * decimal/octal/hex integer encodings) and obvious localhost spellings.
+ * Redirects are followed manually (max 5) and every hop is re-validated.
+ */
+function isPrivateHost(hostname: string): boolean {
+  const host = hostname.toLowerCase().replace(/\.$/, '')
+  if (host === 'localhost' || host.endsWith('.localhost') || host.endsWith('.local') || host.endsWith('.internal')) {
+    return true
+  }
+  // IPv6 literals are wrapped in brackets in URL.hostname
+  const bare = host.startsWith('[') && host.endsWith(']') ? host.slice(1, -1) : host
+  // Integer forms (decimal/hex/octal) like 2130706433 / 0x7f000001
+  if (/^0x[0-9a-f]+$/i.test(bare) || /^\d{8,}$/.test(bare)) return true
+  // IPv4 (possibly shortened forms like 127.1)
+  const parts = bare.split('.')
+  if (parts.length >= 1 && parts.length <= 4 && parts.every((p) => /^\d+$/.test(p))) {
+    const nums = parts.map((p) => parseInt(p, 10))
+    if (nums.some((n) => n > 255)) return true // weird numeric host, be safe
+    let ip: number[]
+    if (nums.length === 4) {
+      ip = nums
+    } else if (nums.length === 1) {
+      ip = [(nums[0] >>> 24) & 255, (nums[0] >>> 16) & 255, (nums[0] >>> 8) & 255, nums[0] & 255]
+    } else {
+      // 127.1 / 10.1 style: last part covers the remaining bytes
+      ip = [...nums.slice(0, -1)]
+      let last = nums[nums.length - 1]
+      while (ip.length < 3) {
+        ip.push((last >>> 8) & 255) // order: high byte of last part fills left
+        last = last & 255
+      }
+      ip.push(last)
+      ip = ip.slice(0, 4)
+    }
+    const [a, b] = ip
+    if (a === 127 || a === 10 || a === 0) return true
+    if (a === 169 && b === 254) return true // link-local incl. cloud metadata
+    if (a === 172 && b >= 16 && b <= 31) return true
+    if (a === 192 && b === 168) return true
+    if (a === 192 && b === 0) return true // 192.0.0.0/24 (IETF protocol)
+    if (a === 100 && b >= 64 && b <= 127) return true // CGNAT
+    if (a >= 224) return true // multicast + reserved
+  }
+  // IPv6 loopback/mapped/link-local
+  if (bare.includes(':')) {
+    const h = bare.replace(/^0+/, '')
+    if (bare === '::' || bare === '::1' || /^:1$/.test(h)) return true
+    if (/^f[cd]/i.test(bare)) return true // fc00::/7 unique-local
+    if (/^fe[89ab]/i.test(bare)) return true // fe80::/10 link-local
+    if (/^::ffff:(\d+\.\d+\.\d+\.\d+)$/i.test(bare)) {
+      return isPrivateHost(bare.replace(/^::ffff:/i, ''))
+    }
+  }
+  return false
+}
+
+async function fetchWithGuards(target: URL): Promise<Response | null> {
+  let current = target
+  for (let hop = 0; hop < 5; hop++) {
+    if (current.protocol !== 'http:' && current.protocol !== 'https:') return null
+    if (isPrivateHost(current.hostname)) return null
+    const controller = new AbortController()
+    const timer = setTimeout(() => controller.abort(), TIMEOUT_MS)
+    try {
+      const res = await fetch(current.toString(), {
+        signal: controller.signal,
+        redirect: 'manual',
+        headers: {
+          // A real browser-ish UA: many sites refuse requests without one.
+          'User-Agent':
+            'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36',
+          Accept: 'text/html,application/xhtml+xml;q=0.9,*/*;q=0.8',
+          'Accept-Language': 'en-US,en;q=0.9',
+        },
+      })
+      if (res.status >= 300 && res.status < 400) {
+        const loc = res.headers.get('location')
+        if (!loc) return null
+        try {
+          current = new URL(loc, current)
+        } catch {
+          return null
+        }
+        continue
+      }
+      return res
+    } catch {
+      return null
+    } finally {
+      clearTimeout(timer)
+    }
+  }
+  return null // too many redirects
+}
+
 async function scrape(rawUrl: string): Promise<LinkPreview | null> {
   let target: URL
   try {
@@ -144,21 +241,11 @@ async function scrape(rawUrl: string): Promise<LinkPreview | null> {
     return null
   }
   if (target.protocol !== 'http:' && target.protocol !== 'https:') return null
+  if (isPrivateHost(target.hostname)) return null
 
-  const controller = new AbortController()
-  const timer = setTimeout(() => controller.abort(), TIMEOUT_MS)
   try {
-    const res = await fetch(target.toString(), {
-      signal: controller.signal,
-      redirect: 'follow',
-      headers: {
-        // A real browser-ish UA: many sites refuse requests without one.
-        'User-Agent':
-          'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36',
-        Accept: 'text/html,application/xhtml+xml;q=0.9,*/*;q=0.8',
-        'Accept-Language': 'en-US,en;q=0.9',
-      },
-    })
+    const res = await fetchWithGuards(target)
+    if (!res) return null
 
     const contentType = res.headers.get('content-type') ?? ''
     if (!contentType.includes('text/html')) return null
@@ -224,8 +311,6 @@ async function scrape(rawUrl: string): Promise<LinkPreview | null> {
   } catch {
     // Unreachable, aborted, DNS failure… all get the same graceful null.
     return null
-  } finally {
-    clearTimeout(timer)
   }
 }
 
@@ -249,6 +334,12 @@ export async function GET(req: NextRequest) {
   if (candidate.protocol !== 'http:' && candidate.protocol !== 'https:') {
     return NextResponse.json(
       { ok: false, error: 'Only http/https urls are supported' },
+      { status: 400 }
+    )
+  }
+  if (isPrivateHost(candidate.hostname)) {
+    return NextResponse.json(
+      { ok: false, error: 'This url is not allowed' },
       { status: 400 }
     )
   }

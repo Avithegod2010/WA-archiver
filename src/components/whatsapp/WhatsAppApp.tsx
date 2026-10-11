@@ -513,14 +513,28 @@ export function WhatsAppApp() {
         : {}
       if (typeof map !== 'object' || map === null || Array.isArray(map)) return
       map[id] = { lastAt: chat.lastAt ?? '', count: chat.messageCount }
-      localStorage.setItem(SEEN_CHATS_KEY, JSON.stringify(map))
+      // Cap growth — keep only the 500 most recently read chats.
+      const entries = Object.entries(map)
+      const capped =
+        entries.length > 500
+          ? Object.fromEntries(
+              entries
+                .sort((a, b) => (b[1].lastAt ?? '').localeCompare(a[1].lastAt ?? ''))
+                .slice(0, 500)
+            )
+          : map
+      localStorage.setItem(SEEN_CHATS_KEY, JSON.stringify(capped))
       window.dispatchEvent(new Event('wa-seen-changed'))
     } catch {
       /* storage unavailable — ignore */
     }
   }, [])
 
+  // Sequence guard for openChat: a slow response for chat A must never
+  // overwrite the detail of a chat opened after it (out-of-order fetch race).
+  const openChatSeqRef = useRef(0)
   const openChat = useCallback(async (id: string, jumpMessageId?: string) => {
+    const seq = ++openChatSeqRef.current
     setActiveId(id)
     setDetailLoading(true)
     setDetail(null)
@@ -529,6 +543,7 @@ export function WhatsAppApp() {
       const res = await fetch(`/api/chats/${id}/messages`, { cache: 'no-store' })
       if (!res.ok) throw new Error('failed')
       const data = await res.json()
+      if (seq !== openChatSeqRef.current) return // a newer openChat superseded this one
       setDetail(data)
       // Keep an offline copy of this chat (size-guarded)
       cacheSet(CHAT_CACHE_PREFIX + id, data)
@@ -539,6 +554,7 @@ export function WhatsAppApp() {
         /* storage unavailable */
       }
     } catch {
+      if (seq !== openChatSeqRef.current) return
       // Offline / failed: fall back to the cached copy when present
       const cached = cacheGet<ChatDetail>(CHAT_CACHE_PREFIX + id)
       if (cached && cached.chat && Array.isArray(cached.messages)) {
@@ -556,7 +572,9 @@ export function WhatsAppApp() {
         }
       }
     } finally {
-      setDetailLoading(false)
+      if (seq === openChatSeqRef.current) {
+        setDetailLoading(false)
+      }
     }
   }, [markChatSeen])
 

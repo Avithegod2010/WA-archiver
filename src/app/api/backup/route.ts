@@ -43,6 +43,18 @@ interface BackupMessage {
 const strOrNull = (v: unknown): string | null =>
   typeof v === 'string' && v.length > 0 ? v : null
 
+/**
+ * Basename-only path value for media references coming from a backup file.
+ * Backups are untrusted input: a `mediaPath` like `../../custom.db` must
+ * never be stored, or `/api/chats/:id/media-zip` would zip arbitrary files.
+ */
+const basePathOrNull = (v: unknown): string | null => {
+  if (typeof v !== 'string' || v.length === 0) return null
+  const base = v.split(/[/\\]/).pop() ?? ''
+  if (!base || base === '.' || base === '..') return null
+  return base.slice(0, 255)
+}
+
 const boolOr = (v: unknown, fallback = false): boolean =>
   typeof v === 'boolean' ? v : fallback
 
@@ -319,8 +331,8 @@ export async function POST(req: NextRequest) {
           sender: strOrNull(m.sender),
           body: typeof m.body === 'string' ? m.body.slice(0, 8000) : '',
           type: typeof m.type === 'string' && m.type ? m.type.slice(0, 40) : 'text',
-          mediaPath: strOrNull(m.mediaPath),
-          mediaName: strOrNull(m.mediaName),
+          mediaPath: basePathOrNull(m.mediaPath),
+          mediaName: basePathOrNull(m.mediaName),
           starred: boolOr(m.starred),
           edited: boolOr(m.edited),
           forwardedFrom: strOrNull(m.forwardedFrom),

@@ -981,6 +981,15 @@ function MediaTile({
         if (selectMode) onToggleSelect(item.id)
         else onOpen()
       }}
+      onKeyDown={(e) => {
+        if (!src) return
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault()
+          if (selectMode) onToggleSelect(item.id)
+          else onOpen()
+        }
+      }}
+      tabIndex={src ? 0 : undefined}
     >
       {src && kind === 'image' && (
         <img

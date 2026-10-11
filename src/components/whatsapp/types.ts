@@ -21,6 +21,8 @@ export interface ChatMessage {
   sender: string | null
   body: string
   type: string
+  /** Owning chat id (present on API responses) — used to drop stale sends. */
+  chatId?: string
   mediaPath: string | null
   mediaName: string | null
   starred?: boolean

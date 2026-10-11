@@ -217,7 +217,7 @@ export async function POST(req: NextRequest) {
       {
         error:
           err instanceof Error
-            ? `AI request failed: ${err.message}`
+            ? 'AI request failed. Check your connection or API key and try again.'
             : 'AI request failed',
       },
       { status: 502 }

@@ -7,9 +7,24 @@ import {
   generateVideoPoster,
   posterPathFor,
   isVideoName,
+  isValidChatId,
 } from '@/lib/media-store'
 
 export const runtime = 'nodejs'
+
+/**
+ * Script-capable types are served with a `CSP: sandbox` header so that a
+ * hostile SVG/HTML from an imported zip can never execute script on this
+ * origin when opened directly (stored-XSS defense). `<img>` rendering is
+ * unaffected by the header.
+ */
+const SANDBOXED_MIMES = new Set([
+  'image/svg+xml',
+  'text/html',
+  'application/xhtml+xml',
+  'image/gif', // GIFs can embed script in older engines
+  'application/pdf',
+])
 
 /** Node stream -> web body so large videos are never buffered fully in memory. */
 function streamOf(filePath: string, start?: number, end?: number): ReadableStream {
@@ -22,6 +37,11 @@ export async function GET(
   ctx: { params: Promise<{ chatId: string; name: string }> }
 ) {
   const { chatId, name } = await ctx.params
+  // Hard path-traversal guard: chatId must be a plain id before it can ever
+  // reach the filesystem (blocks `/api/media/..%2f/custom.db` etc.).
+  if (!isValidChatId(chatId)) {
+    return NextResponse.json({ error: 'Media not found' }, { status: 404 })
+  }
   const filePath = await resolveMediaPath(chatId, name)
   if (!filePath) {
     return NextResponse.json({ error: 'Media not found' }, { status: 404 })
@@ -45,6 +65,7 @@ export async function GET(
           'Content-Type': 'image/jpeg',
           'Cache-Control': 'public, max-age=31536000, immutable',
           'Content-Length': String(stat.size),
+          'X-Content-Type-Options': 'nosniff',
         },
       })
     }
@@ -59,6 +80,10 @@ export async function GET(
     'Content-Type': mime,
     'Cache-Control': 'public, max-age=31536000, immutable',
     'Accept-Ranges': 'bytes',
+    'X-Content-Type-Options': 'nosniff',
+    ...(SANDBOXED_MIMES.has(mime)
+      ? { 'Content-Security-Policy': 'sandbox' }
+      : {}),
   }
 
   if (range) {

@@ -105,6 +105,11 @@ function buildDate(m: RegExpMatchArray, order: 'dmy' | 'mdy'): Date | null {
   const ss = m[6] ? parseInt(m[6], 10) : 0
   const ampm = m[7]
 
+  // Reject impossible clock times outright — new Date() silently rolls
+  // hour/minute overflow into the next day, which the date check below
+  // cannot always catch (e.g. 12:99 stays on the same day).
+  if (hh > 23 || mm > 59 || ss > 59) return null
+
   if (year < 100) year += 2000
 
   // Disambiguate day/month: a value > 12 can only be a day;
@@ -200,9 +205,11 @@ function classifySenderMessage(body: string): {
   }
 
   // "(file attached)" pattern (iOS + newer Android)
-  const attached = text.match(/([\w\- .()\[\]]+\.\w{2,5})\s*\(file attached\)/i)
+  // Right-anchored and length-bounded: the old unbounded `A+` quantifier was
+  // quadratically backtracking (a crafted 320 KB line stalled ~165 s).
+  const attached = text.match(/([\w\- .()\[\]]{0,145}\.\w{2,5})\s*\(file attached\)\s*$/i)
   if (attached) {
-    const name = attached[1]
+    const name = attached[1].trim()
     const caption = text.replace(attached[0], '').trim()
     return { type: typeFromFilename(name), mediaName: name, body: caption }
   }
@@ -216,8 +223,13 @@ function classifySenderMessage(body: string): {
   }
 
   // "<Media omitted>" (older Android exports)
-  if (/^(\s*<\s*media omitted\s*>\s*)+$/i.test(text)) {
-    return { type: 'media', mediaName: null, body: '' }
+  // Linear test: squash whitespace first — the old `(\s*<\s*media omitted\s*>\s*)+$`
+  // form backtracked exponentially (~4^k) on runs of tags separated by spaces.
+  {
+    const compact = text.replace(/\s+/g, '').toLowerCase()
+    if (/^(?:<mediaomitted>)+$/.test(compact)) {
+      return { type: 'media', mediaName: null, body: '' }
+    }
   }
 
   // Standalone media/document filename

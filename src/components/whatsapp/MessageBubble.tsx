@@ -1091,8 +1091,15 @@ function BubbleMenu({
                 role="button"
                 aria-label={`React ${em}`}
                 title={`React ${em}`}
+                tabIndex={0}
                 onClick={() => onReact(msg.id, em)}
-                className="flex h-7 w-7 cursor-pointer items-center justify-center rounded-full text-lg transition-transform hover:scale-125 motion-reduce:transition-none"
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault()
+                    onReact(msg.id, em)
+                  }
+                }}
+                className="flex h-7 w-7 cursor-pointer items-center justify-center rounded-full text-lg transition-transform hover:scale-125 focus-visible:outline-2 focus-visible:outline-(--wa-accent) motion-reduce:transition-none"
               >
                 {em}
               </span>
@@ -2028,6 +2035,12 @@ function parseLocationMessage(body: string): ParsedLocation {
           }
           return null
         }
+        // Only http(s) URLs are safe to render as <a href> — drop anything
+        // else (e.g. javascript:) from stored/imported payloads.
+        const rawUrl =
+          typeof rec.url === 'string' && rec.url.trim()
+            ? rec.url.trim().slice(0, 500)
+            : null
         return {
           lat: num(rec.lat),
           lng: num(rec.lng),
@@ -2035,10 +2048,7 @@ function parseLocationMessage(body: string): ParsedLocation {
             typeof rec.label === 'string' && rec.label.trim()
               ? rec.label.trim().slice(0, 120)
               : null,
-          url:
-            typeof rec.url === 'string' && rec.url.trim()
-              ? rec.url.trim().slice(0, 500)
-              : null,
+          url: rawUrl && /^https?:\/\//i.test(rawUrl) ? rawUrl : null,
           text,
           json: true,
         }

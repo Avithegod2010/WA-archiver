@@ -9,6 +9,7 @@ import {
   generateVideoPoster,
   isVideoName,
   isAudioName,
+  zipEntrySize,
 } from '@/lib/media-store'
 
 export const runtime = 'nodejs'
@@ -17,6 +18,8 @@ export const maxDuration = 120
 const MAX_FILE_BYTES = 400 * 1024 * 1024 // total upload
 const MAX_ENTRY_BYTES = 80 * 1024 * 1024 // single media entry
 const MAX_MEDIA_FILES = 2000
+const MAX_TOTAL_EXTRACT_BYTES = 600 * 1024 * 1024 // zip-bomb total budget
+const MAX_TXT_BYTES = 20 * 1024 * 1024 // decompressed chat .txt cap
 
 function pickChatTxtEntry(names: string[]): string | null {
   const txts = names.filter((n) => /\.txt$/i.test(n))
@@ -91,7 +94,15 @@ export async function POST(req: NextRequest) {
         )
       }
 
-      const chatText: string = await zip.file(txtName)!.async('string')
+      const txtEntry = zip.file(txtName)!
+      const txtSize = zipEntrySize(txtEntry)
+      if (txtSize > MAX_TXT_BYTES) {
+        return NextResponse.json(
+          { error: 'Chat transcript inside the ZIP is too large (max 20 MB uncompressed).' },
+          { status: 413 }
+        )
+      }
+      const chatText: string = await txtEntry.async('string')
       const parsed = parseWhatsAppText(chatText)
       if (parsed.messages.length === 0) {
         return NextResponse.json(
@@ -112,6 +123,7 @@ export async function POST(req: NextRequest) {
       // Extract media files under the chat folder and map basename -> stored name
       const mediaMap = new Map<string, string>()
       let mediaFileCount = 0
+      let totalExtracted = 0 // zip-bomb guard: cumulative uncompressed bytes
       const mediaCandidates = fileEntries.filter(
         (f) => f.name !== txtName && !/\.txt$/i.test(f.name)
       )
@@ -119,9 +131,15 @@ export async function POST(req: NextRequest) {
         const base = f.name.split('/').pop() ?? f.name
         // Skip voice notes entirely when audio is excluded
         if (!includeAudio && isAudioName(base)) continue
+        // Reject oversized entries BEFORE decompressing them into memory.
+        const declared = zipEntrySize(f.entry)
+        if (declared >= 0 && declared > MAX_ENTRY_BYTES) continue
+        if (declared >= 0 && totalExtracted + declared > MAX_TOTAL_EXTRACT_BYTES) break
         try {
           const data = await f.entry.async('nodebuffer')
           if (!data || data.length === 0 || data.length > MAX_ENTRY_BYTES) continue
+          totalExtracted += data.length
+          if (totalExtracted > MAX_TOTAL_EXTRACT_BYTES) break
           const stored = await saveMediaFile(chat.id, base, data)
           mediaMap.set(base.toLowerCase(), stored)
           mediaFileCount++
@@ -163,6 +181,12 @@ export async function POST(req: NextRequest) {
     }
 
     // Plain .txt upload
+    if (file.size > MAX_TXT_BYTES) {
+      return NextResponse.json(
+        { error: 'Chat transcript too large (max 20 MB uncompressed).' },
+        { status: 413 }
+      )
+    }
     const chatText = buf.toString('utf8')
     const title = guessTitleFromFilename(name)
     const parsed = parseWhatsAppText(chatText)

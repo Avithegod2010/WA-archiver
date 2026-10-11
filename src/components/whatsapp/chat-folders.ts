@@ -214,6 +214,13 @@ export function getSeenMap(): SeenMap {
 
 function writeSeen(next: SeenMap): void {
   try {
+    // Cap growth: one entry per chat ever opened would otherwise accumulate
+    // forever (incl. chats deleted long ago). Keep the most recent 500.
+    const entries = Object.entries(next)
+    if (entries.length > 500) {
+      entries.sort((a, b) => (b[1].lastAt ?? '').localeCompare(a[1].lastAt ?? ''))
+      next = Object.fromEntries(entries.slice(0, 500))
+    }
     localStorage.setItem(SEEN_KEY, JSON.stringify(next))
   } catch {
     return

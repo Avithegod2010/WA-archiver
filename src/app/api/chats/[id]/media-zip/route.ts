@@ -4,9 +4,12 @@ import path from 'path'
 import JSZip from 'jszip'
 import { db } from '@/lib/db'
 import { buildWhatsAppText, safeFileTitle } from '@/lib/export-text'
+import { resolveMediaPath, isValidChatId } from '@/lib/media-store'
 
 export const runtime = 'nodejs'
 export const maxDuration = 120
+
+const MAX_ZIP_IDS = 500
 
 /**
  * GET /api/chats/:id/media-zip
@@ -25,6 +28,9 @@ export async function POST(
   ctx: { params: Promise<{ id: string }> }
 ) {
   const { id } = await ctx.params
+  if (!isValidChatId(id)) {
+    return NextResponse.json({ error: 'Chat not found' }, { status: 404 })
+  }
   let body: unknown
   try {
     body = await req.json()
@@ -35,10 +41,11 @@ export async function POST(
   if (
     !Array.isArray(ids) ||
     ids.length === 0 ||
+    ids.length > MAX_ZIP_IDS ||
     ids.some((v) => typeof v !== 'string')
   ) {
     return NextResponse.json(
-      { error: 'Field "ids" must be a non-empty array of strings' },
+      { error: `Field "ids" must be an array of 1–${MAX_ZIP_IDS} strings` },
       { status: 400 }
     )
   }
@@ -56,7 +63,6 @@ export async function POST(
     select: { mediaPath: true },
   })
 
-  const mediaDir = path.join(process.cwd(), 'db', 'media', id)
   const zip = new JSZip()
   let bundled = 0
   const seen = new Set<string>()
@@ -65,7 +71,10 @@ export async function POST(
     seen.add(m.mediaPath)
     if (m.mediaPath.endsWith('.poster.jpg')) continue
     try {
-      const buf = await fsp.readFile(path.join(mediaDir, m.mediaPath))
+      // Traversal-safe read: mediaPath must resolve inside db/media/<id>/
+      const abs = await resolveMediaPath(id, m.mediaPath)
+      if (!abs) continue
+      const buf = await fsp.readFile(abs)
       zip.file(path.basename(m.mediaPath), buf)
       bundled++
     } catch {
@@ -103,6 +112,9 @@ export async function GET(
   ctx: { params: Promise<{ id: string }> }
 ) {
   const { id } = await ctx.params
+  if (!isValidChatId(id)) {
+    return NextResponse.json({ error: 'Chat not found' }, { status: 404 })
+  }
   const chat = await db.chat.findUnique({
     where: { id },
     select: { title: true },
@@ -124,7 +136,6 @@ export async function GET(
     },
   })
 
-  const mediaDir = path.join(process.cwd(), 'db', 'media', id)
   const zip = new JSZip()
 
   // Media files that actually exist on disk (skip posters and duplicates)
@@ -135,7 +146,10 @@ export async function GET(
     seen.add(m.mediaPath)
     if (m.mediaPath.endsWith('.poster.jpg')) continue
     try {
-      const buf = await fsp.readFile(path.join(mediaDir, m.mediaPath))
+      // Traversal-safe read: mediaPath must resolve inside db/media/<id>/
+      const abs = await resolveMediaPath(id, m.mediaPath)
+      if (!abs) continue
+      const buf = await fsp.readFile(abs)
       // Flatten any folder prefix; WhatsApp zips keep media next to the txt
       zip.file(path.basename(m.mediaPath), buf)
       bundled++

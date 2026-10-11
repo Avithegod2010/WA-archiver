@@ -10,6 +10,7 @@ import {
   generateVideoPoster,
   isVideoName,
   isAudioName,
+  zipEntrySize,
 } from '@/lib/media-store'
 
 export const runtime = 'nodejs'
@@ -18,6 +19,8 @@ export const maxDuration = 300
 const MAX_FILE_BYTES = 400 * 1024 * 1024 // total upload
 const MAX_ENTRY_BYTES = 80 * 1024 * 1024 // single media entry
 const MAX_MEDIA_FILES = 2000
+const MAX_TOTAL_EXTRACT_BYTES = 600 * 1024 * 1024 // zip-bomb total budget
+const MAX_TXT_BYTES = 20 * 1024 * 1024 // decompressed chat .txt cap
 const PERSIST_CHUNK = 200 // messages per createMany batch
 const EMIT_INTERVAL_MS = 25 // ~40 NDJSON message lines per second max
 
@@ -134,8 +137,19 @@ export async function POST(req: NextRequest) {
       )
     }
 
-    chatText = await zip.file(txtName)!.async('string')
+    const txtEntry = zip.file(txtName)!
+    const txtSize = zipEntrySize(txtEntry)
+    if (txtSize > MAX_TXT_BYTES) {
+      return ndjsonError(
+        413,
+        'Chat transcript inside the ZIP is too large (max 20 MB uncompressed).'
+      )
+    }
+    chatText = await txtEntry.async('string')
   } else {
+    if (file.size > MAX_TXT_BYTES) {
+      return ndjsonError(413, 'Chat transcript too large (max 20 MB uncompressed).')
+    }
     chatText = buf.toString('utf8')
   }
 
@@ -191,16 +205,23 @@ export async function POST(req: NextRequest) {
           const mediaCandidates = fileEntries.filter(
             (f) => f.name !== txtName && !/\.txt$/i.test(f.name)
           )
+          let totalExtracted = 0 // zip-bomb guard: cumulative uncompressed bytes
           for (const f of mediaCandidates.slice(0, MAX_MEDIA_FILES)) {
             if (aborted) break
             // Skip voice notes entirely when audio is excluded
             const base = f.name.split('/').pop() ?? f.name
             if (!includeAudio && isAudioName(base)) continue
+            // Reject oversized entries BEFORE decompressing them into memory.
+            const declared = zipEntrySize(f.entry)
+            if (declared >= 0 && declared > MAX_ENTRY_BYTES) continue
+            if (declared >= 0 && totalExtracted + declared > MAX_TOTAL_EXTRACT_BYTES) break
             try {
               const data = await f.entry.async('nodebuffer')
               if (!data || data.length === 0 || data.length > MAX_ENTRY_BYTES) {
                 continue
               }
+              totalExtracted += data.length
+              if (totalExtracted > MAX_TOTAL_EXTRACT_BYTES) break
               const stored = await saveMediaFile(chat.id, base, data)
               mediaMap.set(base.toLowerCase(), stored)
               // Warm the video poster thumbnail (best effort, non-fatal)

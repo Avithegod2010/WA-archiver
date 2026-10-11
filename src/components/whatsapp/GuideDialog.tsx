@@ -222,7 +222,7 @@ function ThemeIllustration() {
   useEffect(() => {
     const t = setInterval(() => setIdx((i) => (i + 1) % keys.length), 1400)
     return () => clearInterval(t)
-  })
+  }, [keys.length])
   const t = APP_THEMES[keys[idx]]
   return (
     <IllustrationShell>

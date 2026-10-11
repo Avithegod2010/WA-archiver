@@ -1,6 +1,7 @@
 import { promises as fs } from 'fs'
 import path from 'path'
 import { execFile } from 'child_process'
+import { randomUUID } from 'crypto'
 
 /**
  * Media files extracted from ZIP exports are stored on disk under
@@ -8,9 +9,23 @@ import { execFile } from 'child_process'
  */
 const MEDIA_ROOT = path.join(process.cwd(), 'db', 'media')
 
+/**
+ * Chat ids are Prisma cuids (alphanumeric) or the reserved virtual id
+ * `saved-messages`. Anything else must never touch the filesystem — this
+ * is the hard guard against path traversal via `/api/media/[chatId]/[name]`.
+ */
+export function isValidChatId(chatId: string): boolean {
+  return chatId === 'saved-messages' || /^[a-z0-9]{1,64}$/i.test(chatId)
+}
+
 function sanitizeName(name: string): string {
   const base = (name.split(/[/\\]/).pop() ?? 'file').trim()
-  return base.replace(/[/\\?%*:|"<>\u0000-\u001f]/g, '_').slice(-150) || 'file'
+  // Strip bidi/rtl override characters that can spoof filenames in the UI,
+  // then replace filesystem-hostile characters.
+  return base
+    .replace(/[\u200e\u200f\u202a-\u202e\u2066-\u2069]/g, '')
+    .replace(/[/\\?%*:|"<>\u0000-\u001f]/g, '_')
+    .slice(-150) || 'file'
 }
 
 async function exists(p: string): Promise<boolean> {
@@ -28,13 +43,17 @@ export async function saveMediaFile(
   originalName: string,
   data: Buffer
 ): Promise<string> {
+  if (!isValidChatId(chatId)) throw new Error('Invalid chat id')
   const dir = path.join(MEDIA_ROOT, chatId)
   await fs.mkdir(dir, { recursive: true })
 
   const safe = sanitizeName(originalName)
   let stored = safe
   let i = 1
-  while (await exists(path.join(dir, stored))) {
+  // Cap collision probing: 2000 same-named entries used to cost millions of
+  // sequential fs.access calls (O(n²)). After the cap, fall back to a random
+  // suffix that is guaranteed unique for practical purposes.
+  while ((await exists(path.join(dir, stored))) && i < 500) {
     const dot = safe.lastIndexOf('.')
     if (dot > 0) {
       stored = `${safe.slice(0, dot)}_${i}${safe.slice(dot)}`
@@ -43,20 +62,35 @@ export async function saveMediaFile(
     }
     i++
   }
+  if (await exists(path.join(dir, stored))) {
+    const dot = safe.lastIndexOf('.')
+    const stem = dot > 0 ? safe.slice(0, dot) : safe
+    const ext = dot > 0 ? safe.slice(dot) : ''
+    stored = `${stem}_${randomUUID().slice(0, 8)}${ext}`
+  }
 
   await fs.writeFile(path.join(dir, stored), data)
   return stored
 }
 
-/** Resolve a (chatId, name) pair to an absolute path, or null if missing. */
+/**
+ * Resolve a (chatId, name) pair to an absolute path, or null if missing.
+ *
+ * Hard traversal guards, in order:
+ *  1. chatId must be an alphanumeric id (or the reserved `saved-messages`) —
+ *     rejects `..`, `%2f`, absolute paths and anything weird outright.
+ *  2. The final resolved path must live inside MEDIA_ROOT ( belt-and-braces
+ *     `path.resolve` + prefix check, independent of the caller's join).
+ */
 export async function resolveMediaPath(
   chatId: string,
   name: string
 ): Promise<string | null> {
+  if (!isValidChatId(chatId)) return null
   const safe = sanitizeName(name)
-  const p = path.join(MEDIA_ROOT, chatId, safe)
-  // Path traversal guard
-  if (!p.startsWith(path.join(MEDIA_ROOT, chatId))) return null
+  const root = path.resolve(MEDIA_ROOT, chatId)
+  const p = path.resolve(root, safe)
+  if (p !== root && !p.startsWith(root + path.sep)) return null
   if (!(await exists(p))) return null
   return p
 }
@@ -95,6 +129,17 @@ export function isAudioName(name: string): boolean {
   return AUDIO_EXT.has(ext)
 }
 
+/**
+ * Best-effort decompressed size of a JSZip entry, read from archive metadata
+ * WITHOUT inflating it. Returns -1 when the metadata is unavailable (callers
+ * should then fall back to checking after decompression). Used to reject
+ * zip-bomb entries before they materialize gigabytes in memory.
+ */
+export function zipEntrySize(entry: unknown): number {
+  const d = (entry as { _data?: { uncompressedSize?: number } })._data
+  return typeof d?.uncompressedSize === 'number' ? d.uncompressedSize : -1
+}
+
 /** Poster thumbnails are stored next to the video as `<file>.poster.jpg`. */
 export function posterPathFor(storedName: string): string {
   return `${storedName}.poster.jpg`
@@ -109,6 +154,7 @@ export async function generateVideoPoster(
   chatId: string,
   storedName: string
 ): Promise<boolean> {
+  if (!isValidChatId(chatId)) return false
   const poster = posterPathFor(storedName)
   const posterAbs = path.join(MEDIA_ROOT, chatId, poster)
   if (await exists(posterAbs)) return true
@@ -149,6 +195,7 @@ export async function generateVideoPoster(
 }
 
 export async function removeChatMedia(chatId: string): Promise<void> {
+  if (!isValidChatId(chatId)) return
   const dir = path.join(MEDIA_ROOT, chatId)
   await fs.rm(dir, { recursive: true, force: true })
 }

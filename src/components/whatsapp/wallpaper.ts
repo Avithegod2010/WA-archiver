@@ -267,7 +267,13 @@ function parseConfig(raw: string | null): WallpaperConfig | null {
   if (!raw.startsWith('{')) return mapLegacyKey(raw.trim(), null)
   try {
     const o = JSON.parse(raw) as Record<string, unknown>
-    const photo = typeof o.photo === 'string' && o.photo ? o.photo : null
+    // The photo lands inside a CSS url("…") — only our own upload endpoint
+    // may ever appear there (a hand-edited value can't inject CSS).
+    const rawPhoto = typeof o.photo === 'string' && o.photo ? o.photo : null
+    const photo =
+      rawPhoto && /^\/api\/wallpaper\/[a-zA-Z0-9._-]+$/.test(rawPhoto)
+        ? rawPhoto
+        : null
     const kStr = typeof o.k === 'string' ? o.k : null
     if (kStr && !['color', 'pattern', 'preset', 'custom'].includes(kStr)) {
       return mapLegacyKey(kStr, photo)

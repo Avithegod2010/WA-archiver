@@ -23,6 +23,8 @@ export interface ApiMessage {
   sender: string | null
   body: string
   type: string
+  /** Owning chat — lets the client drop stale sends after a chat switch. */
+  chatId: string
   mediaPath: string | null
   mediaName: string | null
   starred: boolean
@@ -41,6 +43,7 @@ interface MessageRow {
   sender: string | null
   body: string
   type: string
+  chatId: string
   mediaPath: string | null
   mediaName: string | null
   starred: boolean
@@ -71,7 +74,10 @@ export function parseReactions(
     for (const [emoji, senders] of Object.entries(
       parsed as Record<string, unknown>
     )) {
-      if (!emoji || !Array.isArray(senders)) continue
+      // Skip dangerous keys — assigning them onto a plain object literal
+      // would set the prototype (or shadow built-ins) instead of a property.
+      if (!emoji || emoji === '__proto__' || emoji === 'constructor' || emoji === 'prototype') continue
+      if (!Array.isArray(senders)) continue
       const list = senders.filter(
         (s): s is string => typeof s === 'string' && s.length > 0
       )
@@ -112,6 +118,7 @@ export function serializeMessage(
     sender: m.sender,
     body: m.body,
     type: m.type,
+    chatId: m.chatId,
     mediaPath: m.mediaPath,
     mediaName: m.mediaName,
     starred: m.starred,
@@ -160,6 +167,7 @@ export const MESSAGE_SELECT = {
   sender: true,
   body: true,
   type: true,
+  chatId: true,
   mediaPath: true,
   mediaName: true,
   starred: true,

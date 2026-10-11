@@ -123,7 +123,12 @@ function previewText(type: string, body: string, mediaName: string | null): stri
 export async function refreshChatAggregates(chatId: string): Promise<void> {
   const [messageCount, mediaCount, first, last] = await Promise.all([
     db.message.count({ where: { chatId } }),
-    db.message.count({ where: { chatId, type: { in: [...MEDIA_TYPES] } } }),
+    // Only rows with an actual media file count as media — matches the
+    // import-time definition (isMedia = media type AND mediaPath present),
+    // so re-aggregates after deletes or audio-skipped imports stay in sync.
+    db.message.count({
+      where: { chatId, type: { in: [...MEDIA_TYPES] }, mediaPath: { not: null } },
+    }),
     db.message.findFirst({ where: { chatId }, orderBy: { idx: 'asc' } }),
     db.message.findFirst({ where: { chatId }, orderBy: { idx: 'desc' } }),
   ])

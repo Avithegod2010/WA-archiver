@@ -195,7 +195,26 @@ async function computeStorage(): Promise<{
   return { totalBytes, files, perChat }
 }
 
+// Short TTL cache — the stats scan reads the whole messages table plus all
+// media dirs per request; on big imports that's seconds of CPU per open.
+// 60s staleness is imperceptible for a dashboard, and any send/delete that
+// matters can bust it via the exported helper.
+let statsCache: { at: number; data: unknown } | null = null
+const STATS_TTL_MS = 60_000
+export function bustStatsCache(): void {
+  statsCache = null
+}
+
 export async function GET() {
+  if (statsCache && Date.now() - statsCache.at < STATS_TTL_MS) {
+    return NextResponse.json(statsCache.data as Record<string, unknown>)
+  }
+  const result = await computeStats()
+  statsCache = { at: Date.now(), data: result }
+  return NextResponse.json(result as Record<string, unknown>)
+}
+
+async function computeStats(): Promise<unknown> {
   const [chats, messages] = await Promise.all([
     db.chat.findMany({
       select: {
@@ -440,7 +459,7 @@ export async function GET() {
     .slice(0, 8)
     .map(([emoji, count]) => ({ emoji, count }))
 
-  return NextResponse.json({
+  return {
     totals: {
       chats: chats.length,
       groupChats: chats.filter((c) => c.isGroup).length,
@@ -510,5 +529,5 @@ export async function GET() {
       files: storage.files,
       perChat: storagePerChat,
     },
-  })
+  }
 }

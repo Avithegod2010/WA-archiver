@@ -236,6 +236,15 @@ export async function POST(
         if (typeof rec.url === 'string' && rec.url.length > 500) {
           return invalid('Location URL too long (max 500 chars)')
         }
+        // Only http(s) links may be stored — the client renders this value
+        // as an <a href>, so schemes like `javascript:` must never persist.
+        if (
+          typeof rec.url === 'string' &&
+          rec.url.trim() !== '' &&
+          !/^https?:\/\//i.test(rec.url.trim())
+        ) {
+          return invalid('Location link must start with http:// or https://')
+        }
       } else {
         const name = typeof rec.name === 'string' ? rec.name.trim() : ''
         const phone = typeof rec.phone === 'string' ? rec.phone.trim() : ''
