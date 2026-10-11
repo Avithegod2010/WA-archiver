@@ -1,0 +1,57 @@
+/*
+ * Composer recording strip — voice-note recorder (mic button) animations.
+ * Owned by the Task 11 audio round. prefers-reduced-motion keeps everything
+ * static so motion-sensitive users get a calm recording bar.
+ */
+
+/* Pulsing red record dot */
+.wa-rec-dot {
+  animation: wa-rec-pulse 1.1s ease-in-out infinite;
+  box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.45);
+}
+@keyframes wa-rec-pulse {
+  0%,
+  100% {
+    opacity: 1;
+    transform: scale(1);
+    box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.45);
+  }
+  50% {
+    opacity: 0.5;
+    transform: scale(0.78);
+    box-shadow: 0 0 0 6px rgba(239, 68, 68, 0);
+  }
+}
+
+/* Live equalizer bars while recording */
+.wa-rec-bars span {
+  display: block;
+  width: 3px;
+  height: 6px;
+  border-radius: 9999px;
+  background: var(--wa-accent);
+  animation: wa-rec-eq 0.9s ease-in-out infinite;
+}
+@keyframes wa-rec-eq {
+  0%,
+  100% {
+    height: 6px;
+    opacity: 0.55;
+  }
+  50% {
+    height: 22px;
+    opacity: 1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .wa-rec-dot {
+    animation: none;
+    box-shadow: none;
+  }
+  .wa-rec-bars span {
+    animation: none;
+    height: 10px !important;
+    opacity: 0.7;
+  }
+}

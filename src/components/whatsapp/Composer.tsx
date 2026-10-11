@@ -6,10 +6,13 @@ import {
   FileText,
   ImageIcon,
   Loader2,
+  Mic,
+  Music,
   Plus,
   Reply,
   SendHorizontal,
   Smile,
+  Trash2,
   X,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
@@ -27,6 +30,7 @@ import {
 } from '@/components/ui/dropdown-menu'
 import type { ChatMessage } from './types'
 import { cn } from '@/lib/utils'
+import './composer-extras.css'
 
 const QUICK_EMOJIS = [
   '😀', '😁', '😂', '🤣', '😊', '😍', '😘', '😜',
@@ -45,6 +49,7 @@ const REPLY_PLACEHOLDERS: Record<string, string> = {
   video: '🎥 Video',
   gif: '🎞 GIF',
   audio: '🎤 Voice message',
+  voice: '🎤 Voice message',
   sticker: '🌟 Sticker',
   document: '📎 Document',
   contact: '👤 Contact card',
@@ -68,6 +73,11 @@ function replyPreviewText(m: ChatMessage): string {
  * Task 10-b: the composer is ACTIVE by default in every chat. When a reply
  * is pending it shows a WhatsApp-style quote strip; the send payload carries
  * `replyToId` so the new message renders with its quote.
+ *
+ * Task 11: the + attach menu gains an **Audio** item (send audio files), and
+ * when the input is empty the send button becomes a **mic** that records a
+ * real voice note via MediaRecorder — sent through the same upload pipeline
+ * so it renders as a normal waveform VoicePlayer bubble.
  */
 export function Composer({
   chatId,
@@ -92,7 +102,19 @@ export function Composer({
   const [emojiOpen, setEmojiOpen] = useState(false)
   const mediaInputRef = useRef<HTMLInputElement>(null)
   const docInputRef = useRef<HTMLInputElement>(null)
+  const audioInputRef = useRef<HTMLInputElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
+
+  // --- Voice-note recording (mic button) ---
+  const [recording, setRecording] = useState(false)
+  const [recSeconds, setRecSeconds] = useState(0)
+  const recorderRef = useRef<MediaRecorder | null>(null)
+  const recStreamRef = useRef<MediaStream | null>(null)
+  const recChunksRef = useRef<Blob[]>([])
+  const recTimerRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  const recSecondsRef = useRef(0)
+  const recCanceledRef = useRef(false)
+  const recStartingRef = useRef(false)
 
   // Focus the input when a reply starts (WhatsApp behavior).
   useEffect(() => {
@@ -191,8 +213,180 @@ export function Composer({
       setBusy(false)
       if (mediaInputRef.current) mediaInputRef.current.value = ''
       if (docInputRef.current) docInputRef.current.value = ''
+      if (audioInputRef.current) audioInputRef.current.value = ''
     }
   }
+
+  // ---------------- Voice-note recording ----------------
+
+  const MAX_REC_SECONDS = 600 // hard cap: 10 minutes, then auto-send
+
+  function fmtDur(s: number): string {
+    return `${Math.floor(s / 60)}:${(s % 60).toString().padStart(2, '0')}`
+  }
+
+  /** Stop tracks, clear timers — leaves no dangling mic indicator. */
+  function teardownRecording() {
+    if (recTimerRef.current) {
+      clearInterval(recTimerRef.current)
+      recTimerRef.current = null
+    }
+    recorderRef.current = null
+    recChunksRef.current = []
+    recStreamRef.current?.getTracks().forEach((t) => t.stop())
+    recStreamRef.current = null
+  }
+
+  /**
+   * Finish a recording: cancel=true discards the blob, false sends it.
+   * The MediaRecorder onstop handler completes either flow.
+   */
+  function finishRecording(cancel: boolean) {
+    recCanceledRef.current = cancel
+    const rec = recorderRef.current
+    if (rec && rec.state !== 'inactive') {
+      rec.stop()
+    } else {
+      teardownRecording()
+      setRecording(false)
+    }
+  }
+
+  /** Upload the finished recording through the normal media pipeline. */
+  async function sendVoiceBlob(blob: Blob, seconds: number) {
+    const kind = blob.type || 'audio/webm'
+    const ext = kind.includes('mp4')
+      ? 'm4a'
+      : kind.includes('ogg')
+        ? 'ogg'
+        : 'webm'
+    const stamp = new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-')
+    const file = new File([blob], `voice-note-${stamp}.${ext}`, { type: kind })
+    setBusy(true)
+    const t = toast.loading('Sending voice note…')
+    try {
+      const msg = await postFile(file, '', replyTo?.id)
+      onSent(msg)
+      if (replyTo) onCancelReply?.()
+      toast.success(`Voice note sent · ${fmtDur(seconds)}`, { id: t })
+    } catch (err) {
+      toast.error(
+        err instanceof Error ? err.message : 'Could not send voice note',
+        { id: t }
+      )
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function startRecording() {
+    if (recStartingRef.current || recording || busy) return
+    recStartingRef.current = true
+    if (
+      !navigator.mediaDevices?.getUserMedia ||
+      typeof MediaRecorder === 'undefined'
+    ) {
+      toast.error(
+        'Voice recording is not supported here — attach an audio file from the + menu instead'
+      )
+      recStartingRef.current = false
+      return
+    }
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
+      recStreamRef.current = stream
+      const pick = (...types: string[]) =>
+        types.find((t) => MediaRecorder.isTypeSupported(t))
+      const mime = pick(
+        'audio/webm;codecs=opus',
+        'audio/webm',
+        'audio/mp4',
+        'audio/ogg;codecs=opus'
+      )
+      const rec = mime
+        ? new MediaRecorder(stream, { mimeType: mime })
+        : new MediaRecorder(stream)
+      recChunksRef.current = []
+      recCanceledRef.current = false
+      recSecondsRef.current = 0
+      setRecSeconds(0)
+      rec.ondataavailable = (e) => {
+        if (e.data.size > 0) recChunksRef.current.push(e.data)
+      }
+      rec.onstop = () => {
+        const canceled = recCanceledRef.current
+        const blob = new Blob(recChunksRef.current, {
+          type: rec.mimeType || 'audio/webm',
+        })
+        const dur = recSecondsRef.current
+        teardownRecording()
+        setRecording(false)
+        if (canceled) return
+        if (blob.size === 0) {
+          toast.error('Recording was empty — please try again')
+          return
+        }
+        void sendVoiceBlob(blob, dur)
+      }
+      rec.start(250)
+      recorderRef.current = rec
+      setRecording(true)
+      recTimerRef.current = setInterval(() => {
+        const next = recSecondsRef.current + 1
+        recSecondsRef.current = next
+        setRecSeconds(next)
+        if (next >= MAX_REC_SECONDS) finishRecording(false)
+      }, 1000)
+    } catch (err) {
+      teardownRecording()
+      setRecording(false)
+      const name = err instanceof DOMException ? err.name : ''
+      if (name === 'NotAllowedError' || name === 'SecurityError') {
+        toast.error(
+          'Microphone access denied — allow the mic in your browser, or attach an audio file from the + menu'
+        )
+      } else if (name === 'NotFoundError') {
+        toast.error(
+          'No microphone found on this device — attach an audio file from the + menu'
+        )
+      } else {
+        toast.error(
+          'Could not start recording — attach an audio file from the + menu instead'
+        )
+      }
+    } finally {
+      recStartingRef.current = false
+    }
+  }
+
+  // Release the mic + discard any in-flight recording when unmounting.
+  useEffect(() => {
+    return () => {
+      recCanceledRef.current = true
+      const rec = recorderRef.current
+      if (rec && rec.state !== 'inactive') {
+        try {
+          rec.stop()
+        } catch {
+          /* already stopped */
+        }
+      }
+      teardownRecording()
+    }
+  }, [])
+
+  // Escape cancels an in-progress recording (WhatsApp parity).
+  useEffect(() => {
+    if (!recording) return
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        e.preventDefault()
+        finishRecording(true)
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [recording])
 
   const canSend = text.trim().length > 0 && !busy
 
@@ -210,6 +404,14 @@ export function Composer({
       <input
         ref={docInputRef}
         type="file"
+        multiple
+        className="hidden"
+        onChange={(e) => sendFiles(e.target.files)}
+      />
+      <input
+        ref={audioInputRef}
+        type="file"
+        accept="audio/*,.opus,.amr,.m4a,.ogg,.wav,.mp3,.aac,.flac,.webm"
         multiple
         className="hidden"
         onChange={(e) => sendFiles(e.target.files)}
@@ -254,6 +456,57 @@ export function Composer({
         </div>
       )}
 
+      {recording ? (
+        <div
+          className="wa-rec-strip flex items-center gap-2 rounded-full bg-black/[0.04] px-2 py-1.5 dark:bg-white/[0.06]"
+          role="status"
+          aria-live="polite"
+          aria-label="Recording voice note"
+        >
+          <button
+            type="button"
+            onClick={() => finishRecording(true)}
+            className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-(--wa-text-2) transition-colors hover:bg-black/10 dark:hover:bg-white/10"
+            aria-label="Discard recording"
+            title="Discard"
+          >
+            <Trash2 className="h-5 w-5" />
+          </button>
+          <span
+            className="wa-rec-dot h-3 w-3 shrink-0 rounded-full bg-red-500"
+            aria-hidden
+          />
+          <span className="shrink-0 text-[13.5px] font-semibold tabular-nums text-(--wa-text)">
+            {fmtDur(recSeconds)}
+          </span>
+          <div
+            className="wa-rec-bars flex h-6 min-w-0 flex-1 items-center gap-[3px] overflow-hidden"
+            aria-hidden
+          >
+            {Array.from({ length: 18 }, (_, i) => (
+              <span
+                key={i}
+                style={{
+                  animationDelay: `${i * 87}ms`,
+                  animationDuration: `${680 + (i % 5) * 105}ms`,
+                }}
+              />
+            ))}
+          </div>
+          <span className="hidden shrink-0 text-[12.5px] text-(--wa-text-2) sm:block">
+            Recording voice note…
+          </span>
+          <Button
+            size="icon"
+            onClick={() => finishRecording(false)}
+            className="h-10 w-10 shrink-0 rounded-full bg-(--wa-accent) text-white shadow-md transition-transform hover:scale-110 hover:bg-(--wa-accent-strong) active:scale-90"
+            aria-label="Send voice note"
+            title="Send voice note"
+          >
+            <SendHorizontal className="h-5 w-5" />
+          </Button>
+        </div>
+      ) : (
       <div className="flex items-end gap-1.5">
         {/* Attach menu */}
         <DropdownMenu>
@@ -264,7 +517,7 @@ export function Composer({
               disabled={busy}
               className="wa-iconbtn group/plus h-10 w-10 shrink-0 rounded-full text-(--wa-text-2) hover:bg-black/5 dark:text-(--wa-text-2) dark:hover:bg-white/10"
               aria-label="Attach"
-              title="Attach photo, video, document or poll"
+              title="Attach photo, video, audio, document or poll"
             >
               <Plus
                 className={cn(
@@ -292,6 +545,15 @@ export function Composer({
                 <FileText className="h-4 w-4" />
               </span>
               Document
+            </DropdownMenuItem>
+            <DropdownMenuItem
+              className="gap-2.5"
+              onClick={() => audioInputRef.current?.click()}
+            >
+              <span className="flex h-7 w-7 items-center justify-center rounded-full bg-emerald-500/15 text-emerald-600 dark:text-emerald-300">
+                <Music className="h-4 w-4" />
+              </span>
+              Audio
             </DropdownMenuItem>
             <DropdownMenuItem className="gap-2.5" onClick={onOpenPoll}>
               <span className="flex h-7 w-7 items-center justify-center rounded-full bg-amber-500/15 text-amber-600 dark:text-amber-300">
@@ -357,27 +619,35 @@ export function Composer({
           aria-label="Message text"
         />
 
-        {/* Send button */}
-        <Button
-          size="icon"
-          disabled={busy}
-          onClick={sendText}
-          className={cn(
-            'h-10 w-10 shrink-0 rounded-full text-white shadow-md transition-all duration-200 [transition-timing-function:cubic-bezier(0.34,1.56,0.64,1)] hover:scale-110 active:scale-90 disabled:hover:scale-100',
-            canSend || busy
-              ? 'bg-(--wa-accent) hover:bg-(--wa-accent-strong)'
-              : 'bg-(--wa-text-2)/60'
-          )}
-          aria-label="Send message"
-          title="Send"
-        >
-          {busy ? (
-            <Loader2 className="h-5 w-5 animate-spin" />
-          ) : (
-            <SendHorizontal className="h-5 w-5" />
-          )}
-        </Button>
+        {/* Send button — when the input is empty this slot becomes the mic */}
+        {canSend || busy ? (
+          <Button
+            size="icon"
+            disabled={busy}
+            onClick={sendText}
+            className="h-10 w-10 shrink-0 rounded-full bg-(--wa-accent) text-white shadow-md transition-all duration-200 [transition-timing-function:cubic-bezier(0.34,1.56,0.64,1)] hover:scale-110 hover:bg-(--wa-accent-strong) active:scale-90 disabled:hover:scale-100"
+            aria-label="Send message"
+            title="Send"
+          >
+            {busy ? (
+              <Loader2 className="h-5 w-5 animate-spin" />
+            ) : (
+              <SendHorizontal className="h-5 w-5" />
+            )}
+          </Button>
+        ) : (
+          <Button
+            size="icon"
+            onClick={startRecording}
+            className="h-10 w-10 shrink-0 rounded-full bg-(--wa-text-2)/55 text-white shadow-md transition-all duration-200 [transition-timing-function:cubic-bezier(0.34,1.56,0.64,1)] hover:scale-110 hover:bg-(--wa-text-2)/80 active:scale-90"
+            aria-label="Record voice note"
+            title="Record a voice note — or attach an audio file from the + menu"
+          >
+            <Mic className="h-5 w-5" />
+          </Button>
+        )}
       </div>
+      )}
     </div>
   )
 }
