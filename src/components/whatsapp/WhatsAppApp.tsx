@@ -54,9 +54,12 @@ import { DemoPickerDialog } from './DemoPickerDialog'
 import { SettingsDialog } from './SettingsDialog'
 import { ShortcutsDialog } from './ShortcutsDialog'
 import { AppLock } from './AppLock'
+import { ImportPanel } from './ImportPanel'
+import { PwaInstallBanner } from './PwaInstallBanner'
+import { NotifToasts } from './NotifToasts'
 import { useShortcuts } from './useShortcuts'
 import { WhatsAppLogo } from './icons'
-import type { ChatDetail, ChatSummary } from './types'
+import { SAVED_CHAT_ID, type ChatDetail, type ChatSummary } from './types'
 import { cn } from '@/lib/utils'
 
 // ---- Offline caches (Task 7-e #6) --------------------------------------
@@ -64,6 +67,24 @@ const CHATS_CACHE_KEY = 'wa-viewer:cache:chats'
 const CHAT_CACHE_PREFIX = 'wa-viewer:cache:chat:'
 const SEEN_CHATS_KEY = 'wa-viewer:seen-chats'
 const MAX_CACHE_JSON_LENGTH = 1_500_000
+
+// ---- Web Share Target (Task 10-f #2) -------------------------------------
+// Must mirror the cache name + keys used by public/sw.js
+const SHARE_CACHE_NAME = 'wa-viewer-share-v1'
+const SHARE_PAYLOAD_KEY = '/__shared-payload'
+const SHARE_ENTRY_MARKER = '/__shared-'
+
+/** Merge title/text/url into one deduped message body (≤4000 chars). */
+function composeShareText(parts: (string | null | undefined)[]): string {
+  const out: string[] = []
+  for (const raw of parts) {
+    const v = (raw ?? '').trim()
+    if (!v) continue
+    if (out.some((p) => p.includes(v))) continue
+    out.push(v)
+  }
+  return out.join('\n\n').slice(0, 4000)
+}
 
 /** Size-guarded localStorage write — quota/serialization failures are ignored. */
 function cacheSet(key: string, value: unknown) {
@@ -97,12 +118,12 @@ export function WhatsAppApp() {
   const [importing, setImporting] = useState(false)
   const [deleting, setDeleting] = useState(false)
   const [aboutOpen, setAboutOpen] = useState(false)
-  const [statsOpen, setStatsOpen] = useState(false)
   const [demoPickerOpen, setDemoPickerOpen] = useState(false)
+  const [statsOpen, setStatsOpen] = useState(false)
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [shortcutsOpen, setShortcutsOpen] = useState(false)
+  const [importPanelOpen, setImportPanelOpen] = useState(false)
   const [isOffline, setIsOffline] = useState(false)
-  const importTriggerRef = useRef<(() => void) | null>(null)
   const [textSizeOpen, setTextSizeOpen] = useState(false)
   const [globalSearchOpen, setGlobalSearchOpen] = useState(false)
   const [globalSearchQuery, setGlobalSearchQuery] = useState('')
@@ -191,6 +212,36 @@ export function WhatsAppApp() {
       setChats(list)
       // Keep the list available for offline reads (size-guarded)
       cacheSet(CHATS_CACHE_KEY, list)
+      // The open chat is on screen — anything that changed in it (e.g. the
+      // user's own sends) must not show up as an unread badge.
+      const openId = activeIdRef.current
+      if (openId) {
+        const openChat = list.find((c) => c.id === openId)
+        if (openChat) {
+          try {
+            const raw = localStorage.getItem(SEEN_CHATS_KEY)
+            const map: Record<string, { lastAt: string; count: number }> = raw
+              ? JSON.parse(raw)
+              : {}
+            const prev = map[openId]
+            const nextEntry = {
+              lastAt: openChat.lastAt ?? '',
+              count: openChat.messageCount,
+            }
+            if (
+              !prev ||
+              prev.lastAt !== nextEntry.lastAt ||
+              prev.count !== nextEntry.count
+            ) {
+              map[openId] = nextEntry
+              localStorage.setItem(SEEN_CHATS_KEY, JSON.stringify(map))
+              window.dispatchEvent(new Event('wa-seen-changed'))
+            }
+          } catch {
+            /* storage unavailable — ignore */
+          }
+        }
+      }
     } catch {
       // Offline: fall back to the cached chat list when present
       const cached = cacheGet<ChatSummary[]>(CHATS_CACHE_KEY)
@@ -224,6 +275,224 @@ export function WhatsAppApp() {
       })
       .catch(() => {})
   }, [refreshChats])
+
+  // ---- Web Share Target (Task 10-f #2) ------------------------------------
+  // Resolve the Saved Messages chat id. GET /api/chats guarantees the chat
+  // exists (ensureSavedMessagesChat) — the id itself is the fixed
+  // SAVED_CHAT_ID constant.
+  const resolveSavedChatId = useCallback(async (): Promise<string | null> => {
+    try {
+      const res = await fetch('/api/chats', { cache: 'no-store' })
+      if (!res.ok) return null
+      const data = await res.json()
+      const list: ChatSummary[] = data.chats ?? []
+      return list.some((c) => c.id === SAVED_CHAT_ID) ? SAVED_CHAT_ID : null
+    } catch {
+      return null
+    }
+  }, [])
+
+  const postTextToSaved = useCallback(async (body: string) => {
+    const res = await fetch(`/api/chats/${SAVED_CHAT_ID}/messages`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ type: 'text', body }),
+    })
+    if (!res.ok) throw new Error('failed to save shared text')
+  }, [])
+
+  /**
+   * Consume incoming shared content:
+   *  - POST share-target flow: the service worker parked the payload in the
+   *    Cache API ('/__shared-payload' + '/__shared-blob-*') and redirected to
+   *    /?shared=1 → upload text + files into Saved Messages, then clean up.
+   *  - GET fallback: ?title=&text=&url= query params → post as one text
+   *    message (desktop browsers / links without the SW flow).
+   * The URL is always cleaned afterwards so refreshes never duplicate.
+   */
+  const processSharedContent = useCallback(async () => {
+    const params = new URLSearchParams(window.location.search)
+
+    if (params.get('shared') === '1') {
+      let consumed = false
+      try {
+        if (typeof caches !== 'undefined') {
+          const cache = await caches.open(SHARE_CACHE_NAME)
+          const payloadRes = await cache.match(SHARE_PAYLOAD_KEY)
+          if (payloadRes) {
+            const payload = (await payloadRes.json()) as {
+              ts?: number
+              text?: string | null
+              files?: { key: string; name: string; type: string }[]
+            }
+            // Only consume fresh payloads (<2 min) — stale ones belong to an
+            // unconsumed earlier session and were already superseded.
+            const fresh = Date.now() - (payload.ts ?? 0) < 120_000
+            if (fresh) {
+              const savedId = await resolveSavedChatId()
+              if (!savedId) {
+                toast.error(
+                  'Could not find Saved Messages — shared content was not added'
+                )
+              } else {
+                let ok = 0
+                let failed = 0
+                if (payload.text) {
+                  try {
+                    await postTextToSaved(payload.text)
+                    ok++
+                  } catch {
+                    failed++
+                  }
+                }
+                for (const f of payload.files ?? []) {
+                  try {
+                    const blobRes = await cache.match(f.key)
+                    if (!blobRes) throw new Error('shared blob missing')
+                    const blob = await blobRes.blob()
+                    const file = new File([blob], f.name || 'shared-file', {
+                      type: f.type || blob.type || 'application/octet-stream',
+                    })
+                    const form = new FormData()
+                    form.append('file', file)
+                    const res = await fetch(
+                      `/api/chats/${savedId}/messages`,
+                      { method: 'POST', body: form }
+                    )
+                    if (!res.ok) throw new Error('shared file upload failed')
+                    ok++
+                  } catch {
+                    failed++
+                  }
+                }
+                if (ok > 0) {
+                  toast.success(
+                    failed > 0
+                      ? `Shared to Saved Messages (${failed} item${failed === 1 ? '' : 's'} failed)`
+                      : 'Shared to Saved Messages'
+                  )
+                } else {
+                  toast.error(
+                    'Could not save the shared content to Saved Messages'
+                  )
+                }
+                consumed = true
+              }
+            }
+            // Remove every share entry (fresh or stale) after handling
+            const keys = await cache.keys()
+            await Promise.all(
+              keys
+                .filter((k) => k.url.includes(SHARE_ENTRY_MARKER))
+                .map((k) => cache.delete(k))
+            )
+          }
+        }
+      } catch {
+        /* cache unavailable — still clean the URL below */
+      }
+      if (consumed) void refreshChats()
+      try {
+        window.history.replaceState(null, '', window.location.pathname)
+      } catch {
+        /* ignore */
+      }
+      return
+    }
+
+    // GET-style fallback (?title=&text=&url=)
+    const hasShareParams =
+      params.has('title') || params.has('text') || params.has('url')
+    if (!hasShareParams) return
+    const body = composeShareText([
+      params.get('title'),
+      params.get('text'),
+      params.get('url'),
+    ])
+    try {
+      window.history.replaceState(null, '', window.location.pathname)
+    } catch {
+      /* ignore */
+    }
+    if (!body) return
+    const savedId = await resolveSavedChatId()
+    if (!savedId) {
+      toast.error('Could not find Saved Messages — shared text was not added')
+      return
+    }
+    try {
+      await postTextToSaved(body)
+      toast.success('Shared to Saved Messages')
+      void refreshChats()
+    } catch {
+      toast.error('Could not save the shared text to Saved Messages')
+    }
+  }, [resolveSavedChatId, postTextToSaved, refreshChats])
+
+  // Run once after mount (all URL/localStorage reads stay client-side)
+  useEffect(() => {
+    if (!mounted) return
+    void processSharedContent()
+  }, [mounted, processSharedContent])
+
+  // Service worker — already registered by <PWARegister /> in the layout;
+  // this guarded duplicate is idempotent (same script URL) and covers the
+  // case where the app tree mounts before the layout hook fires.
+  useEffect(() => {
+    if (typeof navigator === 'undefined' || !('serviceWorker' in navigator)) {
+      return
+    }
+    navigator.serviceWorker.register('/sw.js').catch(() => {
+      /* SW is a progressive enhancement — ignore failures */
+    })
+  }, [])
+
+  // ---- Auto-clean executor (Task 10-f #4) ---------------------------------
+  // When enabled in Settings (`wa-viewer:auto-clean` = '1'), delete archived
+  // chats whose last activity is older than 30 days. Non-archived chats are
+  // never touched; silent when nothing qualifies.
+  useEffect(() => {
+    if (!mounted) return
+    let enabled = false
+    try {
+      enabled = localStorage.getItem('wa-viewer:auto-clean') === '1'
+    } catch {
+      return
+    }
+    if (!enabled) return
+    void (async () => {
+      try {
+        const res = await fetch('/api/chats', { cache: 'no-store' })
+        if (!res.ok) return
+        const data = await res.json()
+        const list: ChatSummary[] = data.chats ?? []
+        const cutoff = Date.now() - 30 * 24 * 60 * 60 * 1000
+        const stale = list.filter((c) => {
+          if (!c.archived || !c.lastAt) return false
+          const t = new Date(c.lastAt).getTime()
+          return !Number.isNaN(t) && t < cutoff
+        })
+        let deleted = 0
+        for (const chat of stale) {
+          try {
+            const r = await fetch(`/api/chats/${chat.id}`, { method: 'DELETE' })
+            if (r.ok) deleted++
+          } catch {
+            /* leave this chat in place */
+          }
+        }
+        if (deleted > 0) {
+          toast.success(
+            `Auto-cleaned ${deleted} archived chat${deleted === 1 ? '' : 's'} (30+ days idle)`
+          )
+          void refreshChats()
+        }
+      } catch {
+        /* offline etc. — silently skip */
+      }
+    })()
+  }, [mounted, refreshChats])
+
 
   /**
    * Mark a chat as seen/read — Task 7-e contract:
@@ -391,6 +660,14 @@ export function WhatsAppApp() {
       if (created.length > 0) await openChat(created[0].id)
     },
     [refreshChats, openChat]
+  )
+
+  /** After the ImportPanel imports chats, refresh the list. */
+  const handleImportPanelImported = useCallback(
+    async (_chatIds: string[]) => {
+      await refreshChats()
+    },
+    [refreshChats]
   )
 
   const deleteChat = useCallback(
@@ -793,9 +1070,6 @@ export function WhatsAppApp() {
               setGlobalSearchQuery(q)
               setGlobalSearchOpen(true)
             }}
-            bindImportTrigger={(fn) => {
-              importTriggerRef.current = fn
-            }}
           />
         </div>
         <div className={cn('flex min-h-0 min-w-0 flex-1 flex-col', activeId ? 'flex' : 'hidden md:flex')}>
@@ -833,10 +1107,18 @@ export function WhatsAppApp() {
       </div>
 
       {/* Sticky footer */}
-      <footer className="mt-auto flex items-center justify-center gap-2 border-t border-(--wa-line) bg-(--wa-panel-2) px-4 py-1.5 text-[11.5px] text-(--wa-text-2) dark:bg-(--wa-panel-2) dark:text-(--wa-text-2)">
-        <Upload className="h-3 w-3" />
-        {chats.length} chat{chats.length === 1 ? '' : 's'} ·{' '}
-        {totalMessages.toLocaleString()} messages · all data stays on this device
+      <footer className="mt-auto border-t border-(--wa-line) bg-(--wa-panel-2) dark:bg-(--wa-panel-2)">
+        <button
+          type="button"
+          onClick={() => setImportPanelOpen(true)}
+          title="Import chats (.zip / .txt)"
+          aria-label="Import chats"
+          className="flex w-full cursor-pointer items-center justify-center gap-2 px-4 py-2 text-[11.5px] text-(--wa-text-2) transition-colors hover:text-(--wa-accent-strong) dark:text-(--wa-text-2) dark:hover:text-(--wa-accent)"
+        >
+          <Upload className="h-3 w-3" />
+          {chats.length} chat{chats.length === 1 ? '' : 's'} ·{' '}
+          {totalMessages.toLocaleString()} messages · all data stays on this device
+        </button>
       </footer>
 
       {/* Insights dashboard */}
@@ -854,7 +1136,7 @@ export function WhatsAppApp() {
       <GuideDialog
         open={aboutOpen}
         onOpenChange={closeGuide}
-        onImportFiles={() => importTriggerRef.current?.()}
+        onImportFiles={() => setImportPanelOpen(true)}
         onDemo={() => setDemoPickerOpen(true)}
         onSelectChat={(id) => {
           openChat(id)
@@ -879,6 +1161,19 @@ export function WhatsAppApp() {
 
       {/* Keyboard shortcuts list (#7) */}
       <ShortcutsDialog open={shortcutsOpen} onOpenChange={setShortcutsOpen} />
+
+      {/* Import panel — drag & drop / browse for .zip & .txt exports */}
+      <ImportPanel
+        open={importPanelOpen}
+        onOpenChange={setImportPanelOpen}
+        onImported={handleImportPanelImported}
+      />
+
+      {/* Notification-style incoming-message toasts (playful simulator) */}
+      <NotifToasts chats={chats} onOpenChat={openChat} />
+
+      {/* PWA install banner — floating, above the sticky footer */}
+      <PwaInstallBanner />
 
       {/* App lock overlay — top-most (#15) */}
       <AppLock />

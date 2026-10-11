@@ -1,8 +1,10 @@
 'use client'
 
-import { useMemo } from 'react'
+import { useMemo, useState } from 'react'
 import {
   BarChart3,
+  Bell,
+  BellOff,
   CalendarCheck2,
   CalendarDays,
   FileText,
@@ -12,6 +14,8 @@ import {
   Link2,
   Mic,
   MessageCircle,
+  Palette,
+  Slash,
   Timer,
   Users,
   Video,
@@ -35,6 +39,18 @@ import {
   median,
 } from '@/lib/chat-analytics'
 import { cn } from '@/lib/utils'
+import { Switch } from '@/components/ui/switch'
+import {
+  accentFor,
+  CHAT_ACCENTS,
+  clearChatTheme,
+  isChatMuted,
+  readChatTheme,
+  setChatMuted,
+  writeChatTheme,
+  type ChatAccent,
+  type ChatTheme,
+} from './chat-theme'
 
 function fmtDate(iso: string | null): string {
   if (!iso) return '—'
@@ -222,6 +238,24 @@ export function ChatInfo({
         </DialogHeader>
 
         <div className="space-y-5 p-6">
+          {/* Accent colour (per-chat theme) */}
+          <section className="wa-info-sec">
+            <h3 className="mb-2 flex items-center gap-1.5 text-[13px] font-semibold uppercase tracking-wide text-(--wa-text-2)">
+              <Palette className="h-3.5 w-3.5" />
+              Accent colour
+            </h3>
+            <AccentSection key={`accent-${chat.id}`} chatId={chat.id} />
+          </section>
+
+          {/* Mute notifications */}
+          <section className="wa-info-sec">
+            <h3 className="mb-2 flex items-center gap-1.5 text-[13px] font-semibold uppercase tracking-wide text-(--wa-text-2)">
+              <BellOff className="h-3.5 w-3.5" />
+              Mute notifications
+            </h3>
+            <MuteSection key={`mute-${chat.id}`} chatId={chat.id} />
+          </section>
+
           {/* Totals */}
           <section className="wa-info-sec">
             <h3 className="mb-2 text-[13px] font-semibold uppercase tracking-wide text-(--wa-text-2)">
@@ -490,6 +524,151 @@ export function ChatInfo({
         </div>
       </DialogContent>
     </Dialog>
+  )
+}
+
+/** Accent-colour picker: 8 curated swatches + Default reset + live preview. */
+function AccentSection({ chatId }: { chatId: string }) {
+  const [theme, setTheme] = useState<ChatTheme>(() => readChatTheme(chatId))
+  const pair = accentFor(theme)
+
+  const pick = (a: ChatAccent) => {
+    setTheme({ accent: a.accent })
+    writeChatTheme(chatId, { accent: a.accent })
+  }
+  const reset = () => {
+    setTheme({})
+    clearChatTheme(chatId)
+  }
+
+  return (
+    <div className="rounded-lg bg-white p-3 shadow-sm dark:bg-(--wa-panel-2)">
+      <div className="flex flex-wrap items-center gap-1" role="group" aria-label="Accent colour">
+        <button
+          type="button"
+          onClick={reset}
+          aria-pressed={!theme.accent}
+          aria-label="Default accent"
+          title="Default"
+          className={cn(
+            'flex h-11 w-11 items-center justify-center rounded-full transition-transform',
+            !theme.accent &&
+              'ring-2 ring-(--wa-text-2)/50 ring-offset-2 ring-offset-white dark:ring-offset-(--wa-panel-2)'
+          )}
+        >
+          <span className="flex h-7 w-7 items-center justify-center rounded-full border border-(--wa-text-2)/40 bg-(--wa-panel-2)/70 text-(--wa-text-2)">
+            <Slash className="h-3.5 w-3.5" />
+          </span>
+        </button>
+        {CHAT_ACCENTS.map((a) => {
+          const active = theme.accent === a.accent
+          return (
+            <button
+              key={a.name}
+              type="button"
+              onClick={() => pick(a)}
+              aria-pressed={active}
+              aria-label={`${a.name} accent`}
+              title={a.name}
+              style={{ '--sw': a.accentStrong } as React.CSSProperties}
+              className={cn(
+                'flex h-11 w-11 items-center justify-center rounded-full transition-transform',
+                active
+                  ? 'ring-2 ring-(--sw) ring-offset-2 ring-offset-white dark:ring-offset-(--wa-panel-2)'
+                  : 'hover:scale-110'
+              )}
+            >
+              <span
+                className="h-7 w-7 rounded-full shadow-sm"
+                style={{
+                  background: `linear-gradient(135deg, ${a.accent} 20%, ${a.accentStrong} 100%)`,
+                }}
+              />
+            </button>
+          )
+        })}
+      </div>
+
+      <div className="mt-2 flex items-center gap-1.5">
+        <span
+          className="h-2.5 w-2.5 shrink-0 rounded-full"
+          style={{ backgroundColor: pair.accent }}
+        />
+        <p className="text-[12px] text-(--wa-text-2)">
+          Current: <b className="font-semibold text-(--wa-text)">{pair.name}</b>
+        </p>
+      </div>
+      <p className="mt-1 text-[11.5px] leading-snug text-(--wa-text-2)">
+        Colours this chat’s header, bubbles and buttons.
+      </p>
+
+      {/* Live preview — two mini bubbles tinted with the chosen accent */}
+      <div className="mt-2.5 overflow-hidden rounded-md bg-(--wa-chat-bg) p-2.5">
+        <div className="flex flex-col gap-1.5">
+          <div
+            className="max-w-[85%] self-start rounded-xl rounded-tl-sm border px-2.5 py-1.5"
+            style={{
+              backgroundColor: `${pair.accent}1f`,
+              borderColor: `${pair.accent}33`,
+            }}
+          >
+            <p className="text-[11.5px] leading-snug text-(--wa-text)">
+              Are we still on for lunch?
+            </p>
+            <p className="mt-0.5 text-right text-[9px] text-(--wa-text-2)">11:24</p>
+          </div>
+          <div
+            className="max-w-[85%] self-end rounded-xl rounded-tr-sm px-2.5 py-1.5 text-white"
+            style={{
+              background: `linear-gradient(135deg, ${pair.accent}, ${pair.accentStrong})`,
+            }}
+          >
+            <p className="text-[11.5px] leading-snug">Yes — see you there! 🎉</p>
+            <p className="mt-0.5 text-right text-[9px] text-white/75">11:25 ✓✓</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+/** Mute toggle for this chat — persists to localStorage + wa-mute-changed event. */
+function MuteSection({ chatId }: { chatId: string }) {
+  const [muted, setMuted] = useState(() => isChatMuted(chatId))
+
+  return (
+    <div className="flex items-center justify-between gap-3 rounded-lg bg-white p-3 shadow-sm dark:bg-(--wa-panel-2)">
+      <div className="flex min-w-0 items-center gap-3">
+        <span
+          className={cn(
+            'flex h-9 w-9 shrink-0 items-center justify-center rounded-full',
+            muted
+              ? 'bg-black/10 text-(--wa-text-2) dark:bg-white/10'
+              : 'bg-(--wa-accent)/10 text-(--wa-accent)'
+          )}
+        >
+          {muted ? <BellOff className="h-4.5 w-4.5" /> : <Bell className="h-4.5 w-4.5" />}
+        </span>
+        <div className="min-w-0">
+          <p className="text-[12.5px] font-medium text-(--wa-text)">
+            Mute notification toasts
+          </p>
+          <p className="mt-0.5 text-[11.5px] leading-snug text-(--wa-text-2)">
+            {muted
+              ? 'Toast alerts are silenced for this chat.'
+              : 'Show toast alerts for new messages here.'}
+          </p>
+        </div>
+      </div>
+      <Switch
+        checked={muted}
+        onCheckedChange={(v) => {
+          setMuted(v)
+          setChatMuted(chatId, v)
+        }}
+        aria-label="Mute notification toasts"
+      />
+    </div>
   )
 }
 

@@ -8,6 +8,21 @@
   "background_color": "#0b141a",
   "theme_color": "#008069",
   "categories": ["social", "utilities"],
+  "share_target": {
+    "action": "/?share-target=1",
+    "method": "POST",
+    "enctype": "multipart/form-data",
+    "params": {
+      "title": "title",
+      "text": "text",
+      "files": [
+        {
+          "name": "files",
+          "accept": ["image/*", "audio/*", "video/*", "application/pdf"]
+        }
+      ]
+    }
+  },
   "icons": [
     {
       "src": "/icon.svg",

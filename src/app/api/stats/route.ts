@@ -4,6 +4,8 @@ import { promises as fs } from 'fs'
 import path from 'path'
 import {
   EMOJI_RE,
+  STOPWORDS,
+  URL_RE,
   URL_TEST_RE,
   countWords,
 } from '@/lib/chat-analytics'
@@ -11,6 +13,142 @@ import {
 export const runtime = 'nodejs'
 
 const WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
+
+/* ----------------------- Global word-cloud helpers ----------------------- */
+
+/** Extra glue words dropped from the global word cloud: common English
+ *  fillers from the task spec (some overlap with STOPWORDS is harmless)
+ *  plus common Hinglish fillers and chat laughter. */
+const EXTRA_STOPWORDS: ReadonlySet<string> = new Set([
+  // English glue
+  'the', 'and', 'you', 'i', 'a', 'to', 'is', 'it', 'that', 'this', 'of', 'in',
+  'on', 'for', 'was', 'he', 'she', 'they', 'we', 'but', 'with', 'my', 'not',
+  'have', 'do', 'at', 'so', 'if', 'be', 'me', 'just',
+  // Hinglish glue
+  'ya', 'nahi', 'hai', 'ho', 'kar', 'ke', 'ka', 'ki', 'ko', 'se', 'aur',
+  'main', 'bhi', 'ek', 'par', 'tha', 'hun', 'abhi',
+  // smalltalk / laughter
+  'ok', 'okay', 'haha', 'hahaha', 'lol',
+])
+
+const CLOUD_STOPWORDS: ReadonlySet<string> = new Set([
+  ...STOPWORDS,
+  ...EXTRA_STOPWORDS,
+])
+
+/** Extract lowercase, punctuation-stripped, URL-free, number-free,
+ *  stopword-filtered tokens (same tokenizer shape as countWords, but with
+ *  the extended cloud stopword list). */
+function countCloudWords(body: string, into: Map<string, number>): void {
+  const cleaned = body.replace(URL_RE, ' ').toLowerCase()
+  const tokens = cleaned.match(/[a-z][a-z'’]{2,}/g)
+  if (!tokens) return
+  for (const raw of tokens) {
+    const t = raw.replace(/[’']/g, '')
+    if (CLOUD_STOPWORDS.has(t)) continue
+    into.set(t, (into.get(t) ?? 0) + 1)
+  }
+}
+
+/* --------------------- "Left on read" pair helpers ---------------------- */
+
+const REPLY_WINDOW_MS = 24 * 60 * 60 * 1000
+const MIN_PAIR_MESSAGES = 8
+const MAX_SENDERS_PER_CHAT = 15
+const IGNORE_GRAPH_LIMIT = 8
+
+interface IgnorePairRow {
+  chatId: string
+  chatTitle: string
+  aName: string
+  bName: string
+  aCount: number
+  bReplies: number
+  leftOnReadPct: number
+}
+
+/** First index in a sorted array whose value is >= target (lower bound). */
+function lowerBound(arr: number[], target: number): number {
+  let lo = 0
+  let hi = arr.length
+  while (lo < hi) {
+    const mid = (lo + hi) >> 1
+    if (arr[mid] < target) lo = mid + 1
+    else hi = mid
+  }
+  return lo
+}
+
+/** Compute playful "left on read" ordered pairs across every chat.
+ *  For A's each message, a reply is ANY later message from B within 24h. */
+function computeIgnoreGraph(
+  messages: { chatId: string; ts: Date; sender: string | null; type: string }[],
+  chatMeta: Map<string, { title: string; isGroup: boolean }>
+): IgnorePairRow[] {
+  // Per-chat timeline of real (non-system) sender messages
+  const timelines = new Map<string, { t: number; s: string }[]>()
+  for (const m of messages) {
+    if (!m.sender || m.type === 'system') continue
+    const t = m.ts.getTime()
+    if (Number.isNaN(t)) continue
+    let arr = timelines.get(m.chatId)
+    if (!arr) {
+      arr = []
+      timelines.set(m.chatId, arr)
+    }
+    arr.push({ t, s: m.sender })
+  }
+
+  const candidates: IgnorePairRow[] = []
+  for (const [chatId, timeline] of timelines) {
+    timeline.sort((a, b) => a.t - b.t)
+    const perSender = new Map<string, number[]>()
+    for (const { t, s } of timeline) {
+      let arr = perSender.get(s)
+      if (!arr) {
+        arr = []
+        perSender.set(s, arr)
+      }
+      arr.push(t)
+    }
+    const senders = [...perSender.entries()]
+      .sort((a, b) => b[1].length - a[1].length)
+      .slice(0, MAX_SENDERS_PER_CHAT)
+    if (senders.length < 2) continue
+    const chatTitle = chatMeta.get(chatId)?.title ?? 'Deleted chat'
+    for (const [aName, aTimes] of senders) {
+      const aCount = aTimes.length
+      if (aCount < MIN_PAIR_MESSAGES) continue
+      for (const [bName, bTimes] of senders) {
+        if (bName === aName) continue
+        let bReplies = 0
+        for (const t of aTimes) {
+          const i = lowerBound(bTimes, t)
+          if (i < bTimes.length && bTimes[i] - t <= REPLY_WINDOW_MS) bReplies++
+        }
+        const leftOnReadPct = Math.round(((aCount - bReplies) / aCount) * 100)
+        if (leftOnReadPct > 0) {
+          candidates.push({
+            chatId,
+            chatTitle,
+            aName,
+            bName,
+            aCount,
+            bReplies,
+            leftOnReadPct,
+          })
+        }
+      }
+    }
+  }
+
+  return candidates
+    .sort(
+      (a, b) =>
+        b.leftOnReadPct - a.leftOnReadPct || b.aCount - a.aCount
+    )
+    .slice(0, IGNORE_GRAPH_LIMIT)
+}
 
 /** Walk db/media/<chatId>/ to compute on-disk media storage per chat. */
 async function computeStorage(): Promise<{
@@ -91,7 +229,9 @@ export async function GET() {
   const participantWords = new Map<string, number>()
   const participantEmojis = new Map<string, number>()
   const emojiCount = new Map<string, number>()
+  const emojiUserCount = new Map<string, Map<string, number>>()
   const wordCount = new Map<string, number>()
+  const globalWordCount = new Map<string, number>()
   const perChatMessages = new Map<string, number>()
   const perChatWords = new Map<string, number>()
   const dayCount = new Map<string, number>()
@@ -153,7 +293,17 @@ export async function GET() {
             (participantEmojis.get(m.sender) ?? 0) + found.length
           )
         }
-        for (const e of found) emojiCount.set(e, (emojiCount.get(e) ?? 0) + 1)
+        for (const e of found) {
+          emojiCount.set(e, (emojiCount.get(e) ?? 0) + 1)
+          if (m.sender) {
+            let users = emojiUserCount.get(e)
+            if (!users) {
+              users = new Map()
+              emojiUserCount.set(e, users)
+            }
+            users.set(m.sender, (users.get(m.sender) ?? 0) + 1)
+          }
+        }
       }
 
       // Words: strip URLs, then count meaningful tokens
@@ -193,6 +343,28 @@ export async function GET() {
 
     perChatMessages.set(m.chatId, (perChatMessages.get(m.chatId) ?? 0) + 1)
   }
+
+  /* ------------------------- Global word cloud -------------------------
+     Body scan capped to the most recent 20k messages to bound CPU on
+     very large imports; the rest of the stats stay uncapped. */
+  {
+    const scan =
+      messages.length > 20_000
+        ? [...messages]
+            .sort((a, b) => b.ts.getTime() - a.ts.getTime())
+            .slice(0, 20_000)
+        : messages
+    for (const m of scan) {
+      if (m.type === 'text' || m.type === 'image' || m.type === 'video') {
+        countCloudWords(m.body ?? '', globalWordCount)
+      }
+    }
+  }
+
+  /* -------------------- "Left on read" ordered pairs --------------------
+     Playful metric: for each ordered pair (A → B) in a chat, how many of
+     A's messages get NO message from B within the next 24 hours. */
+  const ignoreGraph = computeIgnoreGraph(messages, chatMeta)
 
   let busiestDay: { date: string; count: number } | null = null
   for (const [date, count] of dayCount) {
@@ -301,6 +473,28 @@ export async function GET() {
       .map(([month, count]) => ({ month, count })),
     topWords,
     topEmojis,
+    topWordsGlobal: [...globalWordCount.entries()]
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 40)
+      .map(([word, count]) => ({ word, count })),
+    emojiLeaderboard: [...emojiCount.entries()]
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 12)
+      .map(([emoji, count]) => {
+        let topUser = ''
+        let topUserCount = 0
+        const users = emojiUserCount.get(emoji)
+        if (users) {
+          for (const [user, uses] of users) {
+            if (uses > topUserCount) {
+              topUser = user
+              topUserCount = uses
+            }
+          }
+        }
+        return { emoji, count, topUser }
+      }),
+    ignoreGraph,
     participants: Object.entries(participantCount)
       .sort(([, a], [, b]) => b - a)
       .slice(0, 8)

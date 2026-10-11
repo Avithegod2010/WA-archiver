@@ -7,8 +7,10 @@ import {
   Download,
   Languages,
   ListChecks,
+  Pencil,
   Pin,
   PinOff,
+  Reply,
   SmilePlus,
   Star,
   StarOff,
@@ -124,6 +126,12 @@ interface MessageActionSheetProps {
   onOpenChange: (open: boolean) => void
   /** Resolved media URL — enables the Download row when present. */
   src?: string | null
+  /** Starts a reply to this message (quote in the composer). */
+  onReply?: (msg: ChatMessage) => void
+  /** Starts an inline edit for this message (outgoing text only). */
+  onEdit?: (msg: ChatMessage) => void
+  /** Selection-mode starter — alternative to onToggleSelect. */
+  onSelect?: (msg: ChatMessage) => void
   onReact?: (msgId: string, emoji: string) => void
   onToggleStar?: (id: string, starred: boolean) => void
   onForwardSaved?: (msg: ChatMessage) => void
@@ -138,6 +146,9 @@ export function MessageActionSheet({
   open,
   onOpenChange,
   src,
+  onReply,
+  onEdit,
+  onSelect,
   onReact,
   onToggleStar,
   onForwardSaved,
@@ -199,6 +210,16 @@ export function MessageActionSheet({
 
         {/* Action rows */}
         <div className="flex shrink-0 flex-col pb-1">
+          {onReply && (
+            <SheetRow
+              icon={<Reply className="h-5 w-5 text-(--wa-accent)" />}
+              label="Reply"
+              onClick={() => {
+                onReply(msg)
+                close()
+              }}
+            />
+          )}
           {onReact && (
             <>
               <SheetRow
@@ -233,6 +254,16 @@ export function MessageActionSheet({
                 aria-hidden="true"
               />
             </>
+          )}
+          {onEdit && (
+            <SheetRow
+              icon={<Pencil className="h-5 w-5" />}
+              label="Edit message"
+              onClick={() => {
+                onEdit(msg)
+                close()
+              }}
+            />
           )}
           <SheetRow
             icon={<Copy className="h-5 w-5" />}
@@ -307,12 +338,13 @@ export function MessageActionSheet({
               <span className="truncate">Download media</span>
             </a>
           )}
-          {onToggleSelect && (
+          {(onToggleSelect || onSelect) && (
             <SheetRow
               icon={<ListChecks className="h-5 w-5" />}
               label="Select message"
               onClick={() => {
-                onToggleSelect(msg.id)
+                if (onToggleSelect) onToggleSelect(msg.id)
+                else onSelect?.(msg)
                 close()
               }}
             />

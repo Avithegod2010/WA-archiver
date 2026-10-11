@@ -2,11 +2,14 @@
 
 import './stats-extras.css'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import {
+  ArrowRight,
   BarChart3,
   CalendarCheck2,
   CalendarDays,
+  Cloud,
+  EyeOff,
   Flame,
   HelpCircle,
   Link2,
@@ -53,9 +56,79 @@ const TYPE_LABELS: Record<string, string> = {
 
 const WEEKDAY_FULL = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
 
+/* --------------- /api/stats extension types (local, defensive) ---------------
+   types.ts holds the shared StatsData shape; these extras arrive from the
+   same response but are parsed defensively so an older/cached payload
+   missing them degrades to empty sections instead of crashing. */
+
+interface GlobalWordEntry {
+  word: string
+  count: number
+}
+
+interface EmojiLeaderEntry {
+  emoji: string
+  count: number
+  topUser: string
+}
+
+interface IgnorePair {
+  chatId: string
+  chatTitle: string
+  aName: string
+  bName: string
+  aCount: number
+  bReplies: number
+  leftOnReadPct: number
+}
+
+interface StatsExtras {
+  topWordsGlobal?: unknown
+  emojiLeaderboard?: unknown
+  ignoreGraph?: unknown
+}
+
+function pickArray<T>(value: unknown, is: (v: unknown) => v is T): T[] {
+  return Array.isArray(value) ? value.filter(is) : []
+}
+
+const isWordEntry = (v: unknown): v is GlobalWordEntry =>
+  typeof v === 'object' &&
+  v !== null &&
+  typeof (v as { word?: unknown }).word === 'string' &&
+  typeof (v as { count?: unknown }).count === 'number'
+
+const isEmojiEntry = (v: unknown): v is EmojiLeaderEntry =>
+  typeof v === 'object' &&
+  v !== null &&
+  typeof (v as { emoji?: unknown }).emoji === 'string' &&
+  typeof (v as { count?: unknown }).count === 'number'
+
+const isIgnorePair = (v: unknown): v is IgnorePair =>
+  typeof v === 'object' &&
+  v !== null &&
+  typeof (v as { chatTitle?: unknown }).chatTitle === 'string' &&
+  typeof (v as { aName?: unknown }).aName === 'string' &&
+  typeof (v as { bName?: unknown }).bName === 'string' &&
+  typeof (v as { aCount?: unknown }).aCount === 'number' &&
+  typeof (v as { bReplies?: unknown }).bReplies === 'number' &&
+  typeof (v as { leftOnReadPct?: unknown }).leftOnReadPct === 'number'
+
+/** Warm palette for cloud glyphs (no blues/indigos by design). */
+const CLOUD_COLORS = [
+  '#e542a3',
+  '#f2a33c',
+  '#12b886',
+  '#0ea5a4',
+  '#b06ad4',
+  '#ef6c6c',
+  '#5f9b3f',
+  '#c27a3f',
+]
+
 /** Ease-out count from 0 → target on mount (KPI numbers). Respects
     prefers-reduced-motion by jumping straight to the target. */
-function useCountUp(target: number, delay = 0, duration = 900): number {
+function useCountUp(target: number, delay = 0, duration = 1400): number {
   const [val, setVal] = useState(0)
   useEffect(() => {
     let raf = 0
@@ -76,6 +149,38 @@ function useCountUp(target: number, delay = 0, duration = 900): number {
     return () => cancelAnimationFrame(raf)
   }, [target, delay, duration])
   return val
+}
+
+/** Scroll-reveal: flip to true (once) when the element scrolls into view
+    inside the dialog's scroll area. Below-fold sections stay frozen at
+    frame zero until the user actually reaches them. */
+function useReveal<T extends HTMLElement>() {
+  const ref = useRef<T | null>(null)
+  const [shown, setShown] = useState(false)
+  useEffect(() => {
+    const el = ref.current
+    if (!el) return
+    if (typeof IntersectionObserver === 'undefined') {
+      const raf = requestAnimationFrame(() => setShown(true))
+      return () => cancelAnimationFrame(raf)
+    }
+    const io = new IntersectionObserver(
+      (entries) => {
+        if (entries.some((e) => e.isIntersecting)) {
+          setShown(true)
+          io.disconnect()
+        }
+      },
+      {
+        root: (el.closest('.wa-scroll') as HTMLElement | null) ?? null,
+        threshold: 0.05,
+        rootMargin: '0px 0px -4% 0px',
+      }
+    )
+    io.observe(el)
+    return () => io.disconnect()
+  }, [])
+  return { ref, shown }
 }
 
 function Kpi({
@@ -133,9 +238,11 @@ function Section({
   children: React.ReactNode
   delay?: number
 }) {
+  const { ref, shown } = useReveal<HTMLElement>()
   return (
     <section
-      className="wa-stats-rise"
+      ref={ref as React.RefObject<HTMLElement>}
+      className={cn('wa-stats-rise', shown && 'wa-revealed')}
       style={{ animationDelay: `${delay}ms` }}
     >
       <h4 className="mb-2 flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wider text-(--wa-text-2)">
@@ -398,6 +505,134 @@ function FunFact({
   )
 }
 
+/* ------------------------- Task 10-c additions -------------------------- */
+
+/** Global word cloud — font size scales 12→34px by count rank, with color
+ *  + opacity variance. Chips are hoverable only (no click in global stats). */
+function WordCloud({ words }: { words: GlobalWordEntry[] }) {
+  const last = words.length - 1
+  return (
+    <div className="flex flex-wrap items-baseline justify-center gap-x-3 gap-y-0.5 rounded-xl bg-(--wa-panel-2)/60 px-4 py-4 dark:bg-(--wa-panel-2)/60">
+      {words.map((w, i) => {
+        const rank = last > 0 ? i / last : 1 // 0 = top word
+        const size = Math.round(34 - rank * 22) // 34 → 12px by rank
+        const color = CLOUD_COLORS[i % CLOUD_COLORS.length]
+        return (
+          <span
+            key={w.word}
+            title={`${w.count.toLocaleString()} use${w.count === 1 ? '' : 's'}`}
+            className="wa-chip-in cursor-default font-semibold leading-tight transition-transform hover:scale-110"
+            style={{
+              fontSize: size,
+              color,
+              opacity: 0.55 + (1 - rank) * 0.45,
+              animationDelay: `${i * 22}ms`,
+            }}
+          >
+            {w.word}
+          </span>
+        )
+      })}
+    </div>
+  )
+}
+
+/** Ranked emoji leaderboard — medal emojis for the top 3, numbers after. */
+function EmojiLeaderboard({ rows }: { rows: EmojiLeaderEntry[] }) {
+  const medals = ['🥇', '🥈', '🥉']
+  return (
+    <div className="grid gap-2 sm:grid-cols-2">
+      {rows.map((e, i) => (
+        <div
+          key={`${e.emoji}-${i}`}
+          className="wa-kpi-pop flex items-center gap-3 rounded-xl border border-black/5 bg-(--wa-panel-2)/60 p-2.5 dark:border-white/5 dark:bg-(--wa-panel-2)/60"
+          style={{ animationDelay: `${i * 60}ms` }}
+        >
+          <span className="w-7 shrink-0 text-center text-[18px] leading-none">
+            {i < 3 ? (
+              <span aria-hidden>{medals[i]}</span>
+            ) : (
+              <span
+                className="text-[13px] font-bold tabular-nums text-(--wa-text-2)"
+                aria-label={`Rank ${i + 1}`}
+              >
+                {i + 1}
+              </span>
+            )}
+          </span>
+          <span className="shrink-0 text-[26px] leading-none">{e.emoji}</span>
+          <div className="min-w-0 flex-1">
+            <p className="truncate text-[14.5px] font-semibold leading-tight tabular-nums text-(--wa-text)">
+              {e.count.toLocaleString()}
+              <span className="ml-1 text-[11px] font-normal text-(--wa-text-2)">
+                use{e.count === 1 ? '' : 's'}
+              </span>
+            </p>
+            <p className="truncate text-[11px] text-(--wa-text-2)">
+              {e.topUser ? (
+                <>
+                  Top user{' '}
+                  <b style={{ color: colorForName(e.topUser) }}>{e.topUser}</b>
+                </>
+              ) : (
+                '—'
+              )}
+            </p>
+          </div>
+        </div>
+      ))}
+    </div>
+  )
+}
+
+/** One playful "A leaves B on read" row: Avatar → dashed line with the
+ *  % label → ArrowRight → Avatar, plus a bar sized by the percentage. */
+function IgnoreRow({ pair, index }: { pair: IgnorePair; index: number }) {
+  return (
+    <div
+      className="wa-kpi-pop rounded-xl border border-black/5 bg-(--wa-panel-2)/60 p-3 dark:border-white/5 dark:bg-(--wa-panel-2)/60"
+      style={{ animationDelay: `${index * 70}ms` }}
+    >
+      <div className="flex items-center gap-2">
+        <span className="flex w-14 shrink-0 flex-col items-center gap-0.5">
+          <Avatar name={pair.aName} size={28} />
+          <span className="w-full truncate text-center text-[10px] font-medium text-(--wa-text)">
+            {pair.aName}
+          </span>
+        </span>
+        <div className="relative h-6 min-w-0 flex-1">
+          <div className="absolute inset-x-0 top-1/2 border-t border-dashed border-(--wa-accent)/40 dark:border-(--wa-accent)/50" />
+          <span className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 whitespace-nowrap rounded-full bg-(--wa-accent)/10 px-2 py-0.5 text-[10.5px] font-semibold tabular-nums text-(--wa-accent-strong) dark:bg-(--wa-accent)/20">
+            {pair.leftOnReadPct}% left on read
+          </span>
+        </div>
+        <ArrowRight className="h-3.5 w-3.5 shrink-0 text-(--wa-text-2)" />
+        <span className="flex w-14 shrink-0 flex-col items-center gap-0.5">
+          <Avatar name={pair.bName} size={28} />
+          <span className="w-full truncate text-center text-[10px] font-medium text-(--wa-text)">
+            {pair.bName}
+          </span>
+        </span>
+      </div>
+      <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-black/5 dark:bg-white/10">
+        <div
+          className="wa-bar-grow h-full rounded-full"
+          style={{
+            width: `${Math.max(pair.leftOnReadPct, 2)}%`,
+            backgroundColor: colorForName(pair.aName),
+            animationDelay: `${120 + index * 70}ms`,
+          }}
+        />
+      </div>
+      <p className="mt-1.5 truncate text-[11px] text-(--wa-text-2)">
+        <b className="text-(--wa-text)">{pair.aName}</b> sent{' '}
+        {pair.aCount.toLocaleString()} · {pair.bName} replied to{' '}
+        {pair.bReplies.toLocaleString()} · in {pair.chatTitle}
+      </p>
+    </div>
+  )
+}
+
 /* ------------------------------ Main dialog ----------------------------- */
 
 export function StatsDashboard({
@@ -451,10 +686,22 @@ export function StatsDashboard({
 
   const deletedCount = data?.types.find((t) => t.type === 'deleted')?.count ?? 0
 
+  // /api/stats extension fields — parsed defensively (see StatsExtras)
+  const extras = (data ?? null) as unknown as StatsExtras | null
+  const topWordsGlobal = pickArray<GlobalWordEntry>(
+    extras?.topWordsGlobal,
+    isWordEntry
+  )
+  const emojiLeaderboard = pickArray<EmojiLeaderEntry>(
+    extras?.emojiLeaderboard,
+    isEmojiEntry
+  )
+  const ignoreGraph = pickArray<IgnorePair>(extras?.ignoreGraph, isIgnorePair)
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="wa-stats-pop flex max-h-[85vh] flex-col overflow-hidden sm:max-w-2xl">
-        <DialogHeader className="wa-stats-rise">
+        <DialogHeader className="wa-stats-rise wa-revealed">
           <DialogTitle className="flex items-center gap-2">
             <BarChart3 className="h-5 w-5 text-(--wa-accent)" />
             Insights
@@ -576,7 +823,7 @@ export function StatsDashboard({
               ) : (
                 <>
                   {data.range.busiestDay && (
-                    <p className="wa-stats-rise rounded-lg bg-(--wa-accent)/10 px-3 py-2 text-[12.5px] text-(--wa-accent-strong)" style={{ animationDelay: '30ms' }}>
+                    <p className="wa-stats-rise wa-revealed rounded-lg bg-(--wa-accent)/10 px-3 py-2 text-[12.5px] text-(--wa-accent-strong)" style={{ animationDelay: '30ms' }}>
                       Busiest day:{' '}
                       <b>
                         {new Date(
@@ -598,12 +845,12 @@ export function StatsDashboard({
                   <Section
                     title="Activity heatmap"
                     icon={<CalendarDays className="h-3 w-3" />}
-                    delay={40}
+                    delay={80}
                   >
                     <Heatmap grid={data.heatmap} total={data.totals.messages} />
                   </Section>
 
-                  <Section title="Messages per month" delay={90}>
+                  <Section title="Messages per month" delay={140}>
                     <div className="flex h-28 items-end gap-1.5 rounded-xl bg-(--wa-panel-2)/60 p-3 dark:bg-(--wa-panel-2)/60">
                       {data.months.length === 0 ? (
                         <p className="w-full text-center text-[12px] text-(--wa-text-2)">
@@ -638,12 +885,12 @@ export function StatsDashboard({
                   <Section
                     title="Most active hours"
                     icon={<CalendarCheck2 className="h-3 w-3" />}
-                    delay={140}
+                    delay={200}
                   >
                     <HoursChart hours={data.hours} />
                   </Section>
 
-                  <Section title="Activity by weekday" delay={190}>
+                  <Section title="Activity by weekday" delay={260}>
                     <div className="space-y-1.5">
                       {data.weekdays.map((w, i) => (
                         <BarRow
@@ -662,7 +909,7 @@ export function StatsDashboard({
                   {(data.topWords.length > 0 || data.topEmojis.length > 0) && (
                     <div className="grid gap-5 sm:grid-cols-2">
                       {data.topWords.length > 0 && (
-                        <Section title="Top words" delay={240}>
+                        <Section title="Top words" delay={320}>
                           <div className="flex flex-wrap gap-1.5">
                             {data.topWords.map((w, i) => (
                               <span
@@ -680,7 +927,7 @@ export function StatsDashboard({
                         </Section>
                       )}
                       {data.topEmojis.length > 0 && (
-                        <Section title="Top emojis" delay={240}>
+                        <Section title="Top emojis" delay={320}>
                           <div className="flex flex-wrap gap-2">
                             {data.topEmojis.map((e, i) => (
                               <div
@@ -707,7 +954,7 @@ export function StatsDashboard({
                     </div>
                   )}
 
-                  <Section title="Fun facts" delay={290}>
+                  <Section title="Fun facts" delay={380}>
                     <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
                       <FunFact
                         icon={<Flame className="h-4 w-4" />}
@@ -781,7 +1028,7 @@ export function StatsDashboard({
                     )}
                   </Section>
 
-                  <Section title="Top chats" delay={340}>
+                  <Section title="Top chats" delay={440}>
                     {(data.perChat.length > 2 || q) && (
                       <div className="relative mb-2">
                         <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-(--wa-text-2)" />
@@ -821,12 +1068,12 @@ export function StatsDashboard({
                   </Section>
 
                   {data.participants.length > 0 && (
-                    <Section title="Most active people" delay={390}>
+                    <Section title="Most active people" delay={500}>
                       <div className="space-y-2.5">
                         {data.participants.map((p, i) => (
                           <div
                             key={p.sender}
-                            className="wa-stats-rise flex items-center gap-2.5"
+                            className="wa-kpi-pop flex items-center gap-2.5"
                             style={{ animationDelay: `${400 + i * 70}ms` }}
                           >
                             <span className="shrink-0">
@@ -866,7 +1113,7 @@ export function StatsDashboard({
                     </Section>
                   )}
 
-                  <Section title="Message types" delay={440}>
+                  <Section title="Message types" delay={560}>
                     <div className="flex flex-wrap gap-1.5">
                       {data.types.map((t, i) => (
                         <span
@@ -887,7 +1134,7 @@ export function StatsDashboard({
                   </Section>
 
                   {data.storage.perChat.length > 0 && (
-                    <Section title="Media storage by chat" delay={490}>
+                    <Section title="Media storage by chat" delay={620}>
                       <div className="space-y-1.5">
                         {filteredStorage.map((s, i) => (
                           <BarRow
@@ -913,6 +1160,61 @@ export function StatsDashboard({
                       </div>
                     </Section>
                   )}
+
+                  {/* Task 10-c: global word cloud, emoji leaderboard,
+                      "who leaves who on read" — same scroll-reveal system. */}
+
+                  <Section
+                    title="Word cloud"
+                    icon={<Cloud className="h-3 w-3" />}
+                    delay={700}
+                  >
+                    {topWordsGlobal.length > 0 ? (
+                      <WordCloud words={topWordsGlobal} />
+                    ) : (
+                      <p className="rounded-xl bg-(--wa-panel-2)/60 px-3 py-4 text-center text-[12.5px] text-(--wa-text-2)">
+                        No words yet — import a chat with text messages first.
+                      </p>
+                    )}
+                  </Section>
+
+                  <Section
+                    title="Emoji leaderboard"
+                    icon={<Smile className="h-3 w-3" />}
+                    delay={780}
+                  >
+                    {emojiLeaderboard.length > 0 ? (
+                      <EmojiLeaderboard rows={emojiLeaderboard.slice(0, 8)} />
+                    ) : (
+                      <p className="rounded-xl bg-(--wa-panel-2)/60 px-3 py-4 text-center text-[12.5px] text-(--wa-text-2)">
+                        No emojis yet — send a few and they&apos;ll rank up here.
+                      </p>
+                    )}
+                  </Section>
+
+                  <Section
+                    title="Who leaves who on read"
+                    icon={<EyeOff className="h-3 w-3" />}
+                    delay={860}
+                  >
+                    {ignoreGraph.length > 0 ? (
+                      <div className="space-y-2">
+                        {ignoreGraph.map((pair, i) => (
+                          <IgnoreRow key={`${pair.chatId}-${pair.aName}-${pair.bName}`} pair={pair} index={i} />
+                        ))}
+                      </div>
+                    ) : (
+                      <p className="rounded-xl bg-(--wa-panel-2)/60 px-3 py-4 text-center text-[12.5px] text-(--wa-text-2)">
+                        No repeat offenders yet — everyone&apos;s replying (or
+                        there isn&apos;t enough history).
+                      </p>
+                    )}
+                    <p className="mt-2 text-[10.5px] leading-snug text-(--wa-text-2)">
+                      Playful estimate based on reply timing — a message counts
+                      as &quot;left on read&quot; when the other person sends
+                      nothing within 24 hours.
+                    </p>
+                  </Section>
                 </>
               )}
             </>

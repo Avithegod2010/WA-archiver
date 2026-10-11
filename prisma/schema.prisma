@@ -42,6 +42,7 @@ model Message {
   pollOptions   String?
   pinned        Boolean  @default(false)
   reactions     String?
+  replyToId     String?
 
   @@index([chatId, idx])
   @@index([chatId, ts])

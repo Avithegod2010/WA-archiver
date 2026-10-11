@@ -10,6 +10,12 @@ const BAR_COUNT = 26
 /** Only one voice note plays at a time (module-level "who is active" slot). */
 const activeAudio: { current: HTMLAudioElement | null } = { current: null }
 
+/**
+ * Chosen speed persists across tracks for the whole session:
+ * every VoicePlayer starts at the last speed the user picked.
+ */
+let preferredRateIdx = 0
+
 function fmtTime(s: number): string {
   if (!isFinite(s) || s < 0) s = 0
   const m = Math.floor(s / 60)
@@ -55,7 +61,7 @@ export function VoicePlayer({
   const [playing, setPlaying] = useState(false)
   const [current, setCurrent] = useState(0)
   const [duration, setDuration] = useState(0)
-  const [rateIdx, setRateIdx] = useState(0)
+  const [rateIdx, setRateIdx] = useState(preferredRateIdx)
   const [failed, setFailed] = useState(false)
   const bars = useMemo(() => barHeights(seed), [seed])
   const rate = RATES[rateIdx]
@@ -141,6 +147,7 @@ export function VoicePlayer({
 
   function cycleRate() {
     const next = (rateIdx + 1) % RATES.length
+    preferredRateIdx = next
     setRateIdx(next)
     const a = audioRef.current
     if (a) a.playbackRate = RATES[next]
@@ -217,8 +224,8 @@ export function VoicePlayer({
         type="button"
         onClick={cycleRate}
         aria-label={`Playback speed ${rate}× — tap to change`}
-        title="Playback speed"
-        className="h-6 shrink-0 rounded-full bg-black/5 px-1.5 text-[10.5px] font-bold tabular-nums text-(--wa-text-2) transition-colors hover:bg-black/10 dark:bg-white/10 dark:text-(--wa-text-2) dark:hover:bg-white/15"
+        title="Playback speed (applies to all voice messages)"
+        className="flex h-8 shrink-0 items-center rounded-full bg-black/5 px-2.5 text-[11px] font-bold tabular-nums text-(--wa-text-2) transition-colors hover:bg-black/10 dark:bg-white/10 dark:text-(--wa-text-2) dark:hover:bg-white/15"
       >
         {rate}×
       </button>

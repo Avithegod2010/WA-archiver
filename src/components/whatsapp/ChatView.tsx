@@ -15,15 +15,18 @@ import {
   ArrowDownToLine,
   ArrowLeft,
   ArrowUpToLine,
-  BookmarkPlus,
+  Braces,
   CalendarDays,
   ChevronDown,
   ChevronUp,
   Copy,
   Download,
+  Eye,
   FileArchive,
   FileCode2,
   FileText,
+  Forward,
+  Hash,
   Images,
   Languages,
   ListChecks,
@@ -37,6 +40,7 @@ import {
   Printer,
   Regex,
   Search,
+  Sheet,
   SlidersHorizontal,
   Star,
   Trash2,
@@ -51,9 +55,14 @@ import { ChatInfo } from './ChatInfo'
 import { MediaGallery } from './MediaGallery'
 import { StarredMessages } from './StarredMessages'
 import { Composer } from './Composer'
+import { ForwardDialog } from './ForwardDialog'
 import { PollDialog } from './PollDialog'
 import { WallpaperPicker } from './WallpaperPicker'
 import { AIToolsDialog } from './AIToolsDialog'
+import { MovieMode } from './MovieMode'
+import { TimelineScrubber, type ScrubMonth } from './TimelineScrubber'
+import { WordCloudDialog } from './WordCloudDialog'
+import { CHAT_THEME_EVENT, readChatAccent } from './chat-theme'
 import { DoodleBackground } from './icons'
 import {
   GLOBAL_WALLPAPER_KEY,
@@ -106,6 +115,52 @@ import {
 } from './text-size'
 
 const PAGE_SIZE = 300
+
+/* ---------------- 10-i: link preview orchestration ---------------- */
+
+type LinkPreviewData = NonNullable<ChatMessage['linkPreview']>
+
+/** Robust URL finder for message bodies (same shape as the gallery extractor). */
+const MESSAGE_URL_RE = /https?:\/\/[^\s<>"'`{}|\\^\[\]]+/i
+
+/** First http(s) URL in a text body, with trailing punctuation trimmed. */
+function firstUrlIn(text: string): string | null {
+  const m = MESSAGE_URL_RE.exec(text)
+  if (!m) return null
+  let url = m[0].replace(/[.,;:!?'"”’)\]»>]+$/, '')
+  // Balance trailing parentheses: keep them only when they open inside
+  const opens = (url.match(/\(/g) ?? []).length
+  const closes = (url.match(/\)/g) ?? []).length
+  if (closes > opens) {
+    const cut = url.lastIndexOf('(')
+    if (cut > 0) url = url.slice(0, cut)
+  }
+  return url || null
+}
+
+/** Module-level per-URL cache so chat switches render previews instantly. */
+const linkPreviewCache = new Map<string, LinkPreviewData | null>()
+/** In-flight fetches per URL (dedupes concurrent workers). */
+const linkPreviewInflight = new Map<string, Promise<LinkPreviewData | null>>()
+/** Max messages per chat that get a link preview lookup (document order). */
+const LINK_PREVIEW_CAP = 24
+
+/** Defensive parse of the /api/link-preview payload (never throws). */
+function parsePreviewPayload(data: unknown): LinkPreviewData | null {
+  const preview = (data as { ok?: unknown; preview?: unknown } | null)?.preview
+  if (!preview || typeof preview !== 'object') return null
+  const p = preview as Record<string, unknown>
+  if (typeof p.url !== 'string' || typeof p.title !== 'string' || !p.title) {
+    return null
+  }
+  return {
+    url: p.url,
+    title: p.title,
+    description: typeof p.description === 'string' ? p.description : undefined,
+    siteName: typeof p.siteName === 'string' ? p.siteName : undefined,
+    image: typeof p.image === 'string' ? p.image : undefined,
+  }
+}
 
 /* ------------------------- Chat wallpaper (v2) ------------------------- */
 
@@ -348,9 +403,20 @@ export function ChatView({
   /** null until mounted — keeps the presence subtitle hydration-safe. */
   const [nowMs, setNowMs] = useState<number | null>(null)
 
-  /* ----- Local edit mode (pencil): selection, edit, delete, compose ----- */
-  const [editMode, setEditMode] = useState(false)
+  /* ---- 10-b: simulated "other participant is typing" ---- */
+  const [typingName, setTypingName] = useState<string | null>(null)
+  const typingTimersRef = useRef<number[]>([])
+
+  /* ----- Interaction model (Task 10-b): editing is the DEFAULT in every
+         chat (incl. Saved Messages); the pencil toggles a read-only VIEWING
+         mode. Multi-select is a separate transient mode. ----- */
+  const [readOnly, setReadOnly] = useState(false)
+  const [selecting, setSelecting] = useState(false)
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
+  const [replyTo, setReplyTo] = useState<ChatMessage | null>(null)
+  const [forwardState, setForwardState] = useState<{
+    messages: ChatMessage[]
+  } | null>(null)
   const [pollOpen, setPollOpen] = useState(false)
   const [pollCreating, setPollCreating] = useState(false)
   const [editing, setEditing] = useState<ChatMessage | null>(null)
@@ -358,6 +424,19 @@ export function ChatView({
   const [editSaving, setEditSaving] = useState(false)
   const [deleteConfirm, setDeleteConfirm] = useState(false)
   const [deleteBusy, setDeleteBusy] = useState(false)
+
+  /* ---- 10-i: word cloud / movie mode / accent theme / link previews ---- */
+  const [wordCloudOpen, setWordCloudOpen] = useState(false)
+  const [movieMode, setMovieMode] = useState(false)
+  /** Per-chat accent override — null = app default (vars cascade everywhere). */
+  const [accentVars, setAccentVars] = useState<React.CSSProperties | null>(null)
+  /** messageId → fetched preview (null = fetched, none found). */
+  const [linkPreviews, setLinkPreviews] = useState<
+    Map<string, LinkPreviewData | null>
+  >(new Map())
+  const linkPreviewsRef = useRef<Map<string, LinkPreviewData | null>>(
+    linkPreviews
+  )
 
   const chatId = detail?.chat.id ?? ''
   const wallpaperCfg = useWallpaperConfig(chatId)
@@ -412,6 +491,143 @@ export function ChatView({
     setPinsCollapsed(false)
     setPinIdx(0)
   }, [chatId])
+
+  // Read-only preference persists per app ('1' = read-only). Editing is the
+  // default, so the flag is only ever written when the user switches to
+  // read-only viewing. Applied after mount (hydration-safe).
+  useEffect(() => {
+    try {
+      setReadOnly(localStorage.getItem('wa-viewer:read-only') === '1')
+    } catch {
+      /* private mode — stay on the editing default */
+    }
+  }, [])
+
+  /* ---- 10-i: per-chat accent theme (chat-theme.ts) ----
+     Read on chat open + re-read when 'wa-theme-changed' fires for this chat.
+     Default accent → no override; otherwise the CSS vars are set on the chat
+     root wrapper so header, bubbles, pills and bars all inherit them. */
+  useEffect(() => {
+    if (!chatId) return
+    const apply = () => {
+      const pair = readChatAccent(chatId)
+      setAccentVars(
+        pair.name === 'Default'
+          ? null
+          : ({
+              '--wa-accent': pair.accent,
+              '--wa-accent-strong': pair.accentStrong,
+            } as React.CSSProperties)
+      )
+    }
+    apply()
+    const onThemeChanged = (e: Event) => {
+      const detail = (e as CustomEvent).detail as { chatId?: string } | undefined
+      if (!detail || detail.chatId === chatId) apply()
+    }
+    window.addEventListener(CHAT_THEME_EVENT, onThemeChanged)
+    return () => window.removeEventListener(CHAT_THEME_EVENT, onThemeChanged)
+  }, [chatId])
+
+  /* ---- 10-i: link preview orchestration ----
+     After messages load/refresh: scan text messages in document order for
+     their first http(s) URL, cap 24 per chat, fetch /api/link-preview with
+     concurrency 3 (failures → null). Results are stored per message id; URLs
+     are cached module-level so switching chats back is instant. Only messages
+     missing from the map are (re)processed. */
+  useEffect(() => {
+    if (!chatId) return
+    const candidates: { id: string; url: string }[] = []
+    for (const m of messages) {
+      if (candidates.length >= LINK_PREVIEW_CAP) break
+      if (m.type !== 'text' || !m.body) continue
+      if (linkPreviewsRef.current.has(m.id)) continue
+      const url = firstUrlIn(m.body)
+      if (!url) continue
+      candidates.push({ id: m.id, url })
+    }
+    if (candidates.length === 0) return
+    let alive = true
+    let next = 0
+    const worker = async () => {
+      while (alive && next < candidates.length) {
+        const c = candidates[next++]
+        let preview = linkPreviewCache.get(c.url)
+        if (preview === undefined) {
+          const inflight = linkPreviewInflight.get(c.url)
+          if (inflight) {
+            preview = await inflight
+          } else {
+            const job: Promise<LinkPreviewData | null> = fetch(
+              `/api/link-preview?url=${encodeURIComponent(c.url)}`
+            )
+              .then((r) => r.json())
+              .then((d: unknown) => parsePreviewPayload(d))
+              .catch(() => null)
+            linkPreviewInflight.set(c.url, job)
+            preview = await job
+            linkPreviewInflight.delete(c.url)
+            linkPreviewCache.set(c.url, preview)
+          }
+        }
+        if (!alive) return
+        const nextMap = new Map(linkPreviewsRef.current)
+        nextMap.set(c.id, preview)
+        linkPreviewsRef.current = nextMap
+        setLinkPreviews(nextMap)
+      }
+    }
+    for (let i = 0; i < 3; i++) void worker()
+    return () => {
+      alive = false
+    }
+  }, [messages, chatId])
+
+  /** Pencil toggle: flip between the editing default and read-only viewing. */
+  function toggleReadOnly() {
+    setReadOnly((v) => {
+      const next = !v
+      try {
+        if (next) localStorage.setItem('wa-viewer:read-only', '1')
+        else localStorage.removeItem('wa-viewer:read-only')
+      } catch {
+        /* ignore storage failures */
+      }
+      return next
+    })
+  }
+
+  /* -------------- 10-b: simulated "participant is typing" -------------- */
+
+  const clearTypingTimers = useCallback(() => {
+    for (const t of typingTimersRef.current) window.clearTimeout(t)
+    typingTimersRef.current = []
+  }, [])
+
+  // Stop any running simulation when switching chats or unmounting.
+  useEffect(() => {
+    setTypingName(null)
+    return clearTypingTimers
+  }, [chatId, clearTypingTimers])
+
+  // When the dots appear, scroll the typing bubble into view — but only when
+  // the user is already near the bottom (never yank them out of history).
+  useEffect(() => {
+    if (!typingName) return
+    const raf = requestAnimationFrame(() => {
+      const wrap = scrollRef.current
+      const el = wrap?.querySelector('[data-typing-bubble]')
+      if (!wrap || !el) return
+      const distance = wrap.scrollHeight - wrap.scrollTop - wrap.clientHeight
+      if (distance < 400) {
+        el.scrollIntoView({
+          block: 'end',
+          behavior: prefersReducedMotion() ? 'auto' : 'smooth',
+        })
+      }
+    })
+    return () => cancelAnimationFrame(raf)
+  }, [typingName])
 
   const compiledRegex = useMemo<{ re: RegExp } | 'invalid' | null>(() => {
     const q = query.trim()
@@ -480,7 +696,10 @@ export function ChatView({
     if (!id) return
     const el = scrollRef.current?.querySelector(`[data-mid="${id}"]`)
     if (el) {
-      el.scrollIntoView({ block: 'center', behavior: 'smooth' })
+      el.scrollIntoView({
+        block: 'center',
+        behavior: prefersReducedMotion() ? 'auto' : 'smooth',
+      })
       setJumpedId(id)
       const t = setTimeout(() => setJumpedId(null), 2000)
       pendingJumpRef.current = null
@@ -548,7 +767,7 @@ export function ChatView({
     })
   }
 
-  // Escape: clear filters -> close search -> go back to list
+  // Escape: exit selection -> cancel reply -> clear filters -> close search -> back
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
       if (e.key !== 'Escape') return
@@ -556,7 +775,11 @@ export function ChatView({
       // (Radix handles those Escapes itself)
       if (document.querySelector('[role="dialog"],[role="alertdialog"],[role="menu"]')) return
       if (jumpOpen) return
-      if (query) {
+      if (selecting) {
+        exitSelection()
+      } else if (replyTo) {
+        setReplyTo(null)
+      } else if (query) {
         setQuery('')
       } else if (hasDateFilter) {
         setFromDate('')
@@ -571,7 +794,7 @@ export function ChatView({
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [jumpOpen, query, hasDateFilter, starredOnly, searchOpen, onBack])
+  }, [jumpOpen, selecting, replyTo, query, hasDateFilter, starredOnly, searchOpen, onBack])
 
   function handleScrollToBottom() {
     const el = scrollRef.current
@@ -724,6 +947,22 @@ export function ChatView({
     toast.success('Exporting .html — a standalone page of this chat')
   }
 
+  /** JSON (raw data) / CSV (spreadsheet) exports — mirrors handleExportZip. */
+  function handleExportFormat(format: 'json' | 'csv') {
+    if (!detail) return
+    const a = document.createElement('a')
+    a.href = `/api/chats/${detail.chat.id}/export?format=${format}`
+    a.download = ''
+    document.body.appendChild(a)
+    a.click()
+    a.remove()
+    toast.success(
+      format === 'json'
+        ? 'Exporting .json (raw data) — check your downloads'
+        : 'Exporting .csv (spreadsheet) — check your downloads'
+    )
+  }
+
   function openPrint() {
     setPrintReady(true)
   }
@@ -754,7 +993,7 @@ export function ChatView({
     }
   }, [printReady])
 
-  /* ---------------------- Local edit mode (pencil) ---------------------- */
+  /* ------------ Multi-select + reply + forward dialog (10-b) ------------ */
 
   const isSavedChat = detail?.chat.id === SAVED_CHAT_ID
   const selectedCount = selectedIds.size
@@ -762,23 +1001,26 @@ export function ChatView({
     () => messages.filter((m) => selectedIds.has(m.id)),
     [messages, selectedIds]
   )
-  const singleSelected =
-    selectedCount === 1 && selectedMessages[0]?.type !== 'system'
-      ? selectedMessages[0]
-      : null
-  const singleEditable =
-    !!singleSelected &&
-    singleSelected.sender === 'You' &&
-    (singleSelected.type === 'text' || singleSelected.type === 'poll')
 
-  /** Leave select mode whenever the chat changes. */
+  /** Reset transient modes whenever the chat changes. */
   useEffect(() => {
-    setEditMode(false)
+    setSelecting(false)
     setSelectedIds(new Set())
+    setReplyTo(null)
+    setForwardState(null)
+    setMovieMode(false)
+    // Link previews are per chat — clear the state map (module URL cache stays)
+    const empty = new Map<string, LinkPreviewData | null>()
+    linkPreviewsRef.current = empty
+    setLinkPreviews(empty)
   }, [chatId])
 
-  function exitEditMode() {
-    setEditMode(false)
+  function enterSelection() {
+    setSelecting(true)
+  }
+
+  function exitSelection() {
+    setSelecting(false)
     setSelectedIds(new Set())
   }
 
@@ -791,11 +1033,40 @@ export function ChatView({
     })
   }
 
-  /** Select every selectable message in the chat (edit mode). */
+  /** Select every selectable message in the chat. */
   function selectAll() {
     setSelectedIds(
       new Set(messages.filter((m) => m.sender || m.type === 'poll').map((m) => m.id))
     )
+  }
+
+  /**
+   * The action sheet's "Select message" enters selection mode with that
+   * message preselected; while selecting, rows toggle instead.
+   */
+  function handleToggleSelect(id: string) {
+    if (!selecting) {
+      setSelecting(true)
+      setSelectedIds(new Set([id]))
+      return
+    }
+    toggleSelect(id)
+  }
+
+  /** Quote a message in the composer (reply flow). */
+  function handleReplyTo(msg: ChatMessage) {
+    setReplyTo(msg)
+  }
+
+  /** Tap the reply quote preview — jump to + briefly highlight the original. */
+  function handleJumpToReply() {
+    if (replyTo) jumpToMessageId(replyTo.id)
+  }
+
+  /** Open the multi-target forward dialog for the given messages. */
+  function openForwardDialog(msgs: ChatMessage[]) {
+    if (msgs.length === 0) return
+    setForwardState({ messages: msgs })
   }
 
   /** Forward one or many messages into Saved Messages. */
@@ -848,6 +1119,7 @@ export function ChatView({
       onStarMessage?.(m.id, true)
     }
     toast.success(`Starred ${unstarred.length} message${unstarred.length === 1 ? '' : 's'}`)
+    exitSelection()
   }
 
   async function copySelected() {
@@ -863,31 +1135,39 @@ export function ChatView({
     }
   }
 
+  /** Batch delete: sequential DELETE per message (await all), then refresh. */
   async function executeDelete() {
     if (selectedCount === 0) return
     setDeleteBusy(true)
+    const ids = [...selectedIds]
+    const okIds: string[] = []
     try {
-      const res = await fetch(`/api/chats/${chatId}/messages/delete`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ids: [...selectedIds] }),
-      })
-      const data = await res.json()
-      if (!res.ok) throw new Error(data.error ?? 'Delete failed')
-      setDetail((d) =>
-        d
-          ? { ...d, messages: d.messages.filter((m) => !selectedIds.has(m.id)) }
-          : d
-      )
-      toast.success(
-        data.deleted === 1
-          ? 'Message deleted for everyone'
-          : `${data.deleted} messages deleted`
-      )
-      setSelectedIds(new Set())
-      onChatChanged?.()
-    } catch {
-      toast.error('Could not delete messages')
+      for (const id of ids) {
+        try {
+          const res = await fetch(`/api/messages/${id}`, { method: 'DELETE' })
+          if (res.ok) okIds.push(id)
+        } catch {
+          /* keep going — report the partial result at the end */
+        }
+      }
+      if (okIds.length > 0) {
+        const okSet = new Set(okIds)
+        setDetail((d) =>
+          d
+            ? { ...d, messages: d.messages.filter((m) => !okSet.has(m.id)) }
+            : d
+        )
+        if (replyTo && okSet.has(replyTo.id)) setReplyTo(null)
+        toast.success(
+          okIds.length === 1
+            ? 'Deleted 1 message'
+            : `Deleted ${okIds.length} messages`
+        )
+        onChatChanged?.()
+      } else {
+        toast.error('Could not delete messages')
+      }
+      exitSelection()
     } finally {
       setDeleteBusy(false)
       setDeleteConfirm(false)
@@ -932,12 +1212,81 @@ export function ChatView({
     }
   }
 
+  /**
+   * Inline edit persistence for MessageBubble (`onEditSave` contract):
+   * PATCH { body } then update local state. Returns success so the bubble
+   * can keep or revert its inline editor.
+   */
+  async function saveEditApi(id: string, body: string): Promise<boolean> {
+    const trimmed = body.trim()
+    if (!trimmed) return false
+    try {
+      const res = await fetch(`/api/messages/${id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ body: trimmed }),
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error ?? 'Save failed')
+      const newBody = data.message.body as string
+      setDetail((d) =>
+        d
+          ? {
+              ...d,
+              messages: d.messages.map((m) =>
+                m.id === id ? { ...m, body: newBody, edited: true } : m
+              ),
+            }
+          : d
+      )
+      toast.success('Message edited')
+      onChatChanged?.()
+      return true
+    } catch {
+      toast.error('Could not edit message')
+      return false
+    }
+  }
+
+  /**
+   * Simulated typing (10-b): shortly after you send, a random OTHER
+   * participant "types" for a few seconds. Purely client-side; skipped in
+   * Saved Messages and chats where nobody but 'You' ever sent anything.
+   */
+  function scheduleTypingSimulation() {
+    if (!detail || isSavedChat) return
+    const others = detail.chat.isGroup
+      ? [
+          ...new Set(
+            messages
+              .filter((m) => m.sender && m.sender !== 'You')
+              .map((m) => m.sender as string)
+          ),
+        ]
+      : [detail.chat.title]
+    if (others.length === 0) return
+    const name = others[Math.floor(Math.random() * others.length)]
+    clearTypingTimers()
+    setTypingName(null)
+    const showDelay = 1200 + Math.random() * 1300 // 1.2–2.5s after send
+    const showFor = 2500 + Math.random() * 2000 // visible for 2.5–4.5s
+    typingTimersRef.current.push(
+      window.setTimeout(() => {
+        setTypingName(name)
+        typingTimersRef.current.push(
+          window.setTimeout(() => setTypingName(null), showFor)
+        )
+      }, showDelay)
+    )
+  }
+
   function handleSent(msg: ChatMessage) {
     setDetail((d) => (d ? { ...d, messages: [...d.messages, msg] } : d))
     requestAnimationFrame(() => {
       const el = scrollRef.current
       if (el) el.scrollTo({ top: el.scrollHeight, behavior: 'smooth' })
     })
+    scheduleTypingSimulation()
     onChatChanged?.()
   }
 
@@ -982,12 +1331,45 @@ export function ChatView({
     requestAnimationFrame(() => {
       const el = scrollRef.current?.querySelector(`[data-mid="${id}"]`)
       if (el) {
-        el.scrollIntoView({ block: 'center', behavior: 'smooth' })
+        el.scrollIntoView({
+          block: 'center',
+          behavior: prefersReducedMotion() ? 'auto' : 'smooth',
+        })
         setJumpedId(id)
         setTimeout(() => setJumpedId(null), 2000)
         pendingJumpRef.current = null
       }
     })
+  }
+
+  /** Timeline scrubber pick (10-i) → jump to the first message of a month. */
+  function handleScrubPick(key: string) {
+    const [ys, ms] = key.split('-').map(Number)
+    const hit = messages.find((m) => {
+      const d = new Date(m.ts)
+      return d.getFullYear() === ys && d.getMonth() === ms - 1
+    })
+    if (hit) jumpToMessageId(hit.id)
+  }
+
+  /**
+   * Word-cloud pick (10-i): close the dialog, seed the in-chat search with
+   * the word (same path the search input drives — `query` state), open the
+   * search bar and jump to the first matching message.
+   */
+  function handlePickWord(word: string) {
+    setWordCloudOpen(false)
+    setSearchOpen(true)
+    setStarredOnly(false)
+    setRegexMode(false)
+    setFromDate('')
+    setToDate('')
+    setQuery(word)
+    const q = word.toLowerCase()
+    const hit = messages.find((m) =>
+      `${m.body ?? ''}\n${m.sender ?? ''}`.toLowerCase().includes(q)
+    )
+    if (hit) jumpToMessageId(hit.id)
   }
 
   /** Smooth-scroll to the first message of `d` (expanding the window if needed). */
@@ -1065,6 +1447,30 @@ export function ChatView({
     const s = new Set<string>()
     for (const m of messages) s.add(dayKey(m.ts))
     return s
+  }, [messages])
+
+  /* -------- 10-i: month buckets for the timeline scrubber -------- */
+  const scrubMonths = useMemo<ScrubMonth[]>(() => {
+    const map = new Map<string, { count: number; label: string }>()
+    for (const m of messages) {
+      const d = new Date(m.ts)
+      if (Number.isNaN(d.getTime())) continue
+      const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
+      const entry = map.get(key)
+      if (entry) {
+        entry.count++
+      } else {
+        map.set(key, {
+          count: 1,
+          label: d.toLocaleDateString('en-GB', { month: 'short', year: 'numeric' }),
+        })
+      }
+    }
+    return [...map.entries()].map(([key, v]) => ({
+      key,
+      label: v.label,
+      count: v.count,
+    }))
   }, [messages])
   const firstMsgDay = messages.length ? new Date(messages[0].ts) : null
   const lastMsgDay = messages.length
@@ -1209,7 +1615,10 @@ export function ChatView({
         : 'click here for chat info'
 
   return (
-    <div className="anim-fade-up relative flex min-h-0 flex-1 flex-col">
+    <div
+      className="anim-fade-up relative flex min-h-0 flex-1 flex-col"
+      style={accentVars ?? undefined}
+    >
       {/* Wallpaper stack (base color/gradient → photo → doodles → dim overlay).
           The whole stack gets the contrast/brightness/saturation filter so
           bubbles and text stay untouched. */}
@@ -1289,18 +1698,33 @@ export function ChatView({
             <p
               className="truncate text-[12.5px] text-(--wa-text-2)"
               title={
-                presence
-                  ? "Simulated presence — exports don't carry live status"
-                  : undefined
+                typingName
+                  ? undefined
+                  : presence
+                    ? "Simulated presence — exports don't carry live status"
+                    : undefined
               }
             >
-              {presence?.online && (
-                <span className="relative mr-1.5 inline-flex h-2 w-2 align-middle" aria-hidden>
-                  <span className="absolute inline-flex h-full w-full rounded-full bg-[#25d366] opacity-60 motion-safe:animate-ping" />
-                  <span className="relative inline-flex h-2 w-2 rounded-full bg-[#25d366]" />
+              {typingName ? (
+                <span className="inline-flex items-center text-(--wa-accent-strong) dark:text-(--wa-accent)">
+                  {typingName} is typing
+                  <span className="wa-ellipsis-dots" aria-hidden>
+                    <i />
+                    <i />
+                    <i />
+                  </span>
                 </span>
+              ) : (
+                <>
+                  {presence?.online && (
+                    <span className="relative mr-1.5 inline-flex h-2 w-2 align-middle" aria-hidden>
+                      <span className="absolute inline-flex h-full w-full rounded-full bg-[#25d366] opacity-60 motion-safe:animate-ping" />
+                      <span className="relative inline-flex h-2 w-2 rounded-full bg-[#25d366]" />
+                    </span>
+                  )}
+                  {subtitle}
+                </>
               )}
-              {subtitle}
             </p>
           </div>
         </button>
@@ -1310,25 +1734,39 @@ export function ChatView({
             size="icon"
             className={cn(
               'wa-iconbtn hidden h-9 w-9 sm:inline-flex',
-              editMode &&
+              readOnly &&
                 'bg-(--wa-accent)/15 text-(--wa-accent-strong) dark:text-(--wa-accent)'
             )}
-            onClick={() => {
-              if (editMode) {
-                exitEditMode()
-              } else {
-                setEditMode(true)
-                toast.info(
-                  'Local editing on — tap messages to select, or send new ones below',
-                  { duration: 3500 }
-                )
-              }
-            }}
-            aria-label="Edit messages"
-            aria-pressed={editMode}
-            title={editMode ? 'Turn off editing' : 'Edit messages (select, delete, edit, send)'}
+            onClick={toggleReadOnly}
+            aria-label={readOnly ? 'Switch to editing view' : 'Switch to read-only view'}
+            aria-pressed={readOnly}
+            title={
+              readOnly
+                ? 'Back to editing — the default for every chat'
+                : 'Read-only view — hide composer & message interactions'
+            }
           >
             <Pencil className="h-5 w-5" />
+          </Button>
+          {/* Multi-select entry point (10-b): enter/exit selection mode */}
+          <Button
+            variant="ghost"
+            size="icon"
+            className={cn(
+              'wa-iconbtn hidden h-9 w-9 sm:inline-flex',
+              selecting &&
+                'bg-(--wa-accent)/15 text-(--wa-accent-strong) dark:text-(--wa-accent)'
+            )}
+            onClick={() => (selecting ? exitSelection() : enterSelection())}
+            aria-label="Select messages"
+            aria-pressed={selecting}
+            title={
+              selecting
+                ? 'Exit selection'
+                : 'Select messages — star, forward or delete in bulk'
+            }
+          >
+            <ListChecks className="h-5 w-5" />
           </Button>
           <Button
             variant="ghost"
@@ -1406,7 +1844,18 @@ export function ChatView({
               <Palette className="h-5 w-5 text-(--wa-text-2)" />
             </Button>
           </WallpaperPicker>
-          {/* Export / print menu (#10): .txt, .html, .zip (text + media), print/PDF */}
+          {/* Word cloud (10-i) — most used words, ≥sm header icon */}
+          <Button
+            variant="ghost"
+            size="icon"
+            className="wa-iconbtn hidden h-9 w-9 sm:inline-flex"
+            onClick={() => setWordCloudOpen(true)}
+            aria-label="Word cloud — most used words"
+            title="Word cloud — most used words"
+          >
+            <Hash className="h-5 w-5 text-(--wa-text-2)" />
+          </Button>
+          {/* Export / print menu (#10): .txt, .zip, .html, .json, .csv, print/PDF */}
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <Button
@@ -1414,7 +1863,7 @@ export function ChatView({
                 size="icon"
                 className="wa-iconbtn h-9 w-9"
                 aria-label="Export or print chat"
-                title="Export / print — .txt, .zip, .html, PDF"
+                title="Export / print — .txt, .zip, .html, .json, .csv, PDF"
               >
                 <Download className="h-5 w-5 text-(--wa-text-2)" />
               </Button>
@@ -1431,6 +1880,20 @@ export function ChatView({
               <DropdownMenuItem onClick={handleExportHtml} className="gap-2">
                 <FileCode2 className="h-4 w-4 text-(--wa-text-2)" />
                 Export .html (viewable page)
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                onClick={() => handleExportFormat('json')}
+                className="gap-2"
+              >
+                <Braces className="h-4 w-4 text-(--wa-text-2)" />
+                Export .json (raw data)
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                onClick={() => handleExportFormat('csv')}
+                className="gap-2"
+              >
+                <Sheet className="h-4 w-4 text-(--wa-text-2)" />
+                Export .csv (spreadsheet)
               </DropdownMenuItem>
               <DropdownMenuSeparator />
               <DropdownMenuItem onClick={openPrint} className="gap-2">
@@ -1454,22 +1917,16 @@ export function ChatView({
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="w-52">
+              <DropdownMenuItem onClick={toggleReadOnly} className="gap-2">
+                <Eye className="h-4 w-4 text-(--wa-text-2)" />
+                {readOnly ? 'Editing view' : 'Read-only view'}
+              </DropdownMenuItem>
               <DropdownMenuItem
-                onClick={() => {
-                  if (editMode) {
-                    exitEditMode()
-                  } else {
-                    setEditMode(true)
-                    toast.info(
-                      'Local editing on — tap messages to select, or send new ones below',
-                      { duration: 3500 }
-                    )
-                  }
-                }}
+                onClick={() => (selecting ? exitSelection() : enterSelection())}
                 className="gap-2"
               >
-                <Pencil className="h-4 w-4 text-(--wa-text-2)" />
-                {editMode ? 'Stop editing' : 'Edit messages'}
+                <ListChecks className="h-4 w-4 text-(--wa-text-2)" />
+                {selecting ? 'Exit selection' : 'Select messages'}
               </DropdownMenuItem>
               <DropdownMenuItem
                 onClick={() => setGalleryOpen(true)}
@@ -1484,6 +1941,13 @@ export function ChatView({
               >
                 <Palette className="h-4 w-4 text-(--wa-text-2)" />
                 Chat wallpaper
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                onClick={() => setWordCloudOpen(true)}
+                className="gap-2"
+              >
+                <Hash className="h-4 w-4 text-(--wa-text-2)" />
+                Word cloud
               </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
@@ -1771,7 +2235,10 @@ export function ChatView({
         </div>
       )}
 
-      {/* Messages */}
+      {/* Messages (+ timeline scrubber overlay, 10-i). The wrapper hosts the
+          scrubber so it stays fixed over the list viewport while the inner
+          div scrolls. */}
+      <div className="relative z-[1] flex min-h-0 flex-1 flex-col">
       <div
         ref={scrollRef}
         onScroll={(e) => {
@@ -1779,7 +2246,7 @@ export function ChatView({
           setShowFab(el.scrollHeight - el.scrollTop - el.clientHeight > 400)
         }}
         style={{ '--wa-msg-size': `${msgFontPx}px` } as React.CSSProperties}
-        className="wa-scroll relative z-[1] flex-1 overflow-y-auto overflow-x-hidden py-3"
+        className="wa-scroll relative flex-1 overflow-y-auto overflow-x-hidden py-3"
         role="log"
         aria-label={`Messages in ${chat.title}`}
       >
@@ -1857,7 +2324,7 @@ export function ChatView({
                 item.showTail && 'mt-2.5',
                 jumpedId === item.msg.id &&
                   'bg-amber-200/50 ring-1 ring-amber-400/60 dark:bg-amber-500/20',
-                editMode &&
+                selecting &&
                   selectedIds.has(item.msg.id) &&
                   'bg-(--wa-accent)/[0.06]'
               )}
@@ -1868,22 +2335,57 @@ export function ChatView({
                 isGroup={chat.isGroup}
                 showTail={item.showTail}
                 showAvatar={item.showAvatar}
-                onToggleStar={editMode ? undefined : handleToggleStar}
-                onReact={editMode ? undefined : handleReact}
-                onPinMessage={editMode ? undefined : handlePinMessage}
-                onTranslate={editMode ? undefined : handleTranslate}
+                onToggleStar={readOnly || selecting ? undefined : handleToggleStar}
+                onReact={readOnly || selecting ? undefined : handleReact}
+                onPinMessage={readOnly || selecting ? undefined : handlePinMessage}
+                onTranslate={readOnly || selecting ? undefined : handleTranslate}
+                onReply={readOnly || selecting ? undefined : handleReplyTo}
+                onForwardSaved={readOnly || selecting ? undefined : forwardOne}
+                onEditMessage={readOnly || selecting ? undefined : openEdit}
+                onEditSave={readOnly || selecting ? undefined : saveEditApi}
                 highlight={query.trim() || undefined}
                 highlightRegex={regexMode && !!query.trim()}
-                selectMode={editMode}
-                selected={selectedIds.has(item.msg.id)}
+                selectMode={selecting}
+                selectionMode={selecting}
+                selected={selecting && selectedIds.has(item.msg.id)}
                 anySelected={selectedCount > 0}
-                onToggleSelect={toggleSelect}
-                onForwardSaved={editMode ? undefined : forwardOne}
-                onEditMessage={editMode ? undefined : openEdit}
+                onToggleSelect={readOnly ? undefined : handleToggleSelect}
+                linkPreview={linkPreviews.get(item.msg.id)}
               />
             </div>
           )
         })}
+
+        {/* Simulated typing bubble (10-b) — three WhatsApp-style dots */}
+        {typingName && !filtered && (
+          <div
+            data-typing-bubble
+            className="wa-typing-bubble mt-0.5 flex items-end gap-2 px-2 sm:px-4"
+          >
+            {chat.isGroup && (
+              <Avatar name={typingName} size={28} className="mb-0.5" />
+            )}
+            <div
+              className="flex items-center rounded-[7.5px] bg-(--wa-in) px-3 py-2.5 shadow-[0_1px_0.5px_rgba(11,20,26,0.13)] dark:bg-(--wa-panel-2)"
+              role="status"
+              aria-label={`${typingName} is typing`}
+            >
+              <span className="wa-typing-dots" aria-hidden>
+                <i />
+                <i />
+                <i />
+              </span>
+            </div>
+          </div>
+        )}
+      </div>
+
+        {/* Timeline scrubber (10-i) — month ticks, drag/wheel/keyboard jumps */}
+        <TimelineScrubber
+          months={scrubMonths}
+          onPick={handleScrubPick}
+          containerRef={scrollRef}
+        />
       </div>
 
       {/* Scroll-to-bottom FAB (WhatsApp style) — springs in/out of view */}
@@ -1902,100 +2404,107 @@ export function ChatView({
         <ChevronDown className="h-6 w-6" />
       </button>
 
-      {/* Selection toolbar (edit mode with active selection) */}
-      {editMode && selectedCount > 0 ? (
-        <div className="animate-in fade-in slide-in-from-bottom-2 relative z-10 flex items-center gap-1 border-t border-black/5 bg-(--wa-panel-2) px-3 py-2 duration-200 dark:bg-(--wa-panel-2)">
-          <Button
-            variant="ghost"
-            size="icon"
-            className="h-9 w-9 shrink-0"
-            onClick={() => setSelectedIds(new Set())}
-            aria-label="Clear selection"
-            title="Clear selection"
-          >
-            <X className="h-5 w-5 text-(--wa-text-2)" />
-          </Button>
-          <span className="min-w-0 flex-1 truncate text-[13.5px] font-medium text-(--wa-text)">
-            {selectedCount} selected
-          </span>
-          <Button
-            variant="ghost"
-            size="icon"
-            className="h-9 w-9 shrink-0"
-            onClick={selectAll}
-            aria-label="Select all messages"
-            title="Select all messages"
-          >
-            <ListChecks className="h-5 w-5 text-(--wa-text-2)" />
-          </Button>
-          <Button
-            variant="ghost"
-            size="icon"
-            className="hidden h-9 w-9 shrink-0 sm:inline-flex"
-            onClick={copySelected}
-            aria-label="Copy selected"
-            title="Copy selected messages"
-          >
-            <Copy className="h-5 w-5 text-(--wa-text-2)" />
-          </Button>
-          <Button
-            variant="ghost"
-            size="icon"
-            className="h-9 w-9 shrink-0"
-            onClick={() => void forwardToSaved(selectedMessages)}
-            aria-label="Forward to Saved Messages"
-            title="Forward to Saved Messages"
-          >
-            <BookmarkPlus className="h-5 w-5 text-(--wa-accent)" />
-          </Button>
-          <Button
-            variant="ghost"
-            size="icon"
-            className="h-9 w-9 shrink-0"
-            onClick={starSelected}
-            aria-label="Star selected"
-            title="Star selected"
-          >
-            <Star className="h-5 w-5 text-[#f2a33c]" />
-          </Button>
-          {singleEditable && (
+      {/* Movie mode (10-i) — entry FAB + playback bar (auto-scroll the chat) */}
+      <MovieMode
+        containerRef={scrollRef}
+        enabled={movieMode}
+        onEnabledChange={setMovieMode}
+      />
+
+      {/* Multi-select floating action bar (10-b) — slides up over the composer
+          slot, safe-area aware; all buttons ≥44px. */}
+      {selecting && selectedCount > 0 ? (
+        <div
+          className="wa-select-bar absolute inset-x-0 bottom-0 z-30 border-t border-black/5 bg-(--wa-panel-2) px-2 pt-2 shadow-[0_-6px_20px_rgba(11,20,26,0.14)] dark:border-white/5 dark:bg-(--wa-panel-2)"
+          style={{ paddingBottom: 'max(0.5rem, env(safe-area-inset-bottom))' }}
+          role="toolbar"
+          aria-label="Selected message actions"
+        >
+          <div className="flex items-center gap-1">
             <Button
               variant="ghost"
               size="icon"
-              className="h-9 w-9 shrink-0"
-              onClick={() => singleSelected && openEdit(singleSelected)}
-              aria-label="Edit message"
-              title="Edit message"
+              className="h-11 w-11 shrink-0"
+              onClick={exitSelection}
+              aria-label="Cancel selection"
+              title="Cancel"
             >
-              <Pencil className="h-5 w-5 text-(--wa-text-2)" />
+              <X className="h-5 w-5 text-(--wa-text-2)" />
             </Button>
-          )}
-          <Button
-            variant="ghost"
-            size="icon"
-            className="h-9 w-9 shrink-0 hover:bg-rose-500/10"
-            onClick={() => setDeleteConfirm(true)}
-            aria-label="Delete selected"
-            title="Delete for everyone"
-          >
-            <Trash2 className="h-5 w-5 text-rose-500/90" />
-          </Button>
+            <span className="min-w-0 flex-1 truncate px-1 text-[13.5px] font-medium text-(--wa-text)">
+              {selectedCount} selected
+            </span>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-11 w-11 shrink-0"
+              onClick={starSelected}
+              aria-label="Star selected"
+              title="Star selected"
+            >
+              <Star className="h-5 w-5 text-[#f2a33c]" />
+            </Button>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-11 w-11 shrink-0"
+              onClick={() => openForwardDialog(selectedMessages)}
+              aria-label="Forward selected"
+              title="Forward to another chat"
+            >
+              <Forward className="h-5 w-5 text-(--wa-accent)" />
+            </Button>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="hidden h-11 w-11 shrink-0 sm:inline-flex"
+              onClick={copySelected}
+              aria-label="Copy selected"
+              title="Copy selected messages"
+            >
+              <Copy className="h-5 w-5 text-(--wa-text-2)" />
+            </Button>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="hidden h-11 w-11 shrink-0 sm:inline-flex"
+              onClick={selectAll}
+              aria-label="Select all messages"
+              title="Select all"
+            >
+              <ListChecks className="h-5 w-5 text-(--wa-text-2)" />
+            </Button>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-11 w-11 shrink-0 hover:bg-rose-500/10"
+              onClick={() => setDeleteConfirm(true)}
+              aria-label="Delete selected"
+              title="Delete for everyone"
+            >
+              <Trash2 className="h-5 w-5 text-rose-500/90" />
+            </Button>
+          </div>
         </div>
-      ) : editMode ? (
-        /* Full local composer (edit mode, nothing selected) */
+      ) : readOnly ? (
+        /* Read-only viewing strip — editing is the default (10-b), so this
+           only appears after the user deliberately switches to viewing mode. */
+        <div className="relative z-10 bg-(--wa-panel-2) px-3 py-2.5 dark:bg-(--wa-panel-2)">
+          <div className="flex items-center justify-center gap-2 rounded-lg bg-(--wa-text-2)/10 px-4 py-2.5 text-[13px] text-(--wa-text-2) dark:bg-white/5 dark:text-(--wa-text-2)">
+            <Lock className="h-3.5 w-3.5" />
+            Read-only view — tap the pencil to interact
+          </div>
+        </div>
+      ) : (
+        /* Composer — ACTIVE by default in every chat, incl. Saved Messages */
         <Composer
           chatId={chatId}
           onSent={handleSent}
           onOpenPoll={() => setPollOpen(true)}
+          replyTo={replyTo}
+          onCancelReply={() => setReplyTo(null)}
+          onJumpToReply={handleJumpToReply}
         />
-      ) : (
-        /* Read-only notice (mimics the WhatsApp composer) */
-        <div className="relative z-10 bg-(--wa-panel-2) px-3 py-2.5 dark:bg-(--wa-panel-2)">
-          <div className="flex items-center justify-center gap-2 rounded-lg bg-(--wa-text-2)/10 px-4 py-2.5 text-[13px] text-(--wa-text-2) dark:bg-white/5 dark:text-(--wa-text-2)">
-            <Lock className="h-3.5 w-3.5" />
-            Read-only — tap the pencil to edit, select &amp; send
-          </div>
-        </div>
       )}
 
       <ChatInfo
@@ -2109,6 +2618,18 @@ export function ChatView({
         </AlertDialogContent>
       </AlertDialog>
 
+      {/* Forward to other chats (10-b) — searchable multi-target dialog */}
+      <ForwardDialog
+        open={!!forwardState}
+        onOpenChange={(v) => {
+          if (!v) setForwardState(null)
+        }}
+        messages={forwardState?.messages ?? []}
+        sourceChatId={chatId}
+        sourceChatTitle={chat.title}
+        onForwarded={() => exitSelection()}
+      />
+
       {/* AI message tools (translate / explain) — #13 */}
       <AIToolsDialog
         open={!!aiMsg}
@@ -2116,6 +2637,15 @@ export function ChatView({
         onOpenChange={(v) => {
           if (!v) setAiMsg(null)
         }}
+      />
+
+      {/* Word cloud (10-i) — most used words; picking seeds in-chat search */}
+      <WordCloudDialog
+        open={wordCloudOpen}
+        onOpenChange={setWordCloudOpen}
+        chatId={chatId}
+        chatTitle={chat.title}
+        onPickWord={handlePickWord}
       />
 
       {/* Print / Save-as-PDF preview (#10) — plain black-on-white transcript,
@@ -2141,7 +2671,7 @@ export function ChatView({
               return (
                 <div
                   key={m.id}
-                  className="flex gap-2 border-b border-neutral-200 py-1 text-[12.5px] leading-snug"
+                  className="print-row flex gap-2 border-b border-neutral-200 py-1 text-[12.5px] leading-snug"
                 >
                   <span className="w-[54px] shrink-0 tabular-nums text-neutral-500">
                     [{hhmm(m.ts)}]
@@ -2160,6 +2690,12 @@ export function ChatView({
               )
             })}
           </div>
+          {/* Repeats on every printed page via position:fixed in @media print
+              (chat-extras.css). Chromium can't render counter(page), so this
+              carries the chat title + export date instead (honest footer). */}
+          <footer className="print-page-footer" aria-hidden>
+            {chat.title} · Exported {new Date().toLocaleString('en-GB')}
+          </footer>
           <button
             type="button"
             className="print-close-btn"

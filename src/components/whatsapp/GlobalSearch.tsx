@@ -17,7 +17,6 @@ import {
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { Avatar } from './Avatar'
-import { Highlight } from './MessageBubble'
 import { colorForName } from './types'
 import {
   Dialog,
@@ -83,6 +82,47 @@ function formatHitTime(iso: string): string {
   })}`
 }
 
+function escapeRegExp(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+}
+
+/** Highlights the query (case-insensitive substring, matching the API's
+ *  LIKE behaviour) inside a hit body using a soft accent <mark>. */
+function HighlightedBody({ text, query }: { text: string; query: string }) {
+  const q = query.trim()
+  const parts: React.ReactNode[] = []
+  if (!q) return <>{text}</>
+  let re: RegExp
+  try {
+    re = new RegExp(escapeRegExp(q), 'gi')
+  } catch {
+    return <>{text}</>
+  }
+  let i = 0
+  let key = 0
+  let guard = 0
+  let m: RegExpExecArray | null
+  while ((m = re.exec(text)) !== null) {
+    if (m[0].length === 0) {
+      re.lastIndex += 1
+      continue
+    }
+    if (++guard > 500) break // safety valve for pathological inputs
+    if (m.index > i) parts.push(text.slice(i, m.index))
+    parts.push(
+      <mark
+        key={key++}
+        className="rounded bg-(--wa-accent)/20 px-0.5 text-(--wa-text)"
+      >
+        {m[0]}
+      </mark>
+    )
+    i = m.index + m[0].length
+  }
+  if (i < text.length) parts.push(text.slice(i))
+  return <>{parts}</>
+}
+
 /**
  * WhatsApp-style search across messages of every chat. Results are grouped by
  * chat; clicking a hit opens that chat and jumps to the message.
@@ -101,6 +141,8 @@ export function GlobalSearch({
   const [query, setQuery] = useState(initialQuery)
   const [data, setData] = useState<SearchResponse | null>(null)
   const [loading, setLoading] = useState(false)
+  // Keyboard selection across the flattened result list
+  const [selIdx, setSelIdx] = useState(0)
   const inputRef = useRef<HTMLInputElement>(null)
   const listRef = useRef<HTMLDivElement>(null)
   const seqRef = useRef(0)
@@ -114,6 +156,27 @@ export function GlobalSearch({
   if (!open && lastSeedRef.current !== null) {
     lastSeedRef.current = null
     setData(null)
+  }
+
+  // Flatten results (chat order preserved) for keyboard navigation, and
+  // reset the selection whenever a new result set lands.
+  const flat = useMemo(() => {
+    const list: { g: ChatGroup; h: SearchHit }[] = []
+    const indexOf = new Map<string, number>()
+    if (data) {
+      for (const g of data.chats) {
+        for (const h of g.hits) {
+          indexOf.set(h.id, list.length)
+          list.push({ g, h })
+        }
+      }
+    }
+    return { list, indexOf }
+  }, [data])
+  const lastResultsRef = useRef<SearchResponse | null>(null)
+  if (data !== lastResultsRef.current) {
+    lastResultsRef.current = data
+    setSelIdx(0)
   }
 
   const trimmed = query.trim()
@@ -158,6 +221,14 @@ export function GlobalSearch({
     return () => clearTimeout(t)
   }, [open])
 
+  // Keep the keyboard-selected hit in view
+  useEffect(() => {
+    if (!open) return
+    listRef.current
+      ?.querySelector<HTMLElement>('[data-selected="true"]')
+      ?.scrollIntoView({ block: 'nearest' })
+  }, [selIdx, data, open])
+
   const totalHits = data?.totalHits ?? 0
   const totalChats = data?.totalChats ?? 0
 
@@ -170,6 +241,8 @@ export function GlobalSearch({
       `${totalHits.toLocaleString()} message${totalHits === 1 ? '' : 's'} in ${totalChats} chat${totalChats === 1 ? '' : 's'}`
     )
     if (data.truncated) parts.push('showing the 200 most recent')
+    if (data.chats.length > 0)
+      parts.push('↑↓ to navigate · Enter to open')
     return parts.join(' · ')
   }, [trimmed, loading, data, totalHits, totalChats])
 
@@ -193,8 +266,27 @@ export function GlobalSearch({
               ref={inputRef}
               value={query}
               onChange={(e) => setQuery(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'ArrowDown') {
+                  e.preventDefault()
+                  if (flat.list.length > 0)
+                    setSelIdx((i) => Math.min(i + 1, flat.list.length - 1))
+                } else if (e.key === 'ArrowUp') {
+                  e.preventDefault()
+                  setSelIdx((i) => Math.max(i - 1, 0))
+                } else if (e.key === 'Enter') {
+                  const sel = flat.list[Math.min(selIdx, flat.list.length - 1)]
+                  if (sel) {
+                    e.preventDefault()
+                    onOpenChange(false)
+                    onOpenMessage(sel.g.id, sel.h.id)
+                  }
+                }
+              }}
               placeholder="Search all chats…"
               aria-label="Search all chats"
+              role="searchbox"
+              aria-keyshortcuts="Enter ArrowUp ArrowDown"
               className="h-10 w-full rounded-lg border-none bg-(--wa-panel-2) pl-9 pr-9 text-[14px] text-(--wa-text) outline-none ring-(--wa-accent)/60 placeholder:text-(--wa-text-2) focus:ring-2 dark:bg-(--wa-row-active) dark:text-(--wa-text) dark:placeholder:text-(--wa-text-2)"
             />
           </div>
@@ -256,6 +348,8 @@ export function GlobalSearch({
                   <ul role="list">
                     {group.hits.map((hit) => {
                       const meta = HIT_TYPE_META[hit.type]
+                      const idx = flat.indexOf.get(hit.id) ?? -1
+                      const isSelected = idx === selIdx
                       return (
                         <li key={hit.id}>
                           <button
@@ -263,7 +357,13 @@ export function GlobalSearch({
                               onOpenChange(false)
                               onOpenMessage(group.id, hit.id)
                             }}
-                            className="group flex w-full items-start gap-3 px-4 py-2 text-left transition-colors hover:bg-(--wa-row-hover)"
+                            data-selected={isSelected || undefined}
+                            aria-current={isSelected ? 'true' : undefined}
+                            className={cn(
+                              'group flex w-full items-start gap-3 px-4 py-2 text-left transition-colors hover:bg-(--wa-row-hover)',
+                              isSelected &&
+                                'bg-(--wa-row-hover) shadow-[inset_2px_0_0_var(--wa-accent)]'
+                            )}
                           >
                             <span
                               className="mt-1 w-[64px] shrink-0 text-right text-[11px] leading-snug text-(--wa-text-2)"
@@ -299,7 +399,7 @@ export function GlobalSearch({
                                     {meta.label}
                                   </span>
                                 )}
-                                <Highlight text={hit.body} query={trimmed} />
+                                <HighlightedBody text={hit.body} query={trimmed} />
                               </span>
                             </span>
                           </button>

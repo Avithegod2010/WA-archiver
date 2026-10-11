@@ -3,14 +3,22 @@
 import { useEffect, useRef, useState } from 'react'
 import { toast } from 'sonner'
 import {
+  BookOpen,
   Download,
+  ExternalLink,
+  Eye,
+  EyeOff,
   Keyboard,
+  KeyRound,
   Loader2,
   Lock,
   ShieldCheck,
   Smartphone,
+  Sparkles,
   Upload,
 } from 'lucide-react'
+import { aiHeaders, getGeminiKey, setGeminiKey } from '@/lib/ai-client'
+import { GettingStartedDialog, openGettingStarted } from './GettingStartedDialog'
 import {
   Dialog,
   DialogContent,
@@ -37,6 +45,10 @@ interface RestoreResult {
 type PinStage = 'idle' | 'create' | 'disable'
 
 const digitsOnly = (v: string) => v.replace(/\D/g, '').slice(0, 4)
+
+// AI preference keys ('0' toasts = disabled/absent enabled · '1' auto-clean = on)
+const TOASTS_PREF_KEY = 'wa-viewer:toasts'
+const AUTO_CLEAN_PREF_KEY = 'wa-viewer:auto-clean'
 
 function readLockHash(): string | null {
   try {
@@ -76,6 +88,14 @@ export function SettingsDialog({
   const [pinError, setPinError] = useState<string | null>(null)
   const [lockBusy, setLockBusy] = useState(false)
 
+  // AI features — Gemini key + preferences (read in an effect; hydration-safe)
+  const [aiKey, setAiKey] = useState('')
+  const [aiReady, setAiReady] = useState(false)
+  const [showAiKey, setShowAiKey] = useState(false)
+  const [testingKey, setTestingKey] = useState(false)
+  const [toastsOn, setToastsOn] = useState(true)
+  const [autoCleanOn, setAutoCleanOn] = useState(false)
+
   useEffect(() => {
     const sync = () => {
       setLockOn(!!readLockHash())
@@ -96,6 +116,71 @@ export function SettingsDialog({
       setPinError(null)
     }
   }, [open])
+
+  useEffect(() => {
+    setAiKey(getGeminiKey())
+    try {
+      setToastsOn(localStorage.getItem(TOASTS_PREF_KEY) !== '0')
+      setAutoCleanOn(localStorage.getItem(AUTO_CLEAN_PREF_KEY) === '1')
+    } catch {
+      // Storage unavailable — keep defaults
+    }
+    setAiReady(true)
+  }, [])
+
+  const handleAiKeyChange = (value: string) => {
+    setAiKey(value)
+    setGeminiKey(value) // trim + persist ('' clears)
+  }
+
+  const testAiKey = async () => {
+    const key = aiKey.trim()
+    if (!key) {
+      toast.error('Paste your Gemini API key first')
+      return
+    }
+    setGeminiKey(key)
+    setTestingKey(true)
+    try {
+      const res = await fetch('/api/ai', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...aiHeaders() },
+        body: JSON.stringify({ mode: 'translate', text: 'hello' }),
+      })
+      const data = (await res.json().catch(() => null)) as
+        | { ok?: boolean; error?: string }
+        | null
+      if (res.ok && data?.ok) {
+        toast.success('Gemini key works — Translate, Explain & Reply will use it')
+      } else {
+        toast.error(data?.error ?? 'Gemini test failed — try again')
+      }
+    } catch {
+      toast.error('Gemini test failed — check your connection')
+    } finally {
+      setTestingKey(false)
+    }
+  }
+
+  const handleToastsChange = (checked: boolean) => {
+    setToastsOn(checked)
+    try {
+      if (checked) localStorage.removeItem(TOASTS_PREF_KEY)
+      else localStorage.setItem(TOASTS_PREF_KEY, '0')
+    } catch {
+      // Storage unavailable — ignore
+    }
+  }
+
+  const handleAutoCleanChange = (checked: boolean) => {
+    setAutoCleanOn(checked)
+    try {
+      if (checked) localStorage.setItem(AUTO_CLEAN_PREF_KEY, '1')
+      else localStorage.removeItem(AUTO_CLEAN_PREF_KEY)
+    } catch {
+      // Storage unavailable — ignore
+    }
+  }
 
   const downloadBackup = async () => {
     setBackingUp(true)
@@ -229,7 +314,116 @@ export function SettingsDialog({
           </DialogDescription>
         </DialogHeader>
 
-        {/* a) Backup & restore */}
+        {/* a) AI features (Gemini key + preferences) */}
+        <section aria-label="AI features" className="flex flex-col gap-2">
+          <h3 className="flex items-center gap-1.5 text-[13px] font-semibold text-(--wa-text)">
+            <Sparkles className="h-3.5 w-3.5 text-(--wa-accent)" aria-hidden />
+            AI features
+          </h3>
+          <div className="flex flex-col gap-1.5">
+            <div className="relative">
+              <Input
+                type={showAiKey ? 'text' : 'password'}
+                value={aiKey}
+                onChange={(e) => handleAiKeyChange(e.target.value)}
+                placeholder="Paste your Gemini API key"
+                aria-label="Gemini API key"
+                autoComplete="off"
+                spellCheck={false}
+                className="pr-10"
+              />
+              <button
+                type="button"
+                onClick={() => setShowAiKey((v) => !v)}
+                aria-label={showAiKey ? 'Hide API key' : 'Show API key'}
+                className="absolute right-1.5 top-1/2 flex h-7 w-7 -translate-y-1/2 items-center justify-center rounded-md text-(--wa-text-2) transition-colors hover:bg-black/5 hover:text-(--wa-text) dark:hover:bg-white/10"
+              >
+                {showAiKey ? (
+                  <EyeOff className="h-4 w-4" aria-hidden />
+                ) : (
+                  <Eye className="h-4 w-4" aria-hidden />
+                )}
+              </button>
+            </div>
+            <p className="text-[12px] leading-snug text-(--wa-text-2)">
+              Used for Translate, Explain and Reply features. Stored only in
+              this browser.
+            </p>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => void testAiKey()}
+              disabled={testingKey}
+              className="gap-1.5"
+            >
+              {testingKey ? (
+                <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
+              ) : (
+                <KeyRound className="h-4 w-4" aria-hidden />
+              )}
+              Test key
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={openGettingStarted}
+              className="gap-1.5"
+            >
+              <BookOpen className="h-4 w-4" aria-hidden />
+              How to get started
+            </Button>
+          </div>
+
+          <div className="flex items-center justify-between gap-3 rounded-lg bg-black/[0.03] p-3 dark:bg-white/[0.04]">
+            <div className="min-w-0">
+              <p className="text-[12.5px] font-medium text-(--wa-text)">
+                Message notification previews
+              </p>
+              <p className="mt-0.5 text-[11.5px] leading-snug text-(--wa-text-2)">
+                Show pop-up previews when new messages arrive.
+              </p>
+            </div>
+            <Switch
+              checked={aiReady && toastsOn}
+              disabled={!aiReady}
+              onCheckedChange={handleToastsChange}
+              aria-label="Message notification previews"
+            />
+          </div>
+
+          <div className="flex items-center justify-between gap-3 rounded-lg bg-black/[0.03] p-3 dark:bg-white/[0.04]">
+            <div className="min-w-0">
+              <p className="text-[12.5px] font-medium text-(--wa-text)">
+                Auto-clean archived chats (30+ days idle)
+              </p>
+              <p className="mt-0.5 text-[11.5px] leading-snug text-(--wa-text-2)">
+                Runs on app start. Archived chats only.
+              </p>
+            </div>
+            <Switch
+              checked={aiReady && autoCleanOn}
+              disabled={!aiReady}
+              onCheckedChange={handleAutoCleanChange}
+              aria-label="Auto-clean archived chats"
+            />
+          </div>
+
+          <a
+            href="https://aistudio.google.com/apikey"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex h-8 w-fit items-center gap-1.5 rounded-md px-1 text-[12.5px] font-medium text-(--wa-accent-strong) transition-colors hover:text-(--wa-accent) hover:underline dark:text-(--wa-accent)"
+          >
+            Get a free Gemini key →
+            <ExternalLink className="h-3.5 w-3.5" aria-hidden />
+          </a>
+        </section>
+
+        <div className="h-px bg-black/10 dark:bg-white/10" />
+
+        {/* b) Backup & restore */}
         <section aria-label="Backup and restore" className="flex flex-col gap-2">
           <h3 className="text-[13px] font-semibold text-(--wa-text)">
             Backup &amp; restore
@@ -284,7 +478,7 @@ export function SettingsDialog({
 
         <div className="h-px bg-black/10 dark:bg-white/10" />
 
-        {/* b) App lock (PIN) */}
+        {/* c) App lock (PIN) */}
         <section aria-label="App lock" className="flex flex-col gap-2">
           <div className="flex items-center justify-between gap-3">
             <div className="min-w-0">
@@ -418,7 +612,7 @@ export function SettingsDialog({
 
         <div className="h-px bg-black/10 dark:bg-white/10" />
 
-        {/* c) Keyboard shortcuts */}
+        {/* d) Keyboard shortcuts */}
         <section aria-label="Keyboard shortcuts" className="flex flex-col gap-2">
           <h3 className="text-[13px] font-semibold text-(--wa-text)">
             Keyboard shortcuts
@@ -436,7 +630,7 @@ export function SettingsDialog({
 
         <div className="h-px bg-black/10 dark:bg-white/10" />
 
-        {/* d) Install / offline */}
+        {/* e) Install / offline */}
         <section aria-label="Install and offline" className="flex flex-col gap-1.5">
           <h3 className="flex items-center gap-1.5 text-[13px] font-semibold text-(--wa-text)">
             <Smartphone className="h-3.5 w-3.5 text-(--wa-accent)" aria-hidden />
@@ -447,6 +641,9 @@ export function SettingsDialog({
             Screen. Recently opened chats stay readable offline.
           </p>
         </section>
+
+        {/* Self-managed tutorial — opens via the 'wa-open-getting-started' event */}
+        <GettingStartedDialog />
       </DialogContent>
     </Dialog>
   )

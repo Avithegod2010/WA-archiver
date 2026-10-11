@@ -29,6 +29,19 @@ export interface ChatMessage {
   pollOptions?: string[] | null
   pinned?: boolean
   reactions?: Record<string, string[]> | null
+  /** Resolved quoted message (same chat), attached by the messages API. */
+  replyTo?: { id: string; sender: string; body: string; type: string } | null
+  /**
+   * Client-side injected link preview (resolved by ChatView, not the API) —
+   * MessageBubble renders it from a prop for text messages.
+   */
+  linkPreview?: {
+    url: string
+    title: string
+    description?: string
+    siteName?: string
+    image?: string
+  } | null
 }
 
 /** Fixed id of the personal "Saved Messages" (you) chat — always present. */

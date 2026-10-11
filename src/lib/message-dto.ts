@@ -3,7 +3,18 @@
  * `pollOptions` is stored as a JSON string in SQLite and exposed as an array.
  * `reactions` is stored as a JSON string shaped { emoji: [sender, ...] } and
  * exposed as a parsed record.
+ * `replyTo` is resolved in batch by `withReplyTos` (one extra query per page).
  */
+
+import { db } from '@/lib/db'
+
+/** Quoted-message summary attached to a serialized message. */
+export interface ReplyToRef {
+  id: string
+  sender: string
+  body: string
+  type: string
+}
 
 export interface ApiMessage {
   id: string
@@ -20,6 +31,7 @@ export interface ApiMessage {
   pollOptions: string[] | null
   pinned: boolean
   reactions: Record<string, string[]> | null
+  replyTo?: ReplyToRef | null
 }
 
 interface MessageRow {
@@ -37,6 +49,7 @@ interface MessageRow {
   pollOptions: string | null
   pinned: boolean
   reactions: string | null
+  replyToId: string | null
 }
 
 /**
@@ -73,7 +86,10 @@ export function parseReactions(
   }
 }
 
-export function serializeMessage(m: MessageRow): ApiMessage {
+export function serializeMessage(
+  m: MessageRow,
+  replyToById?: Map<string, ReplyToRef>
+): ApiMessage {
   let pollOptions: string[] | null = null
   if (m.pollOptions) {
     try {
@@ -88,6 +104,7 @@ export function serializeMessage(m: MessageRow): ApiMessage {
       /* malformed — treat as none */
     }
   }
+  const replyTo = m.replyToId ? (replyToById?.get(m.replyToId) ?? null) : null
   return {
     id: m.id,
     idx: m.idx,
@@ -103,7 +120,37 @@ export function serializeMessage(m: MessageRow): ApiMessage {
     pollOptions,
     pinned: m.pinned,
     reactions: parseReactions(m.reactions),
+    replyTo,
   }
+}
+
+/**
+ * Serialize one chat's message rows with `replyTo` batch-resolved: a single
+ * extra Prisma query (id IN replyToIds, id/sender/body/type only) feeding a
+ * Map lookup. Rows without a reply target pass through untouched.
+ */
+export async function withReplyTos(rows: MessageRow[]): Promise<ApiMessage[]> {
+  const ids = [
+    ...new Set(
+      rows
+        .map((r) => r.replyToId)
+        .filter((v): v is string => typeof v === 'string' && v.length > 0)
+    ),
+  ]
+  if (ids.length === 0) {
+    return rows.map((r) => serializeMessage(r))
+  }
+  const targets = await db.message.findMany({
+    where: { id: { in: ids } },
+    select: { id: true, sender: true, body: true, type: true },
+  })
+  const map = new Map<string, ReplyToRef>(
+    targets.map((t) => [
+      t.id,
+      { id: t.id, sender: t.sender ?? '', body: t.body, type: t.type },
+    ])
+  )
+  return rows.map((r) => serializeMessage(r, map))
 }
 
 export const MESSAGE_SELECT = {
@@ -121,4 +168,5 @@ export const MESSAGE_SELECT = {
   pollOptions: true,
   pinned: true,
   reactions: true,
+  replyToId: true,
 } as const

@@ -26,10 +26,12 @@ import {
   PhoneMissed,
   Pin,
   PinOff,
+  Reply,
   SmilePlus,
   Star,
   StarOff,
   UserRound,
+  X,
 } from 'lucide-react'
 import {
   ContextMenu,
@@ -66,6 +68,161 @@ function formatTime(iso: string): string {
 function extractUrl(text: string): string | null {
   const m = text.match(/https?:\/\/[^\s]+/)
   return m ? m[0] : null
+}
+
+/* ------------------------------------------------------------------ */
+/* Reply quotes (task 10-a)                                            */
+/* ------------------------------------------------------------------ */
+
+/** Short label for media-ish quoted messages with no caption. */
+const QUOTE_MEDIA_LABEL: Record<string, string> = {
+  image: 'Photo',
+  video: 'Video',
+  gif: 'GIF',
+  audio: 'Voice message',
+  sticker: 'Sticker',
+  document: 'Document',
+  contact: 'Contact card',
+  location: 'Location',
+  poll: 'Poll',
+  media: 'Media',
+  call: 'Missed call',
+  deleted: 'Deleted message',
+}
+
+/**
+ * Scroll the original quoted message into view and flash it. No-op when the
+ * target is not rendered (it may sit outside the visible window) or was
+ * deleted from the DOM.
+ */
+function jumpToQuotedMessage(id: string) {
+  if (typeof document === 'undefined') return
+  let target: HTMLElement | null = null
+  try {
+    target = document.querySelector(`[data-mid="${CSS.escape(id)}"]`) as
+      | HTMLElement
+      | null
+  } catch {
+    return
+  }
+  if (!target) return
+  const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches
+  target.scrollIntoView({ block: 'center', behavior: reduced ? 'auto' : 'smooth' })
+  // Restart the flash even if the class is still attached from a prior jump.
+  target.classList.remove('wa-quote-flash')
+  void target.offsetWidth
+  target.classList.add('wa-quote-flash')
+  window.setTimeout(() => target?.classList.remove('wa-quote-flash'), 1700)
+}
+
+/**
+ * WhatsApp-style quoted block rendered inside the bubble: colored sender
+ * name over a 2-line-truncated body, click jumps to the original message.
+ */
+function ReplyQuote({
+  replyTo,
+  interactive,
+}: {
+  replyTo: NonNullable<ChatMessage['replyTo']>
+  interactive: boolean
+}) {
+  const mine = replyTo.sender === 'You'
+  const name = replyTo.sender || 'Unknown'
+  const color = mine ? 'var(--wa-accent-strong)' : colorForName(name)
+  let body = (replyTo.body ?? '').trim()
+  if (replyTo.type === 'deleted') {
+    body = 'This message was deleted'
+  } else {
+    const label = QUOTE_MEDIA_LABEL[replyTo.type]
+    if (label) body = body ? `${label} · ${body}` : label
+    if (!body) body = 'Message'
+  }
+  const shared = (
+    <>
+      <span
+        className="wa-quote-bar"
+        style={{ background: mine ? 'var(--wa-accent)' : color }}
+        aria-hidden="true"
+      />
+      <span className="min-w-0">
+        <span className="wa-quote-name" style={{ color }}>
+          {mine ? 'You' : name}
+        </span>
+        <span
+          className={cn(
+            'wa-quote-body',
+            replyTo.type === 'deleted' && 'italic'
+          )}
+        >
+          {body}
+        </span>
+      </span>
+    </>
+  )
+  if (!interactive) {
+    return <span className="wa-quote wa-quote-static">{shared}</span>
+  }
+  return (
+    <button
+      type="button"
+      className="wa-quote"
+      onClick={(e) => {
+        e.stopPropagation()
+        jumpToQuotedMessage(replyTo.id)
+      }}
+      aria-label={`Jump to quoted message from ${mine ? 'You' : name}`}
+    >
+      {shared}
+    </button>
+  )
+}
+
+/**
+ * WhatsApp-style link preview card (client-injected via the linkPreview prop,
+ * text messages only). The whole card links out; a broken image hides itself.
+ */
+function LinkPreviewCard({
+  preview,
+}: {
+  preview: NonNullable<ChatMessage['linkPreview']>
+}) {
+  let host = preview.siteName ?? ''
+  try {
+    host = new URL(preview.url).hostname.replace(/^www\./, '')
+  } catch {
+    /* keep siteName fallback */
+  }
+  return (
+    <a
+      href={preview.url}
+      target="_blank"
+      rel="noreferrer noopener"
+      onClick={(e) => e.stopPropagation()}
+      className="wa-linkprev"
+      aria-label={preview.title || preview.url}
+    >
+      {preview.image && (
+        <img
+          src={preview.image}
+          alt=""
+          loading="lazy"
+          className="wa-linkprev-img"
+          onError={(e) => {
+            e.currentTarget.style.display = 'none'
+          }}
+        />
+      )}
+      <span className="wa-linkprev-body">
+        <span className="wa-linkprev-host">{host || preview.url}</span>
+        {preview.title && (
+          <span className="wa-linkprev-title">{preview.title}</span>
+        )}
+        {preview.description && (
+          <span className="wa-linkprev-desc">{preview.description}</span>
+        )}
+      </span>
+    </a>
+  )
 }
 
 /** Visual press feedback while long-pressing (Radix opens the context menu). */
@@ -244,6 +401,238 @@ function useMessageExtras(
     onBubbleDoubleClick,
     heartsNode,
   }
+}
+
+/* ------------------------------------------------------------------ */
+/* Swipe-to-reply (task 10-a)                                          */
+/* ------------------------------------------------------------------ */
+
+const SWIPE_REPLY_MAX = 72
+const SWIPE_REPLY_TRIGGER = 56
+const SWIPE_REPLY_ENGAGE = 10
+
+type PointerHandlerSet = Partial<
+  Record<
+    | 'onPointerDown'
+    | 'onPointerMove'
+    | 'onPointerUp'
+    | 'onPointerCancel'
+    | 'onPointerLeave',
+    (e: React.PointerEvent) => void
+  >
+>
+
+/**
+ * Run several pointer-handler sets from a single element: every present
+ * handler key is composed (all sets receive the event in order).
+ */
+function composePointerHandlers(...sets: PointerHandlerSet[]): PointerHandlerSet {
+  const out: PointerHandlerSet = {}
+  for (const key of [
+    'onPointerDown',
+    'onPointerMove',
+    'onPointerUp',
+    'onPointerCancel',
+    'onPointerLeave',
+  ] as const) {
+    const fns = sets
+      .map((s) => s[key])
+      .filter((f): f is (e: React.PointerEvent) => void => typeof f === 'function')
+    if (fns.length > 0) {
+      out[key] = (e: React.PointerEvent) => {
+        for (const f of fns) f(e)
+      }
+    }
+  }
+  return out
+}
+
+/**
+ * WhatsApp-style swipe-to-reply on coarse pointers: the bubble follows the
+ * finger up to 72px (incoming slides right, outgoing slides left) with a
+ * reply icon fading in; releasing past 56px fires `onReply`. Mouse pointers
+ * are ignored, vertical scrolling is untouched (touch-action: pan-y), and
+ * prefers-reduced-motion skips the translate but keeps the trigger.
+ */
+function useSwipeToReply(
+  msg: ChatMessage,
+  onReply: ((m: ChatMessage) => void) | undefined,
+  side: 'in' | 'out'
+): {
+  dx: number
+  mode: 'idle' | 'drag' | 'settle'
+  handlers: PointerHandlerSet
+  /** End the settle phase after the spring-back transition finishes. */
+  markIdle: () => void
+} {
+  const start = useRef<{ x: number; y: number } | null>(null)
+  const engaged = useRef(false)
+  const offset = useRef(0)
+  const reduced = useRef(false)
+  const [dx, setDx] = useState(0)
+  const [mode, setMode] = useState<'idle' | 'drag' | 'settle'>('idle')
+  const markIdle = useCallback(() => setMode('idle'), [])
+
+  const settle = useCallback(() => {
+    start.current = null
+    engaged.current = false
+    setMode('settle')
+    setDx(0)
+  }, [])
+
+  const handlers = useMemo<PointerHandlerSet>(() => {
+    if (!onReply) return {}
+    return {
+      onPointerDown(e) {
+        if (e.pointerType === 'mouse' || start.current) return
+        // Don't hijack gestures that start on interactive children.
+        if (
+          (e.target as HTMLElement | null)?.closest?.(
+            'a, button, video, audio, input, textarea, img'
+          )
+        )
+          return
+        start.current = { x: e.clientX, y: e.clientY }
+        reduced.current = window.matchMedia(
+          '(prefers-reduced-motion: reduce)'
+        ).matches
+      },
+      onPointerMove(e) {
+        if (!start.current) return
+        const raw = e.clientX - start.current.x
+        const dy = e.clientY - start.current.y
+        const signed = side === 'in' ? raw : -raw
+        if (!engaged.current) {
+          // Horizontal intent only — never fight vertical scrolling.
+          if (signed > SWIPE_REPLY_ENGAGE && Math.abs(raw) > Math.abs(dy) * 1.2) {
+            engaged.current = true
+            setMode('drag')
+          } else {
+            return
+          }
+        }
+        offset.current = Math.min(Math.max(signed, 0), SWIPE_REPLY_MAX)
+        if (!reduced.current) setDx(offset.current)
+      },
+      onPointerUp() {
+        if (!start.current) return
+        const wasEngaged = engaged.current
+        const hit = offset.current >= SWIPE_REPLY_TRIGGER
+        if (wasEngaged) {
+          settle()
+          if (hit) {
+            navigator.vibrate?.(12)
+            onReply(msg)
+          }
+        } else {
+          start.current = null
+          setMode('idle')
+          setDx(0)
+        }
+      },
+      onPointerCancel: settle,
+      onPointerLeave() {
+        if (start.current) settle()
+      },
+    }
+  }, [msg, onReply, side, settle])
+
+  return { dx, mode, handlers, markIdle }
+}
+
+/** Timestamp pill overlaid on chromeless stickers. */
+function StickerTime({ msg, outgoing }: { msg: ChatMessage; outgoing: boolean }) {
+  return (
+    <span className="wa-sticker-time" aria-hidden="true">
+      <span className="whitespace-nowrap">{formatTime(msg.ts)}</span>
+      {msg.edited && <span className="italic">edited</span>}
+      {msg.starred && (
+        <Star className="h-2.5 w-2.5 fill-[#f2a33c] text-[#f2a33c]" />
+      )}
+      {outgoing && <TicksDouble className="opacity-95" />}
+    </span>
+  )
+}
+
+/**
+ * Inline edit composer shown inside a bubble (outgoing text only).
+ * Enter saves, Escape cancels, textarea auto-grows to 160px; both buttons
+ * keep a ≥44px touch target.
+ */
+function InlineEditBox({
+  initial,
+  saving,
+  onCancel,
+  onSave,
+}: {
+  initial: string
+  saving: boolean
+  onCancel: () => void
+  onSave: (body: string) => void
+}) {
+  const [draft, setDraft] = useState(initial)
+  const ref = useRef<HTMLTextAreaElement>(null)
+
+  const autosize = (el: HTMLTextAreaElement) => {
+    el.style.height = 'auto'
+    el.style.height = `${Math.min(el.scrollHeight, 160)}px`
+  }
+
+  useEffect(() => {
+    const el = ref.current
+    if (!el) return
+    el.focus()
+    el.setSelectionRange(el.value.length, el.value.length)
+    autosize(el)
+  }, [])
+
+  return (
+    <div className="wa-edit-box">
+      <textarea
+        ref={ref}
+        rows={1}
+        value={draft}
+        disabled={saving}
+        aria-label="Edit message text"
+        className="wa-edit-area"
+        onChange={(e) => {
+          setDraft(e.target.value)
+          autosize(e.target)
+        }}
+        onKeyDown={(e) => {
+          if (e.key === 'Escape') {
+            e.stopPropagation()
+            onCancel()
+          } else if (e.key === 'Enter' && !e.shiftKey) {
+            e.preventDefault()
+            if (!saving && draft.trim()) onSave(draft.trim())
+          }
+        }}
+      />
+      <div className="mt-0.5 flex items-center justify-end gap-0.5">
+        <button
+          type="button"
+          onClick={onCancel}
+          disabled={saving}
+          aria-label="Cancel editing"
+          title="Cancel"
+          className="wa-edit-btn"
+        >
+          <X className="h-4 w-4" />
+        </button>
+        <button
+          type="button"
+          onClick={() => draft.trim() && onSave(draft.trim())}
+          disabled={saving || !draft.trim()}
+          aria-label="Save edit"
+          title="Save"
+          className="wa-edit-btn wa-edit-btn-save"
+        >
+          <Check className="h-4 w-4" />
+        </button>
+      </div>
+    </div>
+  )
 }
 
 /**
@@ -656,6 +1045,9 @@ interface BubbleMenuProps {
   onToggleStar?: (id: string, starred: boolean) => void
   onForwardSaved?: (msg: ChatMessage) => void
   onEditMessage?: (msg: ChatMessage) => void
+  /** Inline-edit starter (bubble-local composer, outgoing text only). */
+  onStartInlineEdit?: (msg: ChatMessage) => void
+  onReply?: (msg: ChatMessage) => void
   onReact?: (msgId: string, emoji: string) => void
   onPinMessage?: (msg: ChatMessage) => void
   onTranslate?: (msg: ChatMessage) => void
@@ -668,16 +1060,25 @@ function BubbleMenu({
   onToggleStar,
   onForwardSaved,
   onEditMessage,
+  onStartInlineEdit,
+  onReply,
   onReact,
   onPinMessage,
   onTranslate,
 }: BubbleMenuProps) {
-  const editable =
+  const canInlineEdit =
+    !!onStartInlineEdit && msg.sender === 'You' && msg.type === 'text'
+  const canDialogEdit =
     !!onEditMessage &&
     msg.sender === 'You' &&
     (msg.type === 'text' || msg.type === 'poll')
   return (
     <ContextMenuContent className="min-w-[200px]">
+      {onReply && (
+        <ContextMenuItem onClick={() => onReply(msg)} className="gap-2">
+          <Reply className="h-4 w-4 text-(--wa-accent)" /> Reply
+        </ContextMenuItem>
+      )}
       {onReact && (
         <ContextMenuItem
           onContextMenu={(e) => e.preventDefault()}
@@ -699,7 +1100,7 @@ function BubbleMenu({
           </div>
         </ContextMenuItem>
       )}
-      {onReact && <ContextMenuSeparator />}
+      {(onReply || onReact) && <ContextMenuSeparator />}
       {onPinMessage && (
         <ContextMenuItem onClick={() => onPinMessage(msg)} className="gap-2">
           {isPinned(msg) ? (
@@ -728,8 +1129,14 @@ function BubbleMenu({
           Saved Messages
         </ContextMenuItem>
       )}
-      {editable && (
-        <ContextMenuItem onClick={() => onEditMessage(msg)} className="gap-2">
+      {(canInlineEdit || canDialogEdit) && (
+        <ContextMenuItem
+          onClick={() => {
+            if (canInlineEdit) onStartInlineEdit(msg)
+            else onEditMessage?.(msg)
+          }}
+          className="gap-2"
+        >
           <Pencil className="h-4 w-4" /> Edit message
         </ContextMenuItem>
       )}
@@ -932,11 +1339,15 @@ export function MessageBubble({
   highlight,
   highlightRegex,
   selectMode,
+  selectionMode,
   selected,
   anySelected,
   onToggleSelect,
   onForwardSaved,
   onEditMessage,
+  onEditSave,
+  onReply,
+  linkPreview,
   onReact,
   onPinMessage,
   onTranslate,
@@ -950,11 +1361,19 @@ export function MessageBubble({
   highlight?: string
   highlightRegex?: boolean
   selectMode?: boolean
+  /** Alias for selectMode — merged (either turns selection on). */
+  selectionMode?: boolean
   selected?: boolean
   anySelected?: boolean
   onToggleSelect?: (id: string) => void
   onForwardSaved?: (msg: ChatMessage) => void
   onEditMessage?: (msg: ChatMessage) => void
+  /** Inline edit saver — resolves true when the edit was persisted. */
+  onEditSave?: (id: string, body: string) => Promise<boolean>
+  /** Reply starter (swipe-to-reply, context menu, action sheet). */
+  onReply?: (m: ChatMessage) => void
+  /** Client-injected link preview (text messages only). */
+  linkPreview?: ChatMessage['linkPreview']
   onReact?: (msgId: string, emoji: string) => void
   onPinMessage?: (msg: ChatMessage) => void
   onTranslate?: (msg: ChatMessage) => void
@@ -965,8 +1384,58 @@ export function MessageBubble({
     [msg.sender]
   )
   const src = mediaSrc(chatId, msg)
+  const selectActive = !!(selectMode || selectionMode)
   const press = usePressFeedback()
-  const extras = useMessageExtras(msg, { selectMode, onReact })
+  const [editing, setEditing] = useState(false)
+  const [saving, setSaving] = useState(false)
+  const extras = useMessageExtras(msg, {
+    selectMode: selectActive || editing,
+    onReact,
+  })
+  const canInlineEdit =
+    !!onEditSave &&
+    msg.sender === 'You' &&
+    msg.type === 'text' &&
+    !selectActive
+  const startEdit = useCallback(() => {
+    if (canInlineEdit) setEditing(true)
+  }, [canInlineEdit])
+  const saveEdit = useCallback(
+    async (body: string) => {
+      if (!onEditSave || saving) return
+      setSaving(true)
+      try {
+        const ok = await onEditSave(msg.id, body)
+        if (ok) setEditing(false)
+      } finally {
+        setSaving(false)
+      }
+    },
+    [onEditSave, saving, msg.id]
+  )
+  const swipe = useSwipeToReply(
+    msg,
+    !selectActive && !editing ? onReply : undefined,
+    'in'
+  )
+  const chromelessSticker = msg.type === 'sticker' && !!src
+  const swipeEnabled = !!onReply && !selectActive && !editing
+  const swipeStyle =
+    swipe.mode === 'idle' && swipe.dx === 0
+      ? undefined
+      : ({
+          transform: `translateX(${swipe.dx}px)`,
+          transition:
+            swipe.mode === 'drag'
+              ? 'none'
+              : 'transform 260ms cubic-bezier(0.34, 1.56, 0.64, 1)',
+        } as React.CSSProperties)
+  const pointerHandlers = selectActive
+    ? {}
+    : composePointerHandlers(
+        extras.coarse ? extras.longPress.handlers : press.handlers,
+        swipe.handlers
+      )
 
   if (outgoing) {
     return (
@@ -978,12 +1447,15 @@ export function MessageBubble({
         onToggleStar={onToggleStar}
         highlight={highlight}
         highlightRegex={highlightRegex}
-        selectMode={selectMode}
+        selectMode={selectActive}
         selected={selected}
         anySelected={anySelected}
         onToggleSelect={onToggleSelect}
         onForwardSaved={onForwardSaved}
         onEditMessage={onEditMessage}
+        onEditSave={onEditSave}
+        onReply={onReply}
+        linkPreview={linkPreview}
         onReact={onReact}
         onPinMessage={onPinMessage}
         onTranslate={onTranslate}
@@ -991,7 +1463,7 @@ export function MessageBubble({
     )
   }
 
-  if (selectMode) {
+  if (selectActive) {
     return (
       <div
         className={cn(
@@ -1018,7 +1490,7 @@ export function MessageBubble({
           )
         ) : null}
         <div className="relative min-w-0 max-w-[78%] drop-shadow-[0_1px_0.5px_rgba(11,20,26,0.13)] dark:drop-shadow-[0_1px_0.5px_rgba(0,0,0,0.25)] sm:max-w-[65%]">
-          {showTail && (
+          {showTail && !chromelessSticker && (
             <BubbleTail
               side="left"
               className="absolute -left-[7px] top-0 fill-(--wa-in)"
@@ -1026,20 +1498,28 @@ export function MessageBubble({
           )}
           <div
             className={cn(
-              'relative rounded-[7.5px] px-2.5 py-1.5 text-(length:--wa-msg-size,14.2px) leading-[1.34]',
-              'bg-(--wa-in) text-(--wa-text)',
-              // Sharp corner where the tail attaches — merges seamlessly
-              showTail && 'rounded-tl-none',
+              'relative text-(length:--wa-msg-size,14.2px) leading-[1.34]',
+              chromelessSticker
+                ? 'wa-sticker-host'
+                : cn(
+                    'rounded-[7.5px] px-2.5 py-1.5',
+                    'bg-(--wa-in) text-(--wa-text)',
+                    // Sharp corner where the tail attaches — merges seamlessly
+                    showTail && 'rounded-tl-none'
+                  ),
               selected && 'ring-2 ring-(--wa-accent)'
             )}
           >
-            {isGroup && msg.sender && (
+            {isGroup && msg.sender && !chromelessSticker && (
               <p
                 className="mb-0.5 text-[12.5px] font-semibold leading-tight"
                 style={{ color: senderColor }}
               >
                 {msg.sender}
               </p>
+            )}
+            {msg.replyTo && (
+              <ReplyQuote replyTo={msg.replyTo} interactive={false} />
             )}
             <Content
               msg={msg}
@@ -1048,8 +1528,13 @@ export function MessageBubble({
               outgoing={false}
               highlight={highlight}
               highlightRegex={highlightRegex}
+              linkPreview={linkPreview}
             />
-            <BubbleMetaRow msg={msg} outgoing={false} side="in" />
+            {chromelessSticker ? (
+              <StickerTime msg={msg} outgoing={false} />
+            ) : (
+              <BubbleMetaRow msg={msg} outgoing={false} side="in" />
+            )}
           </div>
         </div>
       </div>
@@ -1057,31 +1542,64 @@ export function MessageBubble({
   }
 
   const bubbleWithTail = (
-    <div className="relative min-w-0 max-w-full drop-shadow-[0_1px_0.5px_rgba(11,20,26,0.13)] dark:drop-shadow-[0_1px_0.5px_rgba(0,0,0,0.25)]">
-      {showTail && (
+    <div
+      className={cn(
+        'relative min-w-0 max-w-full',
+        chromelessSticker
+          ? 'drop-shadow-[0_2px_5px_rgba(11,20,26,0.22)]'
+          : 'drop-shadow-[0_1px_0.5px_rgba(11,20,26,0.13)] dark:drop-shadow-[0_1px_0.5px_rgba(0,0,0,0.25)]'
+      )}
+    >
+      {showTail && !chromelessSticker && (
         <BubbleTail
           side="left"
           className="absolute -left-[7px] top-0 fill-(--wa-in)"
         />
       )}
+      {swipeEnabled && (
+        <span
+          aria-hidden="true"
+          className="wa-swipe-hint pointer-events-none absolute top-1/2 left-1 -translate-y-1/2 text-(--wa-accent)"
+          style={{
+            opacity: swipe.dx > 6 ? Math.min(swipe.dx / 44, 1) : 0,
+          }}
+        >
+          <Reply className="h-4 w-4 -scale-x-100" />
+        </span>
+      )}
       <div
-        {...(extras.coarse ? extras.longPress.handlers : press.handlers)}
+        {...pointerHandlers}
         data-bubble
         onDoubleClick={extras.onBubbleDoubleClick}
         onContextMenu={
           extras.coarse ? (e) => e.preventDefault() : undefined
         }
+        onTransitionEnd={(e) => {
+          if (
+            e.target === e.currentTarget &&
+            e.propertyName === 'transform' &&
+            swipe.mode === 'settle'
+          )
+            swipe.markIdle()
+        }}
+        style={swipeStyle}
         className={cn(
-          'relative rounded-[7.5px] px-2.5 py-1.5 text-(length:--wa-msg-size,14.2px) leading-[1.34] transition-transform duration-150',
-          'bg-(--wa-in) text-(--wa-text)',
-          // Sharp corner where the tail attaches — merges seamlessly
-          showTail && 'rounded-tl-none',
+          'relative text-(length:--wa-msg-size,14.2px) leading-[1.34] transition-transform duration-150',
+          chromelessSticker
+            ? 'wa-sticker-host'
+            : cn(
+                'rounded-[7.5px] px-2.5 py-1.5',
+                'bg-(--wa-in) text-(--wa-text)',
+                // Sharp corner where the tail attaches — merges seamlessly
+                showTail && 'rounded-tl-none'
+              ),
+          swipeEnabled && 'touch-pan-y',
           extras.coarse
             ? extras.longPress.pressing && 'wa-pressing-bubble'
             : press.pressing && 'scale-[0.98]'
         )}
       >
-        {isGroup && msg.sender && (
+        {isGroup && msg.sender && !chromelessSticker && (
           <p
             className="mb-0.5 text-[12.5px] font-semibold leading-tight"
             style={{ color: senderColor }}
@@ -1089,15 +1607,32 @@ export function MessageBubble({
             <Highlight text={msg.sender} query={highlight} regex={highlightRegex} />
           </p>
         )}
-        <Content
-          msg={msg}
-          chatId={chatId}
-          src={src}
-          outgoing={false}
-          highlight={highlight}
-          highlightRegex={highlightRegex}
-        />
-        <BubbleMetaRow msg={msg} outgoing={false} side="in" onReact={onReact} />
+        {msg.replyTo && <ReplyQuote replyTo={msg.replyTo} interactive />}
+        {editing ? (
+          <InlineEditBox
+            initial={msg.body}
+            saving={saving}
+            onCancel={() => setEditing(false)}
+            onSave={saveEdit}
+          />
+        ) : (
+          <>
+            <Content
+              msg={msg}
+              chatId={chatId}
+              src={src}
+              outgoing={false}
+              highlight={highlight}
+              highlightRegex={highlightRegex}
+              linkPreview={linkPreview}
+            />
+            {chromelessSticker ? (
+              <StickerTime msg={msg} outgoing={false} />
+            ) : (
+              <BubbleMetaRow msg={msg} outgoing={false} side="in" onReact={onReact} />
+            )}
+          </>
+        )}
       </div>
     </div>
   )
@@ -1123,6 +1658,8 @@ export function MessageBubble({
               onToggleStar={onToggleStar}
               onForwardSaved={onForwardSaved}
               onEditMessage={onEditMessage}
+              onStartInlineEdit={canInlineEdit ? startEdit : undefined}
+              onReply={swipeEnabled ? onReply : undefined}
               onReact={onReact}
               onPinMessage={onPinMessage}
               onTranslate={onTranslate}
@@ -1143,6 +1680,15 @@ export function MessageBubble({
         open={extras.sheetOpen}
         onOpenChange={extras.setSheetOpen}
         src={src}
+        onReply={swipeEnabled ? onReply : undefined}
+        onEdit={
+          canInlineEdit
+            ? () => {
+                extras.setSheetOpen(false)
+                startEdit()
+              }
+            : undefined
+        }
         onReact={onReact}
         onToggleStar={onToggleStar}
         onForwardSaved={onForwardSaved}
@@ -1168,6 +1714,9 @@ function OutgoingBubble({
   onToggleSelect,
   onForwardSaved,
   onEditMessage,
+  onEditSave,
+  onReply,
+  linkPreview,
   onReact,
   onPinMessage,
   onTranslate,
@@ -1185,37 +1734,118 @@ function OutgoingBubble({
   onToggleSelect?: (id: string) => void
   onForwardSaved?: (msg: ChatMessage) => void
   onEditMessage?: (msg: ChatMessage) => void
+  onEditSave?: (id: string, body: string) => Promise<boolean>
+  onReply?: (m: ChatMessage) => void
+  linkPreview?: ChatMessage['linkPreview']
   onReact?: (msgId: string, emoji: string) => void
   onPinMessage?: (msg: ChatMessage) => void
   onTranslate?: (msg: ChatMessage) => void
 }) {
   const press = usePressFeedback()
-  const extras = useMessageExtras(msg, { selectMode, onReact })
+  const [editing, setEditing] = useState(false)
+  const [saving, setSaving] = useState(false)
+  const extras = useMessageExtras(msg, {
+    selectMode: selectMode || editing,
+    onReact,
+  })
+  const canInlineEdit =
+    !!onEditSave &&
+    msg.sender === 'You' &&
+    msg.type === 'text' &&
+    !selectMode
+  const startEdit = useCallback(() => {
+    if (canInlineEdit) setEditing(true)
+  }, [canInlineEdit])
+  const saveEdit = useCallback(
+    async (body: string) => {
+      if (!onEditSave || saving) return
+      setSaving(true)
+      try {
+        const ok = await onEditSave(msg.id, body)
+        if (ok) setEditing(false)
+      } finally {
+        setSaving(false)
+      }
+    },
+    [onEditSave, saving, msg.id]
+  )
+  const swipe = useSwipeToReply(
+    msg,
+    !selectMode && !editing ? onReply : undefined,
+    'out'
+  )
+  const chromelessSticker = msg.type === 'sticker' && !!src
+  const swipeEnabled = !!onReply && !selectMode && !editing
+  const swipeStyle =
+    swipe.mode === 'idle' && swipe.dx === 0
+      ? undefined
+      : ({
+          transform: `translateX(${swipe.dx}px)`,
+          transition:
+            swipe.mode === 'drag'
+              ? 'none'
+              : 'transform 260ms cubic-bezier(0.34, 1.56, 0.64, 1)',
+        } as React.CSSProperties)
+  const pointerHandlers = selectMode
+    ? {}
+    : composePointerHandlers(
+        extras.coarse ? extras.longPress.handlers : press.handlers,
+        swipe.handlers
+      )
 
   const bubbleWithTail = (
-    <div className="relative min-w-0 max-w-full drop-shadow-[0_1px_0.5px_rgba(11,20,26,0.13)] dark:drop-shadow-[0_1px_0.5px_rgba(0,0,0,0.25)]">
-      {showTail && (
+    <div
+      className={cn(
+        'relative min-w-0 max-w-full',
+        chromelessSticker
+          ? 'drop-shadow-[0_2px_5px_rgba(11,20,26,0.22)]'
+          : 'drop-shadow-[0_1px_0.5px_rgba(11,20,26,0.13)] dark:drop-shadow-[0_1px_0.5px_rgba(0,0,0,0.25)]'
+      )}
+    >
+      {showTail && !chromelessSticker && (
         <BubbleTail
           side="right"
           className="absolute -right-[7px] top-0 fill-(--wa-out)"
         />
       )}
+      {swipeEnabled && (
+        <span
+          aria-hidden="true"
+          className="wa-swipe-hint pointer-events-none absolute top-1/2 right-1 -translate-y-1/2 text-(--wa-accent)"
+          style={{
+            opacity: swipe.dx > 6 ? Math.min(swipe.dx / 44, 1) : 0,
+          }}
+        >
+          <Reply className="h-4 w-4" />
+        </span>
+      )}
       <div
-        {...(selectMode
-          ? {}
-          : extras.coarse
-            ? extras.longPress.handlers
-            : press.handlers)}
+        {...pointerHandlers}
         data-bubble
-        onDoubleClick={!selectMode ? extras.onBubbleDoubleClick : undefined}
+        onDoubleClick={extras.onBubbleDoubleClick}
         onContextMenu={
           !selectMode && extras.coarse ? (e) => e.preventDefault() : undefined
         }
+        onTransitionEnd={(e) => {
+          if (
+            e.target === e.currentTarget &&
+            e.propertyName === 'transform' &&
+            swipe.mode === 'settle'
+          )
+            swipe.markIdle()
+        }}
+        style={swipeStyle}
         className={cn(
-          'relative rounded-[7.5px] px-2.5 py-1.5 text-(length:--wa-msg-size,14.2px) leading-[1.34] transition-transform duration-150',
-          'bg-(--wa-out) text-(--wa-text) dark:text-(--wa-text)',
-          // Sharp corner where the tail attaches — merges seamlessly
-          showTail && 'rounded-tr-none',
+          'relative text-(length:--wa-msg-size,14.2px) leading-[1.34] transition-transform duration-150',
+          chromelessSticker
+            ? 'wa-sticker-host'
+            : cn(
+                'rounded-[7.5px] px-2.5 py-1.5',
+                'bg-(--wa-out) text-(--wa-text) dark:text-(--wa-text)',
+                // Sharp corner where the tail attaches — merges seamlessly
+                showTail && 'rounded-tr-none'
+              ),
+          swipeEnabled && 'touch-pan-y',
           !selectMode &&
             (extras.coarse
               ? extras.longPress.pressing && 'wa-pressing-bubble'
@@ -1223,21 +1853,42 @@ function OutgoingBubble({
           selectMode && selected && 'ring-2 ring-(--wa-accent)'
         )}
       >
-        {msg.forwardedFrom && <ForwardedChip from={msg.forwardedFrom} />}
-        <Content
-          msg={msg}
-          chatId={chatId}
-          src={src}
-          outgoing
-          highlight={highlight}
-          highlightRegex={highlightRegex}
-        />
-        <BubbleMetaRow
-          msg={msg}
-          outgoing
-          side="out"
-          onReact={selectMode ? undefined : onReact}
-        />
+        {msg.forwardedFrom && !editing && !chromelessSticker && (
+          <ForwardedChip from={msg.forwardedFrom} />
+        )}
+        {msg.replyTo && (
+          <ReplyQuote replyTo={msg.replyTo} interactive={!selectMode} />
+        )}
+        {editing ? (
+          <InlineEditBox
+            initial={msg.body}
+            saving={saving}
+            onCancel={() => setEditing(false)}
+            onSave={saveEdit}
+          />
+        ) : (
+          <>
+            <Content
+              msg={msg}
+              chatId={chatId}
+              src={src}
+              outgoing
+              highlight={highlight}
+              highlightRegex={highlightRegex}
+              linkPreview={linkPreview}
+            />
+            {chromelessSticker ? (
+              <StickerTime msg={msg} outgoing />
+            ) : (
+              <BubbleMetaRow
+                msg={msg}
+                outgoing
+                side="out"
+                onReact={selectMode ? undefined : onReact}
+              />
+            )}
+          </>
+        )}
       </div>
     </div>
   )
@@ -1289,6 +1940,8 @@ function OutgoingBubble({
               onToggleStar={onToggleStar}
               onForwardSaved={onForwardSaved}
               onEditMessage={onEditMessage}
+              onStartInlineEdit={canInlineEdit ? startEdit : undefined}
+              onReply={swipeEnabled ? onReply : undefined}
               onReact={onReact}
               onPinMessage={onPinMessage}
               onTranslate={onTranslate}
@@ -1302,6 +1955,15 @@ function OutgoingBubble({
         open={extras.sheetOpen}
         onOpenChange={extras.setSheetOpen}
         src={src}
+        onReply={swipeEnabled ? onReply : undefined}
+        onEdit={
+          canInlineEdit
+            ? () => {
+                extras.setSheetOpen(false)
+                startEdit()
+              }
+            : undefined
+        }
         onReact={onReact}
         onToggleStar={onToggleStar}
         onForwardSaved={onForwardSaved}
@@ -1320,6 +1982,7 @@ function Content({
   outgoing,
   highlight,
   highlightRegex,
+  linkPreview,
 }: {
   msg: ChatMessage
   chatId: string
@@ -1327,6 +1990,7 @@ function Content({
   outgoing: boolean
   highlight?: string
   highlightRegex?: boolean
+  linkPreview?: ChatMessage['linkPreview']
 }) {
   switch (msg.type) {
     case 'deleted':
@@ -1397,7 +2061,7 @@ function Content({
           src={src}
           alt={msg.mediaName ?? 'Sticker'}
           loading="lazy"
-          className="max-h-[180px] w-[180px] object-contain"
+          className="wa-sticker-img max-h-[192px] max-w-[192px] w-auto h-auto object-contain"
         />
       ) : (
         <MediaPlaceholder
@@ -1408,13 +2072,16 @@ function Content({
     case 'video':
     case 'gif':
       return src ? (
-        <video
-          controls
-          preload="metadata"
-          src={src}
-          poster={`${src}?poster=1`}
-          className="min-w-0 max-h-[320px] max-w-[280px] rounded-md"
-        />
+        <div className="relative min-w-0">
+          <video
+            controls
+            preload="metadata"
+            src={src}
+            poster={`${src}?poster=1`}
+            className="min-w-0 max-h-[320px] max-w-[280px] rounded-md"
+          />
+          {msg.type === 'gif' && <span className="wa-gif-badge">GIF</span>}
+        </div>
       ) : (
         <MediaPlaceholder
           icon={<i className="flex h-8 w-8 items-center justify-center rounded bg-black/10 text-[11px] font-semibold dark:bg-white/10">VID</i>}
@@ -1472,14 +2139,17 @@ function Content({
       const body = msg.body ?? ''
       const emojiOnly = isEmojiOnly(body)
       return (
-        <p
-          className={cn(
-            'whitespace-pre-wrap break-words',
-            emojiOnly && 'text-[2.4em] leading-[1.2]'
-          )}
-        >
-          <LinkifiedText text={body} query={highlight} regex={highlightRegex} />
-        </p>
+        <>
+          {linkPreview && <LinkPreviewCard preview={linkPreview} />}
+          <p
+            className={cn(
+              'whitespace-pre-wrap break-words',
+              emojiOnly && 'text-[2.4em] leading-[1.2]'
+            )}
+          >
+            <LinkifiedText text={body} query={highlight} regex={highlightRegex} />
+          </p>
+        </>
       )
     }
   }

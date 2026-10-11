@@ -14,6 +14,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog'
 import { cn } from '@/lib/utils'
+import { aiHeaders, getGeminiKey } from '@/lib/ai-client'
 import type { ChatMessage } from './types'
 
 type AiMode = 'translate' | 'explain'
@@ -36,6 +37,7 @@ export function AIToolsDialog({
   const [running, setRunning] = useState(false)
   const [result, setResult] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [hasKey, setHasKey] = useState(false)
 
   const body = (message?.body ?? '').trim()
   const hasText = body.length > 0
@@ -46,6 +48,7 @@ export function AIToolsDialog({
     setError(null)
     setRunning(false)
     setMode('translate')
+    if (open) setHasKey(!!getGeminiKey())
   }, [message?.id, open])
 
   async function run() {
@@ -55,7 +58,7 @@ export function AIToolsDialog({
     try {
       const res = await fetch('/api/ai', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...aiHeaders() },
         body: JSON.stringify({ mode, text: body }),
       })
       const data = (await res.json().catch(() => null)) as
@@ -92,6 +95,12 @@ export function AIToolsDialog({
             your own server, nothing is stored.
           </DialogDescription>
         </DialogHeader>
+
+        {!hasKey && (
+          <p className="text-[12px] leading-snug text-(--wa-text-2)">
+            Tip: add your own Gemini key in Settings → AI
+          </p>
+        )}
 
         {/* Quoted message (reply-quote style) */}
         {message && (

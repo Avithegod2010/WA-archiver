@@ -1,27 +1,31 @@
-/* stats-extras.css — Insights dialog ("chat analyser") motion (task 9).
-   Springy pop on open, staggered section rise, KPI cards popping in with
-   count-up numbers, bars/columns growing from zero, heatmap rows sweeping
-   in weekday by weekday. Unlayered CSS beats Tailwind's layered utilities
-   for the dialog shell; Tailwind 4 centers dialogs via the standalone
-   `translate` property so transform keyframes compose cleanly on top. */
+/* stats-extras.css — Insights dialog ("chat analyser") motion (task 10-0).
+   Slower, cinematic timings. Scroll-reveal: every Section observes itself
+   (IntersectionObserver in StatsDashboard) and only plays its animation —
+   and its children's animations — once scrolled into view. Before reveal,
+   the section is hidden and all child animations sit PAUSED at their
+   first keyframe, so bottom content animates exactly when the user
+   scrolls to it.
+   Unlayered CSS beats Tailwind's layered utilities for the dialog shell;
+   Tailwind 4 centers dialogs via the standalone `translate` property so
+   transform keyframes compose cleanly on top. */
 
-/* Dialog shell: springy pop */
+/* Dialog shell: springy pop (slowed) */
 .wa-stats-pop[data-state='open'] {
-  animation: wa-stats-pop-in 380ms cubic-bezier(0.34, 1.45, 0.64, 1) both;
+  animation: wa-stats-pop-in 620ms cubic-bezier(0.34, 1.45, 0.64, 1) both;
 }
 
 .wa-stats-pop[data-state='closed'] {
-  animation: wa-stats-pop-out 160ms ease-in both;
+  animation: wa-stats-pop-out 220ms ease-in both;
 }
 
 @keyframes wa-stats-pop-in {
   0% {
     opacity: 0;
-    transform: scale(0.88) translateY(20px);
+    transform: scale(0.88) translateY(22px);
   }
   60% {
     opacity: 1;
-    transform: scale(1.015) translateY(-3px);
+    transform: scale(1.015) translateY(-4px);
   }
   100% {
     opacity: 1;
@@ -40,15 +44,21 @@
   }
 }
 
-/* Staggered rise for whole sections */
+/* Scroll-reveal sections: hidden until .wa-revealed is added, then the
+   animation runs (backwards fill covers the stagger delay). */
 .wa-stats-rise {
-  animation: wa-stats-rise 460ms cubic-bezier(0.22, 1, 0.36, 1) backwards;
+  opacity: 0;
+}
+
+.wa-stats-rise.wa-revealed {
+  opacity: 1;
+  animation: wa-stats-rise 760ms cubic-bezier(0.22, 1, 0.36, 1) backwards;
 }
 
 @keyframes wa-stats-rise {
   0% {
     opacity: 0;
-    transform: translateY(12px);
+    transform: translateY(14px);
   }
   100% {
     opacity: 1;
@@ -56,10 +66,24 @@
   }
 }
 
-/* KPI / fun-fact cards: little springy pop (backwards fill so hover
-   transforms keep working after the entrance finishes) */
+/* Child pieces inside a NOT-yet-revealed section: freeze at frame zero so
+   nothing has already played by the time the user scrolls down. */
+.wa-stats-rise:not(.wa-revealed) :is(
+    .wa-kpi-pop,
+    .wa-chip-in,
+    .wa-bar-grow,
+    .wa-col-grow,
+    .wa-heat-row,
+    .wa-stats-rise
+  ) {
+  animation-play-state: paused !important;
+  opacity: 0;
+}
+
+/* KPI / fun-fact cards: little springy pop (slowed; backwards fill keeps
+   hover transforms working after the entrance finishes) */
 .wa-kpi-pop {
-  animation: wa-kpi-pop 420ms cubic-bezier(0.34, 1.45, 0.64, 1) backwards;
+  animation: wa-kpi-pop 680ms cubic-bezier(0.34, 1.45, 0.64, 1) backwards;
 }
 
 @keyframes wa-kpi-pop {
@@ -76,7 +100,7 @@
 /* Horizontal bars grow from the left edge */
 .wa-bar-grow {
   transform-origin: left center;
-  animation: wa-bar-grow 650ms cubic-bezier(0.22, 1, 0.36, 1) backwards;
+  animation: wa-bar-grow 1000ms cubic-bezier(0.22, 1, 0.36, 1) backwards;
 }
 
 @keyframes wa-bar-grow {
@@ -91,7 +115,7 @@
 /* Vertical chart columns grow from the bottom */
 .wa-col-grow {
   transform-origin: bottom center;
-  animation: wa-col-grow 600ms cubic-bezier(0.22, 1, 0.36, 1) backwards;
+  animation: wa-col-grow 950ms cubic-bezier(0.22, 1, 0.36, 1) backwards;
 }
 
 @keyframes wa-col-grow {
@@ -105,7 +129,7 @@
 
 /* Heatmap rows sweep in left-to-right, one weekday at a time */
 .wa-heat-row {
-  animation: wa-heat-row 400ms ease-out backwards;
+  animation: wa-heat-row 650ms ease-out backwards;
 }
 
 @keyframes wa-heat-row {
@@ -121,7 +145,7 @@
 
 /* Small chips (top words, message types) pop in */
 .wa-chip-in {
-  animation: wa-chip-in 380ms cubic-bezier(0.34, 1.45, 0.64, 1) backwards;
+  animation: wa-chip-in 620ms cubic-bezier(0.34, 1.45, 0.64, 1) backwards;
 }
 
 @keyframes wa-chip-in {
@@ -135,6 +159,42 @@
   }
 }
 
+/* Word-cloud dialog skeleton: light sweep over the pulse blobs
+   (class lives on the wrapper; blobs themselves keep animate-pulse) */
+.wa-wc-shimmer {
+  position: relative;
+  overflow: hidden;
+}
+
+.wa-wc-shimmer::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  transform: translateX(-100%);
+  background: linear-gradient(
+    90deg,
+    transparent,
+    rgba(255, 255, 255, 0.5),
+    transparent
+  );
+  animation: wa-wc-shimmer-sweep 1.5s ease-in-out infinite;
+}
+
+.dark .wa-wc-shimmer::after {
+  background: linear-gradient(
+    90deg,
+    transparent,
+    rgba(255, 255, 255, 0.09),
+    transparent
+  );
+}
+
+@keyframes wa-wc-shimmer-sweep {
+  to {
+    transform: translateX(100%);
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .wa-stats-pop[data-state='open'],
   .wa-stats-pop[data-state='closed'],
@@ -144,6 +204,12 @@
   .wa-col-grow,
   .wa-heat-row,
   .wa-chip-in {
-    animation: none;
+    animation: none !important;
+    opacity: 1 !important;
+    transform: none !important;
+  }
+
+  .wa-wc-shimmer::after {
+    animation: none !important;
   }
 }
