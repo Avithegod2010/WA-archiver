@@ -3,6 +3,7 @@ import { db } from '@/lib/db'
 import { parseWhatsAppText } from '@/lib/whatsapp-parser'
 import { persistParsedChat } from '@/lib/chat-service'
 import { DEMO_CATALOG, type DemoChatMeta } from '@/lib/demo-catalog'
+import { assertAppUnlocked } from '@/lib/server-lock'
 
 export const runtime = 'nodejs'
 
@@ -562,6 +563,9 @@ async function upgradeLegacyChat(id: string, meta: DemoChatMeta): Promise<string
  *   else create new. Responds { ok, skipped, created, createdIds }.
  */
 export async function POST(req: NextRequest) {
+  const denied = await assertAppUnlocked(req)
+  if (denied) return denied
+
   try {
     const payload = (await req.json().catch(() => null)) as {
       ids?: unknown

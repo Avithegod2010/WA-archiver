@@ -23,7 +23,10 @@ import {
   MapPin,
   Mic,
   Pencil,
+  Phone,
+  PhoneIncoming,
   PhoneMissed,
+  PhoneOutgoing,
   Pin,
   PinOff,
   Reply,
@@ -31,6 +34,7 @@ import {
   Star,
   StarOff,
   UserRound,
+  Video,
   X,
 } from 'lucide-react'
 import {
@@ -2188,6 +2192,138 @@ function parseContactMessage(
   }
 }
 
+/* ------------------------------------------------------------------ */
+/* Call cards (Task 14-g)                                              */
+/* ------------------------------------------------------------------ */
+
+interface CallMeta {
+  video: boolean
+  state: 'missed' | 'incoming' | 'outgoing' | 'unknown'
+  /** Canonical short duration, e.g. "5 min" / "2 hours" / "30 secs". */
+  duration: string | null
+  /** Human duration for aria labels, e.g. "5 minutes". */
+  durationLong: string | null
+}
+
+const CALL_DURATION_RE = /(\d+)\s*(hours?|hrs?|min(?:ute)?s?|sec(?:ond)?s?)/i
+
+/**
+ * Classify a stored call body. The real parser only ever produces
+ * "Missed [group ](voice|video) call" (see whatsapp-parser), but old
+ * imports / synthetic rows can carry answered-call wording too, so
+ * incoming/outgoing keywords and durations are recognized as well.
+ * Mirrors callPreviewText() in chat-service.ts — keep both in sync.
+ */
+function classifyCallBody(body: string): CallMeta {
+  const text = (body ?? '').trim()
+  const lower = text.toLowerCase()
+  const dur = text.match(CALL_DURATION_RE)
+  let duration: string | null = null
+  let durationLong: string | null = null
+  if (dur) {
+    const n = parseInt(dur[1], 10)
+    const unit = dur[2].toLowerCase()
+    if (unit.startsWith('h')) {
+      duration = `${n} ${n === 1 ? 'hour' : 'hours'}`
+      durationLong = duration
+    } else if (unit.startsWith('min')) {
+      duration = `${n} min`
+      durationLong = `${n} ${n === 1 ? 'minute' : 'minutes'}`
+    } else {
+      duration = `${n} ${n === 1 ? 'sec' : 'secs'}`
+      durationLong = `${n} ${n === 1 ? 'second' : 'seconds'}`
+    }
+  }
+  const video = lower.includes('video')
+  const state = /missed|no answer|cancel(?:l)?ed/.test(lower)
+    ? 'missed'
+    : lower.includes('incoming')
+      ? 'incoming'
+      : lower.includes('outgoing') || lower.includes('started a call')
+        ? 'outgoing'
+        : 'unknown'
+  return { video, state, duration, durationLong }
+}
+
+/**
+ * WhatsApp-style inline call card. Fully presentational — the viewer
+ * never dials — so the card carries no interactive controls (role="img"
+ * with a spoken summary; the trailing phone glyph is a decorative span).
+ */
+function CallCard({ body }: { body: string }) {
+  const meta = classifyCallBody(body)
+  const text = (body ?? '').trim()
+  const missed = meta.state === 'missed'
+  const Icon = meta.video
+    ? Video
+    : meta.state === 'incoming'
+      ? PhoneIncoming
+      : meta.state === 'outgoing'
+        ? PhoneOutgoing
+        : missed
+          ? PhoneMissed
+          : Phone
+  const title = meta.video ? 'Video call' : 'Voice call'
+  const stateSubtitle =
+    meta.state === 'missed'
+      ? meta.video
+        ? 'Missed video call'
+        : 'Missed'
+      : meta.state === 'incoming'
+        ? 'Incoming'
+        : meta.state === 'outgoing'
+          ? 'Outgoing'
+          : null
+  // Legacy fallback: unclassifiable bodies keep the raw text as subtitle
+  // (duration stripped, separators tidied) so old imports never render a
+  // bare chip.
+  const legacySubtitle = text
+    .replace(CALL_DURATION_RE, '')
+    .replace(/[()[\]]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .replace(/^[\s·,–—|-]+|[\s·,–—|-]+$/g, '')
+    .slice(0, 120)
+  const subtitle = (stateSubtitle
+    ? `${stateSubtitle}${meta.duration ? ` · ${meta.duration}` : ''}`
+    : legacySubtitle || 'Call'
+  ).trim()
+  const spoken = `${meta.state === 'unknown' ? '' : `${meta.state === 'missed' ? 'Missed' : meta.state === 'incoming' ? 'Incoming' : 'Outgoing'} `}${meta.video ? 'video' : 'voice'} call${meta.durationLong ? `, ${meta.durationLong}` : ''}`
+  return (
+    <div
+      role="img"
+      aria-label={spoken}
+      className="flex min-w-[210px] max-w-full items-center gap-3 rounded-xl bg-black/[0.04] p-3 dark:bg-white/[0.06]"
+    >
+      <span
+        aria-hidden="true"
+        className={cn(
+          'flex h-10 w-10 shrink-0 items-center justify-center rounded-full',
+          missed
+            ? 'bg-rose-500/10 text-rose-500'
+            : 'bg-emerald-500/10 text-emerald-500'
+        )}
+      >
+        <Icon className="h-5 w-5" />
+      </span>
+      <span className="min-w-0 flex-1 leading-snug">
+        <span className="block truncate text-[13.5px] font-semibold text-(--wa-text)">
+          {title}
+        </span>
+        <span className="block truncate text-[12.5px] text-(--wa-text-2)">
+          {subtitle}
+        </span>
+      </span>
+      <span
+        aria-hidden="true"
+        title="Call details (viewer only)"
+        className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-(--wa-text-2)"
+      >
+        <Phone className="h-4 w-4" />
+      </span>
+    </div>
+  )
+}
+
 function Content({
   msg,
   chatId,
@@ -2216,12 +2352,7 @@ function Content({
         </p>
       )
     case 'call':
-      return (
-        <p className="flex items-center gap-1.5 text-(--wa-text-2)">
-          <PhoneMissed className="h-4 w-4 shrink-0 text-rose-500" />
-          {msg.body || 'Missed call'}
-        </p>
-      )
+      return <CallCard body={msg.body} />
     case 'poll':
       return <PollBubble msg={msg} outgoing={outgoing} />
     case 'location': {

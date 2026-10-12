@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import ZAI from 'z-ai-web-dev-sdk'
 import { db } from '@/lib/db'
+import { assertAppUnlocked } from '@/lib/server-lock'
 
 export const runtime = 'nodejs'
 export const maxDuration = 60
@@ -12,6 +13,11 @@ const REPLY_CONTEXT_MESSAGES = 12
 const MAX_CONTEXT_MESSAGE_CHARS = 400
 const SUMMARIZE_CONTEXT_MESSAGES = 80
 const MAX_SUMMARY_INPUT_CHARS = 6000
+const ASK_CONTEXT_MESSAGES = 120
+const MAX_ASK_TRANSCRIPT_CHARS = 8000
+const MAX_ASK_QUESTION_CHARS = 500
+const MAX_ASK_HISTORY = 6
+const MAX_ASK_TURN_CHARS = 1000
 
 const TRANSLATE_PROMPT =
   "You are a translation engine. Detect the language of the user's text and translate it into English. Reply with ONLY the translated text — no quotes, no explanations, no language name. If the text is already English, improve clarity slightly and return it."
@@ -26,7 +32,10 @@ const SUMMARIZE_PROMPT =
   'Verdict: one fun, punchy one-liner about the chat.\n' +
   "Write in the chat's own language, keep a casual tone, and never invent facts."
 
-type AiMode = 'translate' | 'explain' | 'reply' | 'summarize'
+const ASK_PROMPT =
+  'You answer questions about an imported WhatsApp chat transcript. Be concise and factual, use only the transcript, refer to people by their sender names, and say clearly when the transcript does not contain the answer.'
+
+type AiMode = 'translate' | 'explain' | 'reply' | 'summarize' | 'ask'
 
 /** Short placeholder shown in the transcript for media-only messages. */
 const MEDIA_LABELS: Record<string, string> = {
@@ -65,33 +74,43 @@ interface GeminiResponse {
  *   { mode: 'translate' | 'explain', text: string }
  *   { mode: 'reply', chatId: string }
  *   { mode: 'summarize', chatId: string }
+ *   { mode: 'ask', chatId: string, question: string,
+ *     history?: Array<{ q: string, a: string }> } → { ok, mode, answer }
  * Optional header: x-gemini-key — when present, the request runs through the
  * caller's own Google Gemini key; otherwise the built-in provider is used.
- * Returns { ok, mode, result } with the plain-text result.
+ * Returns { ok, mode, result } with the plain-text result ('ask' returns
+ * { ok, mode, answer }).
  */
 export async function POST(req: NextRequest) {
+  // Server-side app lock — protects every mode (Task 14-e).
+  const denied = await assertAppUnlocked(req)
+  if (denied) return denied
+
   let payload: unknown
   try {
     payload = await req.json()
   } catch {
     return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 })
   }
-  const { mode, text, chatId } = (payload ?? {}) as {
+  const { mode, text, chatId, question, history } = (payload ?? {}) as {
     mode?: unknown
     text?: unknown
     chatId?: unknown
+    question?: unknown
+    history?: unknown
   }
 
   if (
     mode !== 'translate' &&
     mode !== 'explain' &&
     mode !== 'reply' &&
-    mode !== 'summarize'
+    mode !== 'summarize' &&
+    mode !== 'ask'
   ) {
     return NextResponse.json(
       {
         error:
-          'Field "mode" must be "translate", "explain", "reply" or "summarize"',
+          'Field "mode" must be "translate", "explain", "reply", "summarize" or "ask"',
       },
       { status: 400 }
     )
@@ -170,6 +189,66 @@ export async function POST(req: NextRequest) {
     }
     systemPrompt = SUMMARIZE_PROMPT
     userText = `Summarize this WhatsApp chat:\n\n${transcript}`
+  } else if (mode === 'ask') {
+    if (typeof chatId !== 'string' || !chatId.trim()) {
+      return NextResponse.json(
+        { error: 'Field "chatId" must be a non-empty string' },
+        { status: 400 }
+      )
+    }
+    const chat = await db.chat.findUnique({
+      where: { id: chatId },
+      select: { id: true },
+    })
+    if (!chat) {
+      return NextResponse.json({ error: 'Chat not found' }, { status: 404 })
+    }
+    if (typeof question !== 'string' || !question.trim()) {
+      return NextResponse.json(
+        { error: 'Field "question" must be a non-empty string' },
+        { status: 400 }
+      )
+    }
+    if (question.length > MAX_ASK_QUESTION_CHARS) {
+      return NextResponse.json(
+        {
+          error: `Field "question" must be at most ${MAX_ASK_QUESTION_CHARS} characters`,
+        },
+        { status: 400 }
+      )
+    }
+    const recentDesc = await db.message.findMany({
+      where: { chatId },
+      orderBy: { idx: 'desc' },
+      take: ASK_CONTEXT_MESSAGES,
+      select: { sender: true, body: true, type: true },
+    })
+    // Chronological transcript; system rows are skipped, media-only messages
+    // become short placeholders, each line capped at 400 chars.
+    const askLines = [...recentDesc]
+      .reverse()
+      .filter((m) => m.type !== 'system')
+      .map(transcriptLine)
+    if (askLines.length === 0) {
+      return NextResponse.json(
+        { error: 'This chat has no messages to ask about yet' },
+        { status: 400 }
+      )
+    }
+    let transcript = askLines.join('\n')
+    if (transcript.length > MAX_ASK_TRANSCRIPT_CHARS) {
+      // Over budget — keep the most recent context.
+      transcript = transcript.slice(-MAX_ASK_TRANSCRIPT_CHARS)
+    }
+    let askContext = `Chat transcript (oldest first, most recent last):\n\n${transcript}`
+    const priorTurns = sanitizeAskHistory(history)
+    if (priorTurns.length > 0) {
+      askContext +=
+        '\n\nEarlier turns of this conversation (oldest first):\n' +
+        priorTurns.map((t) => `Q: ${t.q}\nA: ${t.a}`).join('\n')
+    }
+    systemPrompt = `${ASK_PROMPT}\n\n${askContext}`
+    userText = question.trim()
   } else {
     if (typeof text !== 'string' || !text.trim()) {
       return NextResponse.json(
@@ -202,12 +281,30 @@ export async function POST(req: NextRequest) {
       ),
     ])
 
+    if (mode === 'ask') {
+      const answer = result.trim()
+      if (!answer) {
+        return NextResponse.json(
+          { error: 'The assistant could not answer. Please try again.' },
+          { status: 502 }
+        )
+      }
+      return NextResponse.json({ ok: true, mode, answer })
+    }
+
     return NextResponse.json({ ok: true, mode, result })
   } catch (err) {
     if (err instanceof Error && err.message === '__ai_timeout__') {
       return NextResponse.json(
         { error: 'AI request timed out — please try again' },
         { status: 504 }
+      )
+    }
+    if (mode === 'ask') {
+      // Friendly catch-all for 'ask' — never leaks raw SDK errors.
+      return NextResponse.json(
+        { error: 'The assistant could not answer. Please try again.' },
+        { status: 502 }
       )
     }
     if (err instanceof GeminiError) {
@@ -301,7 +398,27 @@ function messageText(body: string, type: string): string {
   return `[${type === 'text' ? 'message' : type}]`
 }
 
-/** One "Name: text" transcript line for the summarize mode. */
+/**
+ * Validated prior Q/A pairs for the 'ask' mode: well-formed objects only,
+ * strings capped, keeping at most the last 6 pairs.
+ */
+function sanitizeAskHistory(raw: unknown): { q: string; a: string }[] {
+  if (!Array.isArray(raw)) return []
+  const pairs: { q: string; a: string }[] = []
+  for (const entry of raw) {
+    if (!entry || typeof entry !== 'object' || Array.isArray(entry)) continue
+    const q = (entry as { q?: unknown }).q
+    const a = (entry as { a?: unknown }).a
+    if (typeof q !== 'string' || typeof a !== 'string' || !q.trim()) continue
+    pairs.push({
+      q: q.trim().slice(0, MAX_ASK_TURN_CHARS),
+      a: a.trim().slice(0, MAX_ASK_TURN_CHARS),
+    })
+  }
+  return pairs.slice(-MAX_ASK_HISTORY)
+}
+
+/** One "Name: text" transcript line for the summarize/ask modes. */
 function transcriptLine(m: {
   sender: string | null
   body: string

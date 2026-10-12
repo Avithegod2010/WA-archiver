@@ -14,6 +14,7 @@ import {
   Archive,
   ArchiveRestore,
   BarChart3,
+  CalendarHeart,
   CheckCheck,
   ChevronDown,
   ChevronRight,
@@ -487,6 +488,7 @@ export function ChatList({
   onTogglePin,
   onToggleArchive,
   onOpenInsights,
+  onOpenMemories,
   onOpenGlobalSearch,
   bindImportTrigger,
 }: {
@@ -501,6 +503,7 @@ export function ChatList({
   onTogglePin: (id: string, pinned: boolean) => void
   onToggleArchive: (id: string, archived: boolean) => void
   onOpenInsights: () => void
+  onOpenMemories: () => void
   onOpenGlobalSearch: (query: string) => void
   /** Lets the parent (guide) open the hidden import file picker. */
   bindImportTrigger?: (fn: () => void) => void
@@ -875,6 +878,17 @@ export function ChatList({
               aria-label="Insights across all chats"
             >
               <BarChart3 className="h-4 w-4" />
+            </Button>
+            <Button
+              size="icon"
+              variant="ghost"
+              className="wa-iconbtn h-9 w-9 rounded-full bg-white/10 text-white hover:bg-white/20 dark:text-(--wa-text)"
+              onClick={onOpenMemories}
+              disabled={importing}
+              title="On this day memories"
+              aria-label="On this day memories"
+            >
+              <CalendarHeart className="h-4 w-4" />
             </Button>
             <Button
               size="sm"

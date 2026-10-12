@@ -12,6 +12,7 @@ import {
   isAudioName,
   zipEntrySize,
 } from '@/lib/media-store'
+import { assertAppUnlocked } from '@/lib/server-lock'
 
 export const runtime = 'nodejs'
 export const maxDuration = 300
@@ -67,6 +68,9 @@ function snippet(m: ParsedMessage): string {
 }
 
 export async function POST(req: NextRequest) {
+  const denied = await assertAppUnlocked(req)
+  if (denied) return denied
+
   // ------------------------------------------------------------------
   // Phase 1 — read the body fully, validate, parse (pre-stream).
   // Any failure here responds with a single NDJSON error line + status.

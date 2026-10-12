@@ -13,6 +13,7 @@ import {
 } from '@/lib/media-store'
 import { MESSAGE_SELECT, serializeMessage } from '@/lib/message-dto'
 import { promises as fs } from 'fs'
+import { assertAppUnlocked } from '@/lib/server-lock'
 
 export const runtime = 'nodejs'
 
@@ -26,6 +27,9 @@ export async function POST(
   req: NextRequest,
   ctx: { params: Promise<{ id: string }> }
 ) {
+  const denied = await assertAppUnlocked(req)
+  if (denied) return denied
+
   const { id } = await ctx.params
   const payload = (await req.json().catch(() => ({}))) as {
     targetChatId?: unknown

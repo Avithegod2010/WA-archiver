@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
+import { assertAppUnlocked } from '@/lib/server-lock'
 
 export const runtime = 'nodejs'
 
@@ -8,6 +9,9 @@ export async function GET(
   _req: NextRequest,
   ctx: { params: Promise<{ id: string }> }
 ) {
+  const denied = await assertAppUnlocked(_req)
+  if (denied) return denied
+
   const { id } = await ctx.params
   const chat = await db.chat.findUnique({
     where: { id },

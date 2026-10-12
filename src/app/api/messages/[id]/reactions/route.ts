@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
 import { parseReactions } from '@/lib/message-dto'
+import { assertAppUnlocked } from '@/lib/server-lock'
 
 export const runtime = 'nodejs'
 
@@ -15,6 +16,9 @@ export async function POST(
   req: NextRequest,
   ctx: { params: Promise<{ id: string }> }
 ) {
+  const denied = await assertAppUnlocked(req)
+  if (denied) return denied
+
   const { id } = await ctx.params
   let payload: unknown
   try {

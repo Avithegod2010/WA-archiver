@@ -48,12 +48,14 @@ import {
 import { ChatList } from './ChatList'
 import { ChatView } from './ChatView'
 import { StatsDashboard } from './StatsDashboard'
+import { MemoriesDialog } from './MemoriesDialog'
+import { scheduleBackupReminder, writeLastBackupAt } from './backup-reminder'
 import { GlobalSearch } from './GlobalSearch'
 import { GuideDialog } from './GuideDialog'
 import { DemoPickerDialog } from './DemoPickerDialog'
 import { SettingsDialog } from './SettingsDialog'
 import { ShortcutsDialog } from './ShortcutsDialog'
-import { AppLock } from './AppLock'
+import { AppLock, LOCK_CHANGED_EVENT } from './AppLock'
 import { ImportPanel } from './ImportPanel'
 import { PwaInstallBanner } from './PwaInstallBanner'
 import { NotifToasts } from './NotifToasts'
@@ -122,6 +124,7 @@ export function WhatsAppApp() {
   const [aboutOpen, setAboutOpen] = useState(false)
   const [demoPickerOpen, setDemoPickerOpen] = useState(false)
   const [statsOpen, setStatsOpen] = useState(false)
+  const [memoriesOpen, setMemoriesOpen] = useState(false)
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [shortcutsOpen, setShortcutsOpen] = useState(false)
   const [importPanelOpen, setImportPanelOpen] = useState(false)
@@ -157,6 +160,36 @@ export function WhatsAppApp() {
   }, [activeId])
 
   useEffect(() => setMounted(true), [])
+
+  // App-level backup reminder (Task 14-j): when a backup is due per the saved
+  // cadence, a once-per-session toast offers "Back up now" — reusing the same
+  // download flow as Settings' backup button.
+  const runAppBackup = useCallback(async () => {
+    try {
+      const res = await fetch('/api/backup', { cache: 'no-store' })
+      if (!res.ok) throw new Error('backup failed')
+      const blob = await res.blob()
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `whatsapp-viewer-backup-${new Date().toISOString().slice(0, 10)}.json`
+      document.body.appendChild(a)
+      a.click()
+      a.remove()
+      setTimeout(() => URL.revokeObjectURL(url), 1000)
+      writeLastBackupAt()
+    } catch {
+      /* offline / failed — the reminder simply returns next session */
+    }
+  }, [])
+  useEffect(() => {
+    if (!mounted) return
+    const t = setTimeout(
+      () => scheduleBackupReminder(() => void runAppBackup()),
+      4000
+    )
+    return () => clearTimeout(t)
+  }, [mounted, runAppBackup])
 
   // Offline detection for the reading banner
   useEffect(() => {
@@ -256,6 +289,15 @@ export function WhatsAppApp() {
       setChatsLoading(false)
     }
   }, [])
+
+  // Re-sync after app-lock transitions (Task 14-c): while the lock screen is
+  // up, data fetches 401 — when the user unlocks (or disables the lock in
+  // Settings), reload the chat list so nothing stays stuck on an empty state.
+  useEffect(() => {
+    const onLockChanged = () => void refreshChats()
+    window.addEventListener(LOCK_CHANGED_EVENT, onLockChanged)
+    return () => window.removeEventListener(LOCK_CHANGED_EVENT, onLockChanged)
+  }, [refreshChats])
 
   useEffect(() => {
     refreshChats()
@@ -1100,6 +1142,7 @@ export function WhatsAppApp() {
             onTogglePin={togglePin}
             onToggleArchive={toggleArchive}
             onOpenInsights={() => setStatsOpen(true)}
+            onOpenMemories={() => setMemoriesOpen(true)}
             onOpenGlobalSearch={(q) => {
               setGlobalSearchQuery(q)
               setGlobalSearchOpen(true)
@@ -1157,6 +1200,9 @@ export function WhatsAppApp() {
 
       {/* Insights dashboard */}
       <StatsDashboard open={statsOpen} onOpenChange={setStatsOpen} />
+
+      {/* "On this day" memories across chats */}
+      <MemoriesDialog open={memoriesOpen} onOpenChange={setMemoriesOpen} onOpenMessage={openFromSearch} />
 
       {/* Global search across all chats */}
       <GlobalSearch

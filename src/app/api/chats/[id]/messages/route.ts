@@ -7,6 +7,7 @@ import {
   isVideoName,
   saveMediaFile,
 } from '@/lib/media-store'
+import { assertAppUnlocked } from '@/lib/server-lock'
 
 export const runtime = 'nodejs'
 
@@ -16,6 +17,9 @@ export async function GET(
   _req: NextRequest,
   ctx: { params: Promise<{ id: string }> }
 ) {
+  const denied = await assertAppUnlocked(_req)
+  if (denied) return denied
+
   const { id } = await ctx.params
   const chat = await db.chat.findUnique({
     where: { id },
@@ -114,6 +118,9 @@ export async function POST(
   req: NextRequest,
   ctx: { params: Promise<{ id: string }> }
 ) {
+  const denied = await assertAppUnlocked(req)
+  if (denied) return denied
+
   const { id } = await ctx.params
   const chat = await db.chat.findUnique({
     where: { id },

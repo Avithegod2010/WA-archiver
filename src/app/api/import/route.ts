@@ -11,6 +11,7 @@ import {
   isAudioName,
   zipEntrySize,
 } from '@/lib/media-store'
+import { assertAppUnlocked } from '@/lib/server-lock'
 
 export const runtime = 'nodejs'
 export const maxDuration = 120
@@ -32,6 +33,9 @@ function pickChatTxtEntry(names: string[]): string | null {
 }
 
 export async function POST(req: NextRequest) {
+  const denied = await assertAppUnlocked(req)
+  if (denied) return denied
+
   let createdChatId: string | null = null
   try {
     const form = await req.formData()

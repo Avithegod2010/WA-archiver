@@ -18,6 +18,7 @@ import {
   Brush,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
 import { Slider } from '@/components/ui/slider'
 import {
   Popover,
@@ -281,6 +282,8 @@ export function WallpaperPicker({
   const fileRef = useRef<HTMLInputElement>(null)
   const colorInputRef = useRef<HTMLInputElement>(null)
   const [uploading, setUploading] = useState(false)
+  const [aiPrompt, setAiPrompt] = useState('')
+  const [generating, setGenerating] = useState(false)
 
   const raw = useSyncExternalStore(
     subscribeWallpaper,
@@ -391,6 +394,45 @@ export function WallpaperPicker({
     toast.info('Custom wallpaper removed')
   }
 
+  /**
+   * Generate a wallpaper from a text prompt (task 14-i) — same flow as
+   * upload(): the result lands in db/wallpapers/ via the API and is applied
+   * immediately as the chat's custom photo wallpaper.
+   */
+  async function generate() {
+    const prompt = aiPrompt.trim()
+    if (prompt.length < 3 || prompt.length > 300) {
+      toast.error('Describe the wallpaper in 3–300 characters')
+      return
+    }
+    setGenerating(true)
+    try {
+      const res = await fetch('/api/wallpaper/generate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ prompt }),
+      })
+      const data = await res.json()
+      if (!res.ok)
+        throw new Error(
+          data.error ?? 'Could not generate the wallpaper. Please try again.'
+        )
+      // Same mechanism as the photo upload: register as the custom wallpaper,
+      // which selects it and refreshes the picker via the wallpaper store.
+      writeWallpaper(chatId, { k: 'custom', photo: data.url })
+      toast.success('Wallpaper generated')
+      setAiPrompt('')
+    } catch (err) {
+      toast.error(
+        err instanceof Error
+          ? err.message
+          : 'Could not generate the wallpaper. Please try again.'
+      )
+    } finally {
+      setGenerating(false)
+    }
+  }
+
   async function upload(file: File) {
     if (!file.type.startsWith('image/')) {
       toast.error('Please pick an image file')
@@ -438,6 +480,66 @@ export function WallpaperPicker({
         <div className="md:grid md:grid-cols-2 md:gap-x-5">
           {/* ------------------------- LEFT: photo + colors + patterns */}
           <div>
+            {/* Generate with AI (task 14-i) — writes the same custom-wallpaper
+                slot as the upload below, so both flows stay interchangeable. */}
+            <form
+              onSubmit={(e) => {
+                e.preventDefault()
+                if (!generating) void generate()
+              }}
+              className="mb-1 rounded-xl border border-dashed border-(--wa-line) bg-black/[0.03] p-2 dark:bg-white/[0.04]"
+            >
+              <div className="mb-1.5 flex items-center gap-1.5">
+                <Sparkles className="h-3.5 w-3.5 text-(--wa-accent)" aria-hidden />
+                <p className="text-[12.5px] font-medium text-(--wa-text)">
+                  Generate with AI
+                </p>
+                <span
+                  className="ml-auto truncate text-[10.5px] text-(--wa-text-2)"
+                  aria-live="polite"
+                >
+                  {generating ? 'Painting your wallpaper…' : 'tap Generate'}
+                </span>
+              </div>
+              <div className="flex items-center gap-1.5">
+                <Input
+                  value={aiPrompt}
+                  onChange={(e) => setAiPrompt(e.target.value)}
+                  placeholder="Describe a wallpaper… e.g. tropical leaves on cream"
+                  maxLength={300}
+                  disabled={generating}
+                  aria-label="Describe the wallpaper to generate"
+                  className="h-8 flex-1 border-(--wa-line) bg-white/70 text-[12px] dark:bg-white/[0.06] md:text-[12.5px]"
+                />
+                <Button
+                  type="submit"
+                  size="sm"
+                  disabled={generating || aiPrompt.trim().length < 3}
+                  title={
+                    generating
+                      ? 'Generating — hold on a few seconds'
+                      : 'Generate a wallpaper from your description'
+                  }
+                  className="h-8 shrink-0 gap-1.5 rounded-full bg-(--wa-accent)/10 px-3 text-[12px] font-medium text-(--wa-accent-strong) hover:bg-(--wa-accent)/20 dark:text-(--wa-accent)"
+                >
+                  {generating ? (
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden />
+                  ) : (
+                    <Sparkles className="h-3.5 w-3.5" aria-hidden />
+                  )}
+                  {generating ? 'Painting…' : 'Generate'}
+                </Button>
+              </div>
+              {generating && (
+                <p
+                  className="mt-1.5 text-[11px] leading-snug text-(--wa-text-2)"
+                  aria-live="polite"
+                >
+                  Painting your wallpaper… this usually takes a few seconds.
+                </p>
+              )}
+            </form>
+
             {/* Custom photo — prominent row */}
             <div className="mb-1 flex items-center gap-2.5 rounded-xl border border-dashed border-(--wa-line) bg-black/[0.03] p-2 dark:bg-white/[0.04]">
               <button

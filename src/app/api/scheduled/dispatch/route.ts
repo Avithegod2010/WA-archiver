@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
 import { refreshChatAggregates } from '@/lib/chat-service'
+import { assertAppUnlocked } from '@/lib/server-lock'
 
 export const runtime = 'nodejs'
 
@@ -26,6 +27,9 @@ async function nextIdx(chatId: string): Promise<number> {
  * Returns { delivered, chatIds } so the client can refresh open chats.
  */
 export async function POST(_req: NextRequest) {
+  const denied = await assertAppUnlocked(_req)
+  if (denied) return denied
+
   const now = new Date()
   const due = await db.scheduledMessage.findMany({
     where: { status: 'pending', deliverAt: { lte: now } },

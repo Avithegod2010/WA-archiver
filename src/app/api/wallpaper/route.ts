@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import { promises as fs } from 'fs'
 import path from 'path'
 import { randomUUID } from 'crypto'
+import { assertAppUnlocked } from '@/lib/server-lock'
 
 /**
  * Custom chat wallpapers: a client-uploaded photo is stored on disk under
@@ -21,6 +22,9 @@ const ALLOWED: Record<string, string> = {
 const MAX_BYTES = 12 * 1024 * 1024 // 12 MB — generous, browsers downscale client-side too
 
 export async function POST(req: Request) {
+  const denied = await assertAppUnlocked(req)
+  if (denied) return denied
+
   try {
     const form = await req.formData()
     const file = form.get('file')

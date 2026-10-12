@@ -1,7 +1,8 @@
 'use client'
 
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
-import { Mic, Pause, Play } from 'lucide-react'
+import { AudioLines, Copy, Mic, Pause, Play, X } from 'lucide-react'
+import { toast } from 'sonner'
 import { cn } from '@/lib/utils'
 import {
   RATES,
@@ -94,6 +95,10 @@ export function VoicePlayer({
   // Duration preview from a metadata-only element while NOT the active track.
   const [localDuration, setLocalDuration] = useState(0)
   const [localFailed, setLocalFailed] = useState(false)
+
+  // AI speech-to-text (additive): idle → loading → done/error per voice note.
+  const [transcript, setTranscript] = useState<string | null>(null)
+  const [transcribing, setTranscribing] = useState(false)
 
   const duration = active ? engine.duration : localDuration
   const current = active ? engine.current : 0
@@ -195,6 +200,39 @@ export function VoicePlayer({
     engineCycleRate()
   }
 
+  const transcribe = useCallback(async () => {
+    if (transcribing) return
+    setTranscribing(true)
+    try {
+      const res = await fetch('/api/transcribe', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ messageId: seed }),
+      })
+      const data = (await res.json().catch(() => null)) as
+        | { text?: string; error?: string }
+        | null
+      if (!res.ok || !data?.text) {
+        throw new Error(data?.error ?? 'Transcription failed')
+      }
+      setTranscript(data.text)
+    } catch {
+      toast.error('Transcription failed. Please try again.')
+    } finally {
+      setTranscribing(false)
+    }
+  }, [seed, transcribing])
+
+  const copyTranscript = useCallback(async () => {
+    if (!transcript) return
+    try {
+      await navigator.clipboard.writeText(transcript)
+      toast.success('Transcript copied')
+    } catch {
+      toast.error('Could not copy')
+    }
+  }, [transcript])
+
   if (failed) {
     return (
       <div className="flex min-w-[200px] items-center gap-2">
@@ -209,7 +247,8 @@ export function VoicePlayer({
   }
 
   return (
-    <div className="flex min-w-[248px] items-center gap-2.5">
+    <div className="flex min-w-[248px] flex-col gap-1.5">
+      <div className="flex items-center gap-2.5">
       <button
         type="button"
         onClick={togglePlay}
@@ -287,6 +326,31 @@ export function VoicePlayer({
         {rate}×
       </button>
 
+      <button
+        type="button"
+        onClick={transcribe}
+        disabled={transcribing}
+        aria-busy={transcribing}
+        aria-label={transcribing ? 'Transcribing voice message' : 'Transcribe voice message'}
+        title="Transcribe voice message"
+        className="flex h-8 shrink-0 items-center gap-1 rounded-full bg-black/5 px-2.5 text-[11px] font-semibold text-(--wa-text-2) transition-colors hover:bg-black/10 disabled:cursor-default disabled:opacity-70 dark:bg-white/10 dark:text-(--wa-text-2) dark:hover:bg-white/15"
+      >
+        {transcribing ? (
+          <span aria-hidden="true" className="flex items-center gap-[3px] py-2">
+            {[0, 150, 300].map((delay) => (
+              <span
+                key={delay}
+                style={{ animationDelay: `${delay}ms` }}
+                className="h-1 w-1 animate-pulse rounded-full bg-current motion-reduce:animate-none"
+              />
+            ))}
+          </span>
+        ) : (
+          <AudioLines aria-hidden="true" className="h-3.5 w-3.5" />
+        )}
+        <span className="hidden min-[420px]:inline">Transcribe</span>
+      </button>
+
       {/* Metadata-only element: duration preview for tracks not yet played
           through the shared engine (this element never plays). */}
       {!active && (
@@ -300,6 +364,37 @@ export function VoicePlayer({
           }}
           onError={() => setLocalFailed(true)}
         />
+      )}
+      </div>
+
+      {transcript !== null && (
+        <div
+          aria-live="polite"
+          className="rounded-lg bg-black/[0.04] px-3 py-2 dark:bg-white/[0.06]"
+        >
+          <p className="max-h-40 overflow-y-auto whitespace-pre-wrap text-[13px] italic leading-snug text-(--wa-text)/80">
+            {transcript}
+          </p>
+          <div className="mt-1.5 flex items-center gap-1">
+            <button
+              type="button"
+              onClick={copyTranscript}
+              className="flex h-6 items-center gap-1 rounded-full px-2 text-[11px] font-semibold text-(--wa-text-2) transition-colors hover:bg-black/10 dark:hover:bg-white/10"
+            >
+              <Copy aria-hidden="true" className="h-3 w-3" />
+              Copy
+            </button>
+            <button
+              type="button"
+              onClick={() => setTranscript(null)}
+              aria-label="Dismiss transcript"
+              title="Dismiss transcript"
+              className="flex h-6 w-6 items-center justify-center rounded-full text-(--wa-text-2) transition-colors hover:bg-black/10 dark:hover:bg-white/10"
+            >
+              <X aria-hidden="true" className="h-3.5 w-3.5" />
+            </button>
+          </div>
+        </div>
       )}
     </div>
   )

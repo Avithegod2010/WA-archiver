@@ -58,6 +58,45 @@ export async function ensureSavedMessagesChat() {
   }
 }
 
+/**
+ * Human preview for call messages (Task 14-g). The real parser only ever
+ * stores "Missed [group ](voice|video) call" bodies (see whatsapp-parser),
+ * but answered-call wording and durations from old imports / synthetic rows
+ * are recognized too. Unclassifiable bodies keep the legacy fallback (the
+ * raw body) so existing previews never change shape. Mirrors the CallCard
+ * classification in MessageBubble.tsx — keep both in sync.
+ */
+function callPreviewText(body: string): string {
+  const text = (body ?? '').trim()
+  if (!text) return ''
+  const lower = text.toLowerCase()
+  const video = lower.includes('video')
+  if (/missed|no answer|cancel(?:l)?ed/.test(lower)) {
+    return video ? 'Missed video call' : 'Missed voice call'
+  }
+  const kind = video ? 'Video call' : 'Voice call'
+  const dur = text.match(/(\d+)\s*(hours?|hrs?|min(?:ute)?s?|sec(?:ond)?s?)/i)
+  let duration: string | null = null
+  if (dur) {
+    const n = parseInt(dur[1], 10)
+    const unit = dur[2].toLowerCase()
+    duration = unit.startsWith('h')
+      ? `${n} ${n === 1 ? 'hour' : 'hours'}`
+      : unit.startsWith('min')
+        ? `${n} min`
+        : `${n} ${n === 1 ? 'sec' : 'secs'}`
+  }
+  if (
+    lower.includes('incoming') ||
+    lower.includes('outgoing') ||
+    lower.includes('started a call')
+  ) {
+    return duration ? `${kind} · ${duration}` : kind
+  }
+  // Legacy fallback — unknown call bodies keep the raw text.
+  return text.slice(0, 120)
+}
+
 function previewText(type: string, body: string, mediaName: string | null): string {
   if (type === 'system') return body.slice(0, 300)
   // Types where the chat list renders its own label chip ("Photo:", "Poll:"…);
@@ -110,6 +149,7 @@ function previewText(type: string, body: string, mediaName: string | null): stri
       }
       return (body || mediaName || '').slice(0, 120)
     }
+    if (type === 'call') return callPreviewText(body)
     if (type === 'poll') return body.slice(0, 120)
     return body ? body.slice(0, 120) : ''
   }

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
+import { assertAppUnlocked } from '@/lib/server-lock'
 
 export const runtime = 'nodejs'
 
@@ -18,6 +19,9 @@ const MAX_HORIZON_MS = 30 * 24 * 60 * 60 * 1000
  * Returns { item }.
  */
 export async function POST(req: NextRequest) {
+  const denied = await assertAppUnlocked(req)
+  if (denied) return denied
+
   const payload = (await req.json().catch(() => null)) as {
     chatId?: unknown
     body?: unknown
@@ -107,6 +111,9 @@ export async function POST(req: NextRequest) {
  * Pending scheduled messages of one chat, soonest first.
  */
 export async function GET(req: NextRequest) {
+  const denied = await assertAppUnlocked(req)
+  if (denied) return denied
+
   const chatId = req.nextUrl.searchParams.get('chatId')?.trim() ?? ''
   if (!chatId) {
     return NextResponse.json(

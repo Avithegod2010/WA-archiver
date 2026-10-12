@@ -3,6 +3,7 @@ import { db } from '@/lib/db'
 import { refreshChatAggregates } from '@/lib/chat-service'
 import { resolveMediaPath } from '@/lib/media-store'
 import { promises as fs } from 'fs'
+import { assertAppUnlocked } from '@/lib/server-lock'
 
 export const runtime = 'nodejs'
 
@@ -16,6 +17,9 @@ export async function PATCH(
   req: NextRequest,
   ctx: { params: Promise<{ id: string }> }
 ) {
+  const denied = await assertAppUnlocked(req)
+  if (denied) return denied
+
   const { id } = await ctx.params
   let payload: unknown
   try {
@@ -99,6 +103,9 @@ export async function DELETE(
   _req: NextRequest,
   ctx: { params: Promise<{ id: string }> }
 ) {
+  const denied = await assertAppUnlocked(_req)
+  if (denied) return denied
+
   const { id } = await ctx.params
   try {
     const msg = await db.message.delete({

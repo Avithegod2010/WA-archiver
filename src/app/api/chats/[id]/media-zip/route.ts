@@ -5,6 +5,7 @@ import JSZip from 'jszip'
 import { db } from '@/lib/db'
 import { buildWhatsAppText, safeFileTitle } from '@/lib/export-text'
 import { resolveMediaPath, isValidChatId } from '@/lib/media-store'
+import { assertAppUnlocked } from '@/lib/server-lock'
 
 export const runtime = 'nodejs'
 export const maxDuration = 120
@@ -27,6 +28,9 @@ export async function POST(
   req: NextRequest,
   ctx: { params: Promise<{ id: string }> }
 ) {
+  const denied = await assertAppUnlocked(req)
+  if (denied) return denied
+
   const { id } = await ctx.params
   if (!isValidChatId(id)) {
     return NextResponse.json({ error: 'Chat not found' }, { status: 404 })
@@ -111,6 +115,9 @@ export async function GET(
   _req: NextRequest,
   ctx: { params: Promise<{ id: string }> }
 ) {
+  const denied = await assertAppUnlocked(_req)
+  if (denied) return denied
+
   const { id } = await ctx.params
   if (!isValidChatId(id)) {
     return NextResponse.json({ error: 'Chat not found' }, { status: 404 })

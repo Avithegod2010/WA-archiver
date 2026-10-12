@@ -60,3 +60,11 @@ model ScheduledMessage {
   @@index([chatId, status])
   @@index([status, deliverAt])
 }
+
+/// Generic key/value store for server-side app state
+/// (e.g. app-lock PIN hash, backup timestamps).
+model AppSetting {
+  key       String   @id
+  value     String
+  updatedAt DateTime @updatedAt
+}

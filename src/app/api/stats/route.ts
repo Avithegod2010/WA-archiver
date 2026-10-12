@@ -9,6 +9,7 @@ import {
   URL_TEST_RE,
   countWords,
 } from '@/lib/chat-analytics'
+import { assertAppUnlocked } from '@/lib/server-lock'
 
 export const runtime = 'nodejs'
 
@@ -205,7 +206,10 @@ export function bustStatsCache(): void {
   statsCache = null
 }
 
-export async function GET() {
+export async function GET(req: Request) {
+  const denied = await assertAppUnlocked(req)
+  if (denied) return denied
+
   if (statsCache && Date.now() - statsCache.at < STATS_TTL_MS) {
     return NextResponse.json(statsCache.data as Record<string, unknown>)
   }

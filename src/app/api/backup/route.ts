@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
 import { refreshChatAggregates } from '@/lib/chat-service'
 import { parseReactions } from '@/lib/message-dto'
+import { assertAppUnlocked } from '@/lib/server-lock'
 
 export const runtime = 'nodejs'
 export const maxDuration = 120
@@ -94,7 +95,10 @@ function jsonReactionsColumn(v: unknown): string | null {
  * GET /api/backup
  * Full JSON snapshot of every chat + message (media files excluded).
  */
-export async function GET() {
+export async function GET(req: Request) {
+  const denied = await assertAppUnlocked(req)
+  if (denied) return denied
+
   const chats = await db.chat.findMany({
     orderBy: [{ createdAt: 'asc' }],
   })
@@ -179,6 +183,9 @@ export async function GET() {
  * rows with invalid dates or duplicate ids are dropped.
  */
 export async function POST(req: NextRequest) {
+  const denied = await assertAppUnlocked(req)
+  if (denied) return denied
+
   const declared = Number(req.headers.get('content-length') ?? '0')
   if (declared > MAX_BODY_BYTES) {
     return NextResponse.json(

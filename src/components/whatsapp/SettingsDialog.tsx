@@ -1,14 +1,16 @@
 'use client'
 
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { toast } from 'sonner'
 import {
   BookOpen,
+  ChevronRight,
   Download,
   ExternalLink,
   Eye,
   EyeOff,
   FileDown,
+  HardDrive,
   Keyboard,
   KeyRound,
   Loader2,
@@ -20,6 +22,7 @@ import {
 } from 'lucide-react'
 import { aiHeaders, getGeminiKey, setGeminiKey } from '@/lib/ai-client'
 import { GettingStartedDialog, openGettingStarted } from './GettingStartedDialog'
+import { StorageDialog } from './StorageDialog'
 import {
   Dialog,
   DialogContent,
@@ -27,14 +30,32 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Switch } from '@/components/ui/switch'
+import { LOCK_CHANGED_EVENT } from './AppLock'
 import {
-  LOCK_CHANGED_EVENT,
-  LOCK_HASH_KEY,
-  sha256Hex,
-} from './AppLock'
+  CADENCE_OPTIONS,
+  DEFAULT_BACKUP_REMIND,
+  formatRelativeTime,
+  maybeRemindBackup,
+  readBackupRemindPref,
+  readLastBackupAt,
+  writeBackupRemindPref,
+  writeLastBackupAt,
+  type BackupCadence,
+  type BackupRemindPref,
+} from './backup-reminder'
 
 interface RestoreResult {
   chatsCreated?: number
@@ -43,9 +64,9 @@ interface RestoreResult {
   error?: string
 }
 
-type PinStage = 'idle' | 'create' | 'disable'
+type PinStage = 'idle' | 'create' | 'change' | 'disable'
 
-const digitsOnly = (v: string) => v.replace(/\D/g, '').slice(0, 4)
+const digitsOnly = (v: string) => v.replace(/\D/g, '').slice(0, 8)
 
 // AI preference keys ('0' toasts = disabled/absent enabled · '1' auto-clean = on)
 const TOASTS_PREF_KEY = 'wa-viewer:toasts'
@@ -70,14 +91,6 @@ function setExportAudioCookie(on: boolean): void {
   }
 }
 
-function readLockHash(): string | null {
-  try {
-    return localStorage.getItem(LOCK_HASH_KEY)
-  } catch {
-    return null
-  }
-}
-
 /**
  * Settings dialog (Task 7-e #14): backup & restore, app lock (PIN),
  * keyboard shortcuts entry, install / offline info.
@@ -95,18 +108,29 @@ export function SettingsDialog({
 }) {
   // Backup & restore
   const [backingUp, setBackingUp] = useState(false)
+  const [storageOpen, setStorageOpen] = useState(false)
   const [restoring, setRestoring] = useState(false)
   const restoreInputRef = useRef<HTMLInputElement | null>(null)
 
-  // App lock — state derived from key presence, read in an effect (hydration-safe)
+  // Backup reminders (Task 14-j) — read from localStorage in an effect
+  // below (hydration-safe; defaults until then)
+  const [remindPref, setRemindPref] = useState<BackupRemindPref>(DEFAULT_BACKUP_REMIND)
+  const [remindReady, setRemindReady] = useState(false)
+  const [lastBackupAt, setLastBackupAt] = useState<number | null>(null)
+
+  // App lock — state lives on the server (AppSetting), fetched via
+  // /api/auth/lock (Task 14; hydration-safe, read in an effect)
   const [lockOn, setLockOn] = useState(false)
   const [lockReady, setLockReady] = useState(false)
   const [pinStage, setPinStage] = useState<PinStage>('idle')
   const [pinCreate, setPinCreate] = useState('')
   const [pinConfirm, setPinConfirm] = useState('')
+  const [pinCurrent, setPinCurrent] = useState('')
+  const [pinNew, setPinNew] = useState('')
   const [pinDisable, setPinDisable] = useState('')
   const [pinError, setPinError] = useState<string | null>(null)
   const [lockBusy, setLockBusy] = useState(false)
+  const [resetOpen, setResetOpen] = useState(false)
 
   // AI features — Gemini key + preferences (read in an effect; hydration-safe)
   const [aiKey, setAiKey] = useState('')
@@ -117,15 +141,30 @@ export function SettingsDialog({
   const [autoCleanOn, setAutoCleanOn] = useState(false)
   const [exportAudioOn, setExportAudioOn] = useState(false)
 
-  useEffect(() => {
-    const sync = () => {
-      setLockOn(!!readLockHash())
-      setLockReady(true)
+  const syncLock = useCallback(async () => {
+    try {
+      const res = await fetch('/api/auth/lock', { cache: 'no-store' })
+      if (res.ok) {
+        const data = (await res.json()) as { enabled?: boolean }
+        setLockOn(!!data.enabled)
+      }
+    } catch {
+      // Keep the last known state; lockReady still flips so the UI isn't stuck
     }
-    sync()
-    window.addEventListener(LOCK_CHANGED_EVENT, sync)
-    return () => window.removeEventListener(LOCK_CHANGED_EVENT, sync)
+    setLockReady(true)
   }, [])
+
+  useEffect(() => {
+    void syncLock()
+    const onSync = () => void syncLock()
+    window.addEventListener(LOCK_CHANGED_EVENT, onSync)
+    return () => window.removeEventListener(LOCK_CHANGED_EVENT, onSync)
+  }, [syncLock])
+
+  // Re-sync from the server whenever the dialog opens
+  useEffect(() => {
+    if (open) void syncLock()
+  }, [open, syncLock])
 
   // Reset transient PIN UI whenever the dialog closes
   useEffect(() => {
@@ -133,8 +172,11 @@ export function SettingsDialog({
       setPinStage('idle')
       setPinCreate('')
       setPinConfirm('')
+      setPinCurrent('')
+      setPinNew('')
       setPinDisable('')
       setPinError(null)
+      setResetOpen(false)
     }
   }, [open])
 
@@ -219,7 +261,24 @@ export function SettingsDialog({
     setExportAudioCookie(checked)
   }
 
-  const downloadBackup = async () => {
+  // Task 14-j — reminder preference, persisted as JSON via the helper
+  // (tolerant read, storage-unavailability safe)
+  const handleRemindChange = (checked: boolean) => {
+    const next = { ...remindPref, on: checked }
+    setRemindPref(next)
+    writeBackupRemindPref(next)
+  }
+
+  const handleCadenceChange = (cadence: BackupCadence) => {
+    const next = { ...remindPref, cadence }
+    setRemindPref(next)
+    writeBackupRemindPref(next)
+  }
+
+  // Shared backup flow — used by the "Download backup" button AND the
+  // reminder toast's "Back up now" action (Task 14-j). useCallback keeps the
+  // reference stable so the reminder effect below doesn't re-run on renders.
+  const downloadBackup = useCallback(async () => {
     setBackingUp(true)
     toast.success('Preparing your backup…')
     try {
@@ -236,12 +295,30 @@ export function SettingsDialog({
       a.click()
       a.remove()
       setTimeout(() => URL.revokeObjectURL(url), 1000)
+      // Success → record the timestamp (auto-snoozes the reminder, Task 14-j)
+      // and refresh the "Last backup" line immediately.
+      const at = Date.now()
+      writeLastBackupAt(at)
+      setLastBackupAt(at)
     } catch {
       toast.error('Backup needs a connection')
     } finally {
       setBackingUp(false)
     }
-  }
+  }, [])
+
+  // Task 14-j — backup reminders: read the stored prefs + fire the
+  // once-per-session due check whenever the settings dialog opens.
+  // (SettingsDialog stays mounted in WhatsAppApp, so the check keys on
+  // `open` transitions; app-level firing without opening Settings is a
+  // documented one-line hook: scheduleBackupReminder(downloadBackup).)
+  useEffect(() => {
+    if (!open) return
+    setRemindPref(readBackupRemindPref())
+    setLastBackupAt(readLastBackupAt())
+    setRemindReady(true)
+    maybeRemindBackup(() => void downloadBackup())
+  }, [open, downloadBackup])
 
   const restoreBackup = async (file: File) => {
     setRestoring(true)
@@ -272,9 +349,24 @@ export function SettingsDialog({
     }
   }
 
+  /** POST /api/auth/lock and normalize the response. */
+  const postLock = async (
+    payload: Record<string, unknown>
+  ): Promise<{ ok: boolean; error?: string }> => {
+    const res = await fetch('/api/auth/lock', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    })
+    const data = (await res.json().catch(() => null)) as
+      | { ok?: boolean; error?: string }
+      | null
+    return { ok: res.ok && !!data?.ok, error: data?.error }
+  }
+
   const enableLock = async () => {
-    if (!/^\d{4}$/.test(pinCreate) || !/^\d{4}$/.test(pinConfirm)) {
-      setPinError('Enter a 4-digit PIN (numbers only)')
+    if (!/^\d{4,8}$/.test(pinCreate) || !/^\d{4,8}$/.test(pinConfirm)) {
+      setPinError('Enter a 4–8 digit PIN (numbers only)')
       return
     }
     if (pinCreate !== pinConfirm) {
@@ -283,54 +375,97 @@ export function SettingsDialog({
     }
     setLockBusy(true)
     try {
-      const hex = await sha256Hex(pinCreate)
-      if (!hex) {
-        setPinError('App lock is not available on this device/browser')
+      const r = await postLock({ action: 'set', pin: pinCreate })
+      if (!r.ok) {
+        setPinError(r.error ?? 'Could not enable app lock — try again')
         return
       }
-      localStorage.setItem(LOCK_HASH_KEY, hex)
-      window.dispatchEvent(new Event(LOCK_CHANGED_EVENT))
       setLockOn(true)
       setPinStage('idle')
       setPinCreate('')
       setPinConfirm('')
       setPinError(null)
-      toast.success('App lock enabled — it re-locks after 5 minutes idle')
+      window.dispatchEvent(new Event(LOCK_CHANGED_EVENT))
+      toast.success('App lock enabled — verified on the server')
     } catch {
-      setPinError('Could not enable app lock — storage unavailable')
+      setPinError('Could not enable app lock — check your connection')
+    } finally {
+      setLockBusy(false)
+    }
+  }
+
+  const changePin = async () => {
+    if (!/^\d{4,8}$/.test(pinCurrent) || !/^\d{4,8}$/.test(pinNew)) {
+      setPinError('PINs must be 4–8 digits (numbers only)')
+      return
+    }
+    setLockBusy(true)
+    try {
+      const r = await postLock({ action: 'change', pin: pinCurrent, newPin: pinNew })
+      if (!r.ok) {
+        setPinError(r.error ?? 'Could not change the PIN — try again')
+        return
+      }
+      setPinStage('idle')
+      setPinCurrent('')
+      setPinNew('')
+      setPinError(null)
+      window.dispatchEvent(new Event(LOCK_CHANGED_EVENT))
+      toast.success('PIN changed — server session refreshed')
+    } catch {
+      setPinError('Could not change the PIN — check your connection')
     } finally {
       setLockBusy(false)
     }
   }
 
   const disableLock = async () => {
-    const stored = readLockHash()
-    if (!stored) {
-      setLockOn(false)
-      setPinStage('idle')
-      return
-    }
-    if (!/^\d{4}$/.test(pinDisable)) {
-      setPinError('Enter your current 4-digit PIN')
+    if (!/^\d{4,8}$/.test(pinDisable)) {
+      setPinError('Enter your current 4–8 digit PIN')
       return
     }
     setLockBusy(true)
     try {
-      const hex = await sha256Hex(pinDisable)
-      if (!hex || hex !== stored) {
-        setPinError('Wrong PIN — try again')
+      const r = await postLock({ action: 'disable', pin: pinDisable })
+      if (!r.ok) {
+        setPinError(r.error ?? 'Wrong PIN — try again')
         setPinDisable('')
         return
       }
-      localStorage.removeItem(LOCK_HASH_KEY)
-      window.dispatchEvent(new Event(LOCK_CHANGED_EVENT))
       setLockOn(false)
       setPinStage('idle')
       setPinDisable('')
       setPinError(null)
+      window.dispatchEvent(new Event(LOCK_CHANGED_EVENT))
       toast.success('App lock disabled')
     } catch {
-      setPinError('Could not verify the PIN — try again')
+      setPinError('Could not verify the PIN — check your connection')
+    } finally {
+      setLockBusy(false)
+    }
+  }
+
+  const resetLock = async () => {
+    setResetOpen(false)
+    setLockBusy(true)
+    try {
+      const r = await postLock({ action: 'reset' })
+      if (!r.ok) {
+        toast.error(r.error ?? 'Could not reset the lock — try again')
+        return
+      }
+      setLockOn(false)
+      setPinStage('idle')
+      setPinCreate('')
+      setPinConfirm('')
+      setPinCurrent('')
+      setPinNew('')
+      setPinDisable('')
+      setPinError(null)
+      window.dispatchEvent(new Event(LOCK_CHANGED_EVENT))
+      toast.success('App lock reset — set a new PIN anytime')
+    } catch {
+      toast.error('Could not reset the lock — check your connection')
     } finally {
       setLockBusy(false)
     }
@@ -511,6 +646,108 @@ export function SettingsDialog({
               }}
             />
           </div>
+
+          {/* Task 14-j — last backup line (subtle, under the buttons) */}
+          {remindReady && (
+            <p
+              role="status"
+              className="text-[11.5px] leading-snug text-(--wa-text-2)"
+            >
+              {lastBackupAt != null
+                ? `Last backup: ${formatRelativeTime(lastBackupAt)}`
+                : 'No backup yet'}
+            </p>
+          )}
+
+          {/* Task 14-j — backup reminder toggle */}
+          <div className="flex items-center justify-between gap-3 rounded-lg bg-black/[0.03] p-3 dark:bg-white/[0.04]">
+            <div className="min-w-0">
+              <p className="text-[12.5px] font-medium text-(--wa-text)">
+                Remind me to back up
+              </p>
+              <p className="mt-0.5 text-[11.5px] leading-snug text-(--wa-text-2)">
+                A gentle reminder when a backup is due.
+              </p>
+            </div>
+            <Switch
+              checked={remindReady && remindPref.on}
+              disabled={!remindReady}
+              onCheckedChange={handleRemindChange}
+              aria-label="Remind me to back up"
+            />
+          </div>
+
+          {/* Task 14-j — cadence: segmented Daily / Weekly / Monthly
+              (default Weekly; shown only while reminders are on) */}
+          {remindReady && remindPref.on && (
+            <div className="flex items-center justify-between gap-3 rounded-lg bg-black/[0.03] p-3 dark:bg-white/[0.04]">
+              <p className="min-w-0 text-[12.5px] font-medium text-(--wa-text)">
+                Reminder frequency
+              </p>
+              <div
+                role="group"
+                aria-label="Backup reminder frequency"
+                className="flex gap-0.5 rounded-lg border border-(--wa-line) p-0.5"
+              >
+                {CADENCE_OPTIONS.map((opt) => {
+                  const selected = remindPref.cadence === opt.value
+                  return (
+                    <button
+                      key={opt.value}
+                      type="button"
+                      onClick={() => handleCadenceChange(opt.value)}
+                      aria-pressed={selected}
+                      className={`
+                        h-7 rounded-md px-2.5 text-[12px] font-medium
+                        transition-colors focus-visible:outline-2
+                        focus-visible:outline-offset-1
+                        focus-visible:outline-(--wa-accent)
+                        ${
+                          selected
+                            ? 'bg-(--wa-accent) text-white shadow-xs'
+                            : 'text-(--wa-text-2) hover:bg-black/5 dark:hover:bg-white/10'
+                        }
+                      `}
+                    >
+                      {opt.label}
+                    </button>
+                  )
+                })}
+              </div>
+            </div>
+          )}
+        </section>
+
+        <div className="h-px bg-black/10 dark:bg-white/10" />
+
+        {/* Data and storage (task 14-h) */}
+        <section aria-label="Data and storage" className="flex flex-col gap-2">
+          <h3 className="flex items-center gap-1.5 text-[13px] font-semibold text-(--wa-text)">
+            <HardDrive className="h-3.5 w-3.5 text-(--wa-accent)" aria-hidden />
+            Data and storage
+          </h3>
+          <button
+            type="button"
+            onClick={() => setStorageOpen(true)}
+            className={`
+              flex items-center justify-between gap-3 rounded-lg
+              bg-black/[0.03] p-3 text-left transition-colors
+              hover:bg-black/[0.05] focus-visible:outline-2
+              focus-visible:outline-offset-2 focus-visible:outline-(--wa-accent)
+              dark:bg-white/[0.04] dark:hover:bg-white/[0.06]
+            `}
+          >
+            <span className="min-w-0">
+              <span className="block text-[12.5px] font-medium text-(--wa-text)">
+                Media &amp; database usage
+              </span>
+              <span className="mt-0.5 block text-[11.5px] leading-snug text-(--wa-text-2)">
+                See how much storage each chat&apos;s photos, videos and voice
+                notes use.
+              </span>
+            </span>
+            <ChevronRight className="h-4 w-4 shrink-0 text-(--wa-text-2)" aria-hidden />
+          </button>
         </section>
 
         <div className="h-px bg-black/10 dark:bg-white/10" />
@@ -542,7 +779,7 @@ export function SettingsDialog({
 
         <div className="h-px bg-black/10 dark:bg-white/10" />
 
-        {/* d) App lock (PIN) */}
+        {/* d) App lock (PIN) — verified on the server (Task 14) */}
         <section aria-label="App lock" className="flex flex-col gap-2">
           <div className="flex items-center justify-between gap-3">
             <div className="min-w-0">
@@ -550,10 +787,15 @@ export function SettingsDialog({
                 <Lock className="h-3.5 w-3.5 text-(--wa-accent)" aria-hidden />
                 App lock (PIN)
               </h3>
-              <p className="mt-0.5 text-[12px] leading-snug text-(--wa-text-2)">
-                Lock the app with a 4-digit PIN on this device. It re-locks
-                after 5 minutes of inactivity.
-              </p>
+              {lockReady && lockOn ? (
+                <p className="mt-0.5 text-[12px] leading-snug text-(--wa-text-2)">
+                  Server-verified · session lasts 12 h
+                </p>
+              ) : (
+                <p className="mt-0.5 text-[12px] leading-snug text-(--wa-text-2)">
+                  Lock the app behind a 4–8 digit PIN, verified on the server.
+                </p>
+              )}
             </div>
             <Switch
               checked={lockReady && lockOn}
@@ -573,29 +815,56 @@ export function SettingsDialog({
             />
           </div>
 
+          {lockReady && lockOn && pinStage === 'idle' && (
+            <div className="flex flex-wrap items-center gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  setPinCurrent('')
+                  setPinNew('')
+                  setPinError(null)
+                  setPinStage('change')
+                }}
+                disabled={lockBusy}
+                className="gap-1.5"
+              >
+                <KeyRound className="h-3.5 w-3.5" aria-hidden />
+                Change PIN
+              </Button>
+              <button
+                type="button"
+                onClick={() => setResetOpen(true)}
+                className="inline-flex h-8 w-fit items-center rounded-md px-1 text-[12.5px] font-medium text-(--wa-accent-strong) transition-colors hover:text-(--wa-accent) hover:underline dark:text-(--wa-accent)"
+              >
+                Forgot PIN?
+              </button>
+            </div>
+          )}
+
           {pinStage === 'create' && (
             <div className="anim-fade-up flex flex-col gap-2 rounded-lg bg-black/[0.03] p-3 dark:bg-white/[0.04]">
               <div className="flex flex-wrap items-center gap-2">
                 <Input
                   type="password"
                   inputMode="numeric"
-                  maxLength={4}
+                  maxLength={8}
                   autoComplete="off"
                   value={pinCreate}
                   onChange={(e) => setPinCreate(digitsOnly(e.target.value))}
                   placeholder="New PIN"
-                  aria-label="New 4-digit PIN"
+                  aria-label="New PIN (4–8 digits)"
                   className="w-24 text-center tracking-[0.35em]"
                 />
                 <Input
                   type="password"
                   inputMode="numeric"
-                  maxLength={4}
+                  maxLength={8}
                   autoComplete="off"
                   value={pinConfirm}
                   onChange={(e) => setPinConfirm(digitsOnly(e.target.value))}
                   placeholder="Repeat"
-                  aria-label="Repeat 4-digit PIN"
+                  aria-label="Repeat PIN (4–8 digits)"
                   className="w-24 text-center tracking-[0.35em]"
                 />
                 <Button
@@ -607,7 +876,65 @@ export function SettingsDialog({
                   {lockBusy && (
                     <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
                   )}
-                  Set PIN
+                  Save
+                </Button>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  onClick={() => {
+                    setPinStage('idle')
+                    setPinError(null)
+                  }}
+                >
+                  Cancel
+                </Button>
+              </div>
+              <p className="text-[11.5px] leading-snug text-(--wa-text-2)">
+                4–8 digits. Unlocking starts a 12-hour verified session.
+              </p>
+              {pinError && (
+                <p role="alert" className="text-[12px] font-medium text-red-600 dark:text-red-400">
+                  {pinError}
+                </p>
+              )}
+            </div>
+          )}
+
+          {pinStage === 'change' && (
+            <div className="anim-fade-up flex flex-col gap-2 rounded-lg bg-black/[0.03] p-3 dark:bg-white/[0.04]">
+              <div className="flex flex-wrap items-center gap-2">
+                <Input
+                  type="password"
+                  inputMode="numeric"
+                  maxLength={8}
+                  autoComplete="off"
+                  value={pinCurrent}
+                  onChange={(e) => setPinCurrent(digitsOnly(e.target.value))}
+                  placeholder="Current PIN"
+                  aria-label="Current PIN (4–8 digits)"
+                  className="w-24 text-center tracking-[0.35em]"
+                />
+                <Input
+                  type="password"
+                  inputMode="numeric"
+                  maxLength={8}
+                  autoComplete="off"
+                  value={pinNew}
+                  onChange={(e) => setPinNew(digitsOnly(e.target.value))}
+                  placeholder="New PIN"
+                  aria-label="New PIN (4–8 digits)"
+                  className="w-24 text-center tracking-[0.35em]"
+                />
+                <Button
+                  size="sm"
+                  onClick={() => void changePin()}
+                  disabled={lockBusy}
+                  className="gap-1.5"
+                >
+                  {lockBusy && (
+                    <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
+                  )}
+                  Save
                 </Button>
                 <Button
                   size="sm"
@@ -634,12 +961,12 @@ export function SettingsDialog({
                 <Input
                   type="password"
                   inputMode="numeric"
-                  maxLength={4}
+                  maxLength={8}
                   autoComplete="off"
                   value={pinDisable}
                   onChange={(e) => setPinDisable(digitsOnly(e.target.value))}
                   placeholder="Current PIN"
-                  aria-label="Current 4-digit PIN"
+                  aria-label="Current PIN (4–8 digits)"
                   className="w-24 text-center tracking-[0.35em]"
                 />
                 <Button
@@ -672,6 +999,27 @@ export function SettingsDialog({
               )}
             </div>
           )}
+
+          <AlertDialog open={resetOpen} onOpenChange={setResetOpen}>
+            <AlertDialogContent>
+              <AlertDialogHeader>
+                <AlertDialogTitle>Reset app lock?</AlertDialogTitle>
+                <AlertDialogDescription>
+                  This resets the lock without a PIN — this is a local viewer,
+                  so the reset is allowed. Your chats are not touched.
+                </AlertDialogDescription>
+              </AlertDialogHeader>
+              <AlertDialogFooter>
+                <AlertDialogCancel disabled={lockBusy}>Cancel</AlertDialogCancel>
+                <AlertDialogAction
+                  onClick={() => void resetLock()}
+                  disabled={lockBusy}
+                >
+                  Reset lock
+                </AlertDialogAction>
+              </AlertDialogFooter>
+            </AlertDialogContent>
+          </AlertDialog>
         </section>
 
         <div className="h-px bg-black/10 dark:bg-white/10" />
@@ -708,6 +1056,9 @@ export function SettingsDialog({
 
         {/* Self-managed tutorial — opens via the 'wa-open-getting-started' event */}
         <GettingStartedDialog />
+
+        {/* Data and storage dashboard (task 14-h) */}
+        <StorageDialog open={storageOpen} onOpenChange={setStorageOpen} />
       </DialogContent>
     </Dialog>
   )

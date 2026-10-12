@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import { promises as fs } from 'fs'
 import path from 'path'
 import { mimeFromName } from '@/lib/media-store'
+import { assertAppUnlocked } from '@/lib/server-lock'
 
 /**
  * Serves stored custom wallpapers from `db/wallpapers/<name>` with
@@ -13,6 +14,9 @@ export async function GET(
   _req: Request,
   { params }: { params: Promise<{ name: string }> }
 ) {
+  const denied = await assertAppUnlocked(_req)
+  if (denied) return denied
+
   const { name } = await params
   // Only allow plain file names — no traversal
   if (!/^[a-zA-Z0-9._-]+$/.test(name) || name.includes('..')) {

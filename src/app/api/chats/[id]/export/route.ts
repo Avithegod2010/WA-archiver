@@ -7,6 +7,7 @@ import { resolveMediaPath } from '@/lib/media-store'
 import JSZip from 'jszip'
 import path from 'path'
 import { promises as fsp } from 'fs'
+import { assertAppUnlocked } from '@/lib/server-lock'
 
 export const runtime = 'nodejs'
 export const maxDuration = 120
@@ -70,6 +71,9 @@ export async function GET(
   req: NextRequest,
   ctx: { params: Promise<{ id: string }> }
 ) {
+  const denied = await assertAppUnlocked(req)
+  if (denied) return denied
+
   const { id } = await ctx.params
   const format = req.nextUrl.searchParams.get('format')
   // Embed audio in HTML / add an audio/ folder in ZIP — via ?audio=1 or the

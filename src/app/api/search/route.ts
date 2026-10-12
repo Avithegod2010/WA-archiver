@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
+import { assertAppUnlocked } from '@/lib/server-lock'
 
 export const runtime = 'nodejs'
 
@@ -13,6 +14,9 @@ const MAX_HITS = 200
 const MAX_PER_CHAT = 20
 
 export async function GET(req: NextRequest) {
+  const denied = await assertAppUnlocked(req)
+  if (denied) return denied
+
   const q = (req.nextUrl.searchParams.get('q') ?? '').trim()
   if (!q) {
     return NextResponse.json({ query: '', chats: [] })

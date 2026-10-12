@@ -9,6 +9,7 @@ import {
   isVideoName,
   isValidChatId,
 } from '@/lib/media-store'
+import { assertAppUnlocked } from '@/lib/server-lock'
 
 export const runtime = 'nodejs'
 
@@ -36,6 +37,9 @@ export async function GET(
   req: NextRequest,
   ctx: { params: Promise<{ chatId: string; name: string }> }
 ) {
+  const denied = await assertAppUnlocked(req)
+  if (denied) return denied
+
   const { chatId, name } = await ctx.params
   // Hard path-traversal guard: chatId must be a plain id before it can ever
   // reach the filesystem (blocks `/api/media/..%2f/custom.db` etc.).

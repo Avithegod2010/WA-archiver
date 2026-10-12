@@ -5,139 +5,140 @@ import { Delete, LockKeyhole } from 'lucide-react'
 import { WhatsAppLogo } from './icons'
 import { cn } from '@/lib/utils'
 
-/** localStorage key holding the SHA-256 hex of the 4-digit PIN (Task 7-e #15). */
-export const LOCK_HASH_KEY = 'wa-viewer:lock-hash'
-
-/** Window event dispatched whenever the lock hash is created or removed. */
+/** Window event dispatched whenever the server-side lock state may have changed. */
 export const LOCK_CHANGED_EVENT = 'wa-lock-changed'
 
-/** Re-lock after this much time without pointer/key activity. */
-const IDLE_LOCK_MS = 5 * 60 * 1000
+/** Legacy localStorage PIN hash (pre-Task-14 client-side lock) — removed on mount. */
+const LEGACY_HASH_KEY = 'wa-viewer:lock-hash'
 
-/** SHA-256 hex digest (WebCrypto). Returns null when unavailable. */
-export async function sha256Hex(text: string): Promise<string | null> {
-  try {
-    if (typeof crypto === 'undefined' || !crypto.subtle) return null
-    const buf = await crypto.subtle.digest(
-      'SHA-256',
-      new TextEncoder().encode(text)
-    )
-    return Array.from(new Uint8Array(buf))
-      .map((b) => b.toString(16).padStart(2, '0'))
-      .join('')
-  } catch {
-    return null
-  }
-}
+/** PIN length accepted by the server: /^\d{4,8}$/ */
+const MIN_PIN = 4
+const MAX_PIN = 8
 
-function readStoredHash(): string | null {
-  try {
-    return localStorage.getItem(LOCK_HASH_KEY)
-  } catch {
-    return null
-  }
-}
+/** Auto-submit once ≥4 digits sit untouched for a beat (variable-length PIN). */
+const SUBMIT_IDLE_MS = 500
+
+/** Wrong-PIN shake duration. */
+const SHAKE_MS = 550
+
+/** How long the inline "Incorrect PIN" message stays visible. */
+const ERROR_MS = 1800
 
 /**
- * Full-screen PIN lock overlay (Task 7-e #15).
- * Hydration-safe: never locks during SSR / first paint — the stored hash is
- * evaluated in an effect. Re-locks after 5 minutes of inactivity and reacts
- * to the `wa-lock-changed` event dispatched by SettingsDialog.
+ * Full-screen PIN lock overlay (Task 14 — server-side lock).
+ * Hydration-safe: never locks during SSR / first paint — the server decides
+ * in an effect (GET /api/auth/lock → { enabled, unlocked }). The PIN itself is
+ * verified by the server (scrypt hash in the DB) and unlocking issues a signed
+ * 12-hour httpOnly session cookie; the old client-side SHA-256/localStorage
+ * flow is gone. Reacts to `wa-lock-changed` (dispatched by SettingsDialog).
  */
 export function AppLock() {
-  const [hasLock, setHasLock] = useState(false)
+  const [checking, setChecking] = useState(true)
   const [locked, setLocked] = useState(false)
   const [pin, setPin] = useState('')
   const [shake, setShake] = useState(false)
+  const [error, setError] = useState<string | null>(null)
   const verifyingRef = useRef(false)
   const shakeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const firstReadRef = useRef(true)
+  const errorTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
-  // Read the stored hash on mount + whenever SettingsDialog changes it
-  useEffect(() => {
-    const sync = () => {
-      const hash = readStoredHash()
-      setHasLock(!!hash)
-      // Only auto-lock on the very first read (page load) — enabling the PIN
-      // from Settings while the app is in use should not lock immediately.
-      if (firstReadRef.current) {
-        firstReadRef.current = false
-        if (hash) setLocked(true)
-      }
-    }
-    sync()
-    window.addEventListener(LOCK_CHANGED_EVENT, sync)
-    return () => window.removeEventListener(LOCK_CHANGED_EVENT, sync)
-  }, [])
-
-  // Re-lock after 5 minutes without pointer/key activity (while unlocked)
-  useEffect(() => {
-    if (!hasLock || locked) return
-    let timer: ReturnType<typeof setTimeout> | undefined
-    const reset = () => {
-      if (timer) clearTimeout(timer)
-      timer = setTimeout(() => setLocked(true), IDLE_LOCK_MS)
-    }
-    const events = ['pointerdown', 'keydown', 'wheel'] as const
-    events.forEach((ev) =>
-      window.addEventListener(ev, reset, { passive: true })
-    )
-    reset()
-    return () => {
-      if (timer) clearTimeout(timer)
-      events.forEach((ev) => window.removeEventListener(ev, reset))
-    }
-  }, [hasLock, locked])
-
-  const verify = useCallback(async (code: string) => {
-    verifyingRef.current = true
+  // Ask the server whether the lock is enabled and whether we hold a session.
+  const sync = useCallback(async () => {
     try {
-      const stored = readStoredHash()
-      if (!stored) {
-        setPin('')
-        setLocked(false)
-        return
-      }
-      const hex = await sha256Hex(code)
-      if (hex && hex === stored) {
-        setPin('')
-        setLocked(false)
-      } else {
-        setPin('')
-        setShake(true)
-        if (shakeTimerRef.current) clearTimeout(shakeTimerRef.current)
-        shakeTimerRef.current = setTimeout(() => setShake(false), 550)
-      }
+      const res = await fetch('/api/auth/lock', { cache: 'no-store' })
+      if (!res.ok) throw new Error(`status ${res.status}`)
+      const data = (await res.json()) as { enabled?: boolean; unlocked?: boolean }
+      setLocked(!!data.enabled && !data.unlocked)
+    } catch {
+      // Fail open — a network hiccup must never brick the app.
+      setLocked(false)
     } finally {
-      verifyingRef.current = false
+      setChecking(false)
     }
   }, [])
+
+  // Migration cleanup: drop the pre-server-side localStorage hash, then sync.
+  useEffect(() => {
+    try {
+      localStorage.removeItem(LEGACY_HASH_KEY)
+    } catch {
+      /* storage unavailable — nothing to clean */
+    }
+    void sync()
+    const onSync = () => void sync()
+    window.addEventListener(LOCK_CHANGED_EVENT, onSync)
+    return () => window.removeEventListener(LOCK_CHANGED_EVENT, onSync)
+  }, [sync])
 
   useEffect(() => {
     return () => {
       if (shakeTimerRef.current) clearTimeout(shakeTimerRef.current)
+      if (errorTimerRef.current) clearTimeout(errorTimerRef.current)
     }
   }, [])
 
-  const pushDigit = useCallback(
-    (d: string) => {
+  const fail = useCallback((message: string) => {
+    setPin('')
+    setShake(true)
+    if (shakeTimerRef.current) clearTimeout(shakeTimerRef.current)
+    shakeTimerRef.current = setTimeout(() => setShake(false), SHAKE_MS)
+    setError(message)
+    if (errorTimerRef.current) clearTimeout(errorTimerRef.current)
+    errorTimerRef.current = setTimeout(() => setError(null), ERROR_MS)
+  }, [])
+
+  // Server-side verification: POST /api/auth/lock { action: 'verify', pin }.
+  const verify = useCallback(
+    async (code: string) => {
       if (verifyingRef.current) return
-      setPin((p) => (p.length >= 4 ? p : p + d))
+      verifyingRef.current = true
+      try {
+        const res = await fetch('/api/auth/lock', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action: 'verify', pin: code }),
+        })
+        const data = (await res.json().catch(() => null)) as
+          | { ok?: boolean; error?: string }
+          | null
+        if (res.ok && data?.ok) {
+          setPin('')
+          setError(null)
+          setLocked(false)
+          // Tell the rest of the app (chat list, settings) to re-sync —
+          // their fetches may have 401'd while the lock was up.
+          window.dispatchEvent(new Event(LOCK_CHANGED_EVENT))
+        } else {
+          fail(data?.error ?? 'Incorrect PIN — try again')
+        }
+      } catch {
+        fail('Could not verify the PIN — check your connection')
+      } finally {
+        verifyingRef.current = false
+      }
     },
-    []
+    [fail]
   )
+
+  const pushDigit = useCallback((d: string) => {
+    if (verifyingRef.current) return
+    setPin((p) => (p.length >= MAX_PIN ? p : p + d))
+  }, [])
 
   const popDigit = useCallback(() => {
     if (verifyingRef.current) return
     setPin((p) => p.slice(0, -1))
   }, [])
 
-  // Auto-verify once 4 digits are entered
+  // Auto-submit once ≥4 digits sit untouched for a beat (PINs are 4–8 digits,
+  // so a fixed length trigger no longer works). Re-typing resets the timer.
   useEffect(() => {
-    if (pin.length === 4) void verify(pin)
-  }, [pin, verify])
+    if (!locked || checking || pin.length < MIN_PIN) return
+    const t = setTimeout(() => void verify(pin), SUBMIT_IDLE_MS)
+    return () => clearTimeout(t)
+  }, [locked, checking, pin, verify])
 
-  // Keyboard number input while locked
+  // Keyboard number input while locked (Enter submits a complete-looking PIN)
   useEffect(() => {
     if (!locked) return
     const onKey = (e: KeyboardEvent) => {
@@ -148,14 +149,20 @@ export function AppLock() {
       } else if (e.key === 'Backspace') {
         e.preventDefault()
         popDigit()
+      } else if (e.key === 'Enter' && pin.length >= MIN_PIN) {
+        e.preventDefault()
+        void verify(pin)
       }
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [locked, pushDigit, popDigit])
+  }, [locked, pin, pushDigit, popDigit, verify])
 
-  if (!hasLock || !locked) return null
+  if (checking || !locked) return null
 
+  // Exactly 4 dots while the PIN is up to 4 digits (unchanged look); grows to
+  // the PIN length for longer (up to 8-digit) PINs.
+  const dots = Math.min(MAX_PIN, Math.max(MIN_PIN, pin.length))
   const padKeys = ['1', '2', '3', '4', '5', '6', '7', '8', '9', '', '0', 'del']
 
   return (
@@ -185,17 +192,24 @@ export function AppLock() {
           <h2 className="text-[17px] font-semibold text-(--wa-text)">
             App locked
           </h2>
-          <p className="mt-0.5 text-[12.5px] leading-snug text-(--wa-text-2)">
-            Enter your 4-digit PIN to continue
+          <p
+            className={cn(
+              'mt-0.5 text-[12.5px] leading-snug',
+              error
+                ? 'font-medium text-red-600 dark:text-red-400'
+                : 'text-(--wa-text-2)'
+            )}
+          >
+            {error ?? 'Enter your PIN to continue'}
           </p>
         </div>
 
-        {/* 4-dot progress */}
+        {/* Progress dots (4 for short PINs, up to 8 for longer ones) */}
         <div
           className="flex items-center gap-2.5"
-          aria-label={`${pin.length} of 4 digits entered`}
+          aria-label={`${pin.length} of ${dots} digits entered`}
         >
-          {[0, 1, 2, 3].map((i) => (
+          {Array.from({ length: dots }, (_, i) => (
             <span
               key={i}
               aria-hidden
@@ -241,7 +255,10 @@ export function AppLock() {
         </div>
 
         <p aria-live="polite" className="sr-only">
-          {shake ? 'Wrong PIN, try again' : `${pin.length} of 4 digits entered`}
+          {error ??
+            (shake
+              ? 'Wrong PIN, try again'
+              : `${pin.length} of ${dots} digits entered`)}
         </p>
       </div>
     </div>

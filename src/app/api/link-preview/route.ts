@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { assertAppUnlocked } from '@/lib/server-lock'
 
 export const runtime = 'nodejs'
 
@@ -315,6 +316,9 @@ async function scrape(rawUrl: string): Promise<LinkPreview | null> {
 }
 
 export async function GET(req: NextRequest) {
+  const denied = await assertAppUnlocked(req)
+  if (denied) return denied
+
   const raw = req.nextUrl.searchParams.get('url')
   if (!raw) {
     return NextResponse.json(

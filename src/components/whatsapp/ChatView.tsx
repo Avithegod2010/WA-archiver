@@ -12,9 +12,11 @@ import {
 } from 'react'
 import { toast } from 'sonner'
 import {
+  ArrowDown,
   ArrowDownToLine,
   ArrowLeft,
   ArrowUpToLine,
+  Bot,
   Braces,
   CalendarClock,
   CalendarDays,
@@ -75,6 +77,14 @@ import {
   type WallpaperConfig,
 } from './wallpaper'
 import { SAVED_CHAT_ID, type ChatDetail, type ChatMessage } from './types'
+import {
+  derivePersona,
+  fetchAiReply,
+  isDemoSource,
+  pickPersonaReply,
+  readAutoReplyEnabled,
+  writeAutoReplyEnabled,
+} from '@/lib/persona-engine'
 
 type SchedItem = {
   id: string
@@ -84,6 +94,7 @@ type SchedItem = {
 }
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
+import { Switch } from '@/components/ui/switch'
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
 import { Calendar, CalendarDayButton } from '@/components/ui/calendar'
@@ -125,6 +136,120 @@ import {
 } from './text-size'
 
 const PAGE_SIZE = 300
+
+/* ---------- 14-f: unread boundary (pre-open seen capture) ---------- */
+
+/**
+ * `wa-viewer:seen-chats` = Record<chatId, { lastAt: string; count: number }>
+ * (chat-folders.ts contract): lastAt is the chat summary's lastAt — a FULL
+ * ISO datetime (the ts of the newest message known to the chat list when the
+ * chat was marked seen), count is chat.messageCount at that moment. Full
+ * timestamp granularity, so the unread test is a millisecond comparison; no
+ * date-only fallback is needed.
+ */
+const SEEN_STORAGE_KEY = 'wa-viewer:seen-chats'
+
+/**
+ * Raw snapshot of the seen map taken BEFORE the current chat-open write.
+ *
+ * WhatsAppApp.openChat() marks the chat seen (markChatSeen) in the same
+ * synchronous block as the setDetail() that first renders the transcript.
+ * React commits that render before ChatView's capture effect gets a chance
+ * to read localStorage, so a naive read at capture time would already see
+ * the POST-write value. To recover the pre-open watermark we snapshot the
+ * raw string on every pointerdown/keydown in the CAPTURE phase (fires
+ * before the click/keyboard handler that triggers openChat, while
+ * markChatSeen itself only writes after the open fetch resolves), plus once
+ * at module evaluation, which covers the restore-last-chat auto-open that
+ * happens with no user input at all.
+ */
+let preOpenSeenRaw: string | null = null
+if (typeof window !== 'undefined') {
+  const snapshotSeen = () => {
+    try {
+      preOpenSeenRaw = window.localStorage.getItem(SEEN_STORAGE_KEY)
+    } catch {
+      /* storage unavailable — keep the previous snapshot */
+    }
+  }
+  snapshotSeen()
+  window.addEventListener('pointerdown', snapshotSeen, true)
+  window.addEventListener('keydown', snapshotSeen, true)
+}
+
+type SeenEntryLike = { lastAt: string; count: number } | null
+
+/** Parse the pre-open seen entry for one chat (never throws). */
+function readPreOpenSeenEntry(chatId: string): SeenEntryLike {
+  let raw = preOpenSeenRaw
+  if (raw == null && typeof window !== 'undefined') {
+    try {
+      raw = window.localStorage.getItem(SEEN_STORAGE_KEY)
+    } catch {
+      raw = null
+    }
+  }
+  if (!raw) return null
+  try {
+    const map = JSON.parse(raw) as Record<string, unknown> | null
+    const e = map ? map[chatId] : null
+    if (!e || typeof e !== 'object') return null
+    const o = e as Record<string, unknown>
+    const lastAt = typeof o.lastAt === 'string' ? o.lastAt : ''
+    const count =
+      typeof o.count === 'number' && Number.isFinite(o.count)
+        ? Math.floor(o.count)
+        : -1
+    if (!lastAt && count < 0) return null
+    return { lastAt, count }
+  } catch {
+    return null
+  }
+}
+
+/**
+ * First unread incoming message for a chat, given its PRE-OPEN seen entry.
+ * A message is unread when its sender is not "You" (outgoing never counts),
+ * it is not a system row, and it sits after the seen watermark:
+ *  - primary rule: ts > entry.lastAt (both ISO datetimes from the same
+ *    server clock — messages equal to or older than the watermark were seen);
+ *  - when lastAt is ''/unparseable (chat was marked seen while empty) fall
+ *    back to the ordinal rule: index >= entry.count (rows beyond the count
+ *    that existed when it was last seen).
+ * No seen entry at all (first-ever open of an imported chat) → no unread.
+ */
+function computeUnreadBoundary(
+  entry: SeenEntryLike,
+  messages: { id: string; ts: string; sender: string | null; type: string }[]
+): { id: string } | null {
+  if (!entry) return null
+  const lastAtMs = Date.parse(entry.lastAt)
+  const useTs = !Number.isNaN(lastAtMs)
+  if (!useTs && entry.count < 0) return null
+  for (let i = 0; i < messages.length; i++) {
+    const m = messages[i]
+    if (!m.sender || m.sender === 'You' || m.type === 'system') continue
+    if (useTs) {
+      const tsMs = Date.parse(m.ts)
+      if (Number.isNaN(tsMs) || tsMs <= lastAtMs) continue
+    } else if (i < entry.count) {
+      continue
+    }
+    return { id: m.id }
+  }
+  return null
+}
+
+/**
+ * Per-session record of how many messages each chat's transcript had when it
+ * was last on screen. This is what makes RE-opens work: markChatSeen() writes
+ * the chat LIST's lastAt, which stays stale until the next list refresh — so
+ * on a second open within the same session the persisted seen entry cannot
+ * distinguish "already displayed" from "arrived since". Anything beyond the
+ * recorded count is new-to-me; the first incoming one anchors the divider.
+ * (First open of a session falls back to the persisted seen entry instead.)
+ */
+const sessionDisplayedCount = new Map<string, number>()
 
 /* ---------------- 10-i: link preview orchestration ---------------- */
 
@@ -427,6 +552,14 @@ export function ChatView({
   const [typingName, setTypingName] = useState<string | null>(null)
   const typingTimersRef = useRef<number[]>([])
 
+  /* ---- 14-b: simulated persona replies (demo chats only) ----
+     One pending reply at a time; timers + in-flight fetch are aborted on
+     chat switch/unmount via personaAbortRef + the cleanup effect below. */
+  const [autoReplyOn, setAutoReplyOn] = useState(true)
+  const personaTimersRef = useRef<number[]>([])
+  const personaPendingRef = useRef(false)
+  const personaAbortRef = useRef<AbortController | null>(null)
+
   /* ----- Interaction model (Task 10-b): editing is the DEFAULT in every
          chat (incl. Saved Messages); the pencil toggles a read-only VIEWING
          mode. Multi-select is a separate transient mode. ----- */
@@ -610,6 +743,25 @@ export function ChatView({
 
   const messages = detail?.messages ?? []
 
+  /* ---- 14-f: unread divider + jump-to-first-unread state ----
+     unreadFirstId anchors the divider (id-based so deletes shift safely);
+     unreadAnchorRef mirrors it synchronously for the scroll-to-bottom guard
+     below (state updates from effects land one commit too late for it). */
+  const [unreadFirstId, setUnreadFirstId] = useState<string | null>(null)
+  const [showUnreadPill, setShowUnreadPill] = useState(false)
+  const unreadAnchorRef = useRef<string | null>(null)
+  const unreadFirstIdRef = useRef<string | null>(null)
+  /** Auto-scroll to the divider runs exactly once per open. */
+  const unreadAutoDoneRef = useRef(false)
+  /** Set on pill click — the pill stays hidden for the rest of the open. */
+  const unreadDismissedRef = useRef(false)
+  /** The open auto-scroll could not reach the 25% placement (clamped). */
+  const unreadClampedRef = useRef(false)
+  /** True once the user scrolls on their own (not our auto-scroll settle). */
+  const userScrolledRef = useRef(false)
+  const autoScrollTargetRef = useRef<number | null>(null)
+  const autoScrollSettlingRef = useRef(false)
+
   // Track the md breakpoint so only ONE jump-to-date popover is ever mounted
   // (desktop header trigger vs the mobile one inside the search panel)
   useEffect(() => {
@@ -752,6 +904,26 @@ export function ChatView({
     return clearTypingTimers
   }, [chatId, clearTypingTimers])
 
+  /* ---- 14-b: persona-reply scheduling cleanup ---- chat switch/unmount
+     clears the pending timers + aborts the in-flight AI/POST fetch (typing
+     off is owned by the 10-b cleanup above, same triggers). */
+  useEffect(() => {
+    return () => {
+      for (const t of personaTimersRef.current) window.clearTimeout(t)
+      personaTimersRef.current = []
+      personaPendingRef.current = false
+      personaAbortRef.current?.abort()
+      personaAbortRef.current = null
+    }
+  }, [chatId])
+
+  // 14-b: hydrate the auto-reply toggle from localStorage (default ON for
+  // demo chats when the key is absent; re-read per chat — the write path
+  // keeps the stored value in sync, so this never fights the user).
+  useEffect(() => {
+    setAutoReplyOn(readAutoReplyEnabled())
+  }, [chatId])
+
   // When the dots appear, scroll the typing bubble into view — but only when
   // the user is already near the bottom (never yank them out of history).
   useEffect(() => {
@@ -817,10 +989,93 @@ export function ChatView({
     setMatchIdx(0)
   }
 
+  /* ---- 14-f: capture the PRE-OPEN seen state and derive the unread
+     boundary — once per mount (ChatView is remounted per chat via
+     key={activeId}, so one capture per open). Declared BEFORE the scroll-to-
+     bottom effect so the synchronous unreadAnchorRef write lands first and
+     open-with-unread skips the default bottom scroll; the displayed-count
+     tracker below is declared AFTER so an open first reads the previous
+     session count and only then records the fresh length.
+
+     Re-arming: openChat() also re-fetches WITHOUT changing activeId when the
+     clicked chat is already the open one (list-row re-click, AudioDock
+     re-focus). detail is dropped to null first, so on the loading commit we
+     reset the capture guard + per-open scroll refs — the fresh transcript
+     recaptures the boundary (the session count tracker skips empty arrays,
+     so the previous length survives the gap and anchors the re-open). ---- */
+  const capturedUnreadRef = useRef(false)
+  /** The pre-open seen entry the current anchor was derived from — reused
+      to re-derive the boundary if the anchor message itself gets deleted. */
+  const capturedSeenEntryRef = useRef<SeenEntryLike>(null)
+  useEffect(() => {
+    if (!chatId) {
+      capturedUnreadRef.current = false
+      unreadAutoDoneRef.current = false
+      unreadDismissedRef.current = false
+      unreadClampedRef.current = false
+      userScrolledRef.current = false
+      autoScrollTargetRef.current = null
+      autoScrollSettlingRef.current = false
+      return
+    }
+    if (capturedUnreadRef.current) return
+    capturedUnreadRef.current = true
+    let id: string | null = null
+    const prevCount = sessionDisplayedCount.get(chatId)
+    if (prevCount === undefined) {
+      // First open of this chat in this browser session — use the pre-open
+      // seen entry (no entry at all = first-ever open = nothing is unread).
+      const entry = readPreOpenSeenEntry(chatId)
+      capturedSeenEntryRef.current = entry
+      id = computeUnreadBoundary(entry, messages)?.id ?? null
+    } else {
+      // Re-open within this session: rows beyond what was already displayed
+      // are new-to-me; the first incoming one anchors the divider.
+      capturedSeenEntryRef.current = null
+      for (let i = Math.max(0, prevCount); i < messages.length; i++) {
+        const m = messages[i]
+        if (m.sender && m.sender !== 'You' && m.type !== 'system') {
+          id = m.id
+          break
+        }
+      }
+    }
+    unreadAnchorRef.current = id
+    unreadFirstIdRef.current = id
+    setUnreadFirstId(id)
+  }, [chatId, messages])
+
+  // 14-f: remember how much of this transcript has been displayed, so a
+  // later re-open can tell arrived messages apart from displayed ones.
+  useEffect(() => {
+    if (!chatId || messages.length === 0) return
+    sessionDisplayedCount.set(chatId, messages.length)
+  }, [chatId, messages])
+
+  // 14-f: if the anchor message itself is deleted while the divider is up,
+  // re-derive the boundary from the SAME pre-open seen watermark (monotonic:
+  // the next incoming message after it becomes the anchor). The ordinal
+  // session rule can't survive index shifts, so it simply drops the divider.
+  useEffect(() => {
+    if (!unreadFirstId) return
+    // An empty transcript is the openChat loading gap, not a mass deletion —
+    // keep the anchor until the fresh messages arrive.
+    if (messages.length === 0) return
+    if (messages.some((m) => m.id === unreadFirstId)) return
+    const next =
+      computeUnreadBoundary(capturedSeenEntryRef.current, messages)?.id ?? null
+    unreadAnchorRef.current = next
+    unreadFirstIdRef.current = next
+    setUnreadFirstId(next)
+  }, [messages, unreadFirstId])
+
   // Scroll to bottom on open / chat change — unless a jump is queued
-  // (e.g. arriving from a global-search hit), which wins instead.
+  // (e.g. arriving from a global-search hit), which wins instead, or the
+  // chat opened with unread messages (the unread auto-scroll below positions
+  // the list at the divider instead).
   useEffect(() => {
     if (pendingJumpRef.current) return
+    if (unreadAnchorRef.current) return
     const el = scrollRef.current
     if (el) el.scrollTop = el.scrollHeight
   }, [chatId, loading])
@@ -845,6 +1100,12 @@ export function ChatView({
       setJumpedId(id)
       const t = setTimeout(() => setJumpedId(null), 2000)
       pendingJumpRef.current = null
+      // 14-f: a completed jump (esp. the queued initial one from a global-
+      // search hit) wins over the unread auto-scroll — without this, the
+      // visibleCount expansion such a jump may trigger would re-run the
+      // auto-scroll effect after pendingJumpRef cleared and yank the view
+      // to the divider.
+      unreadAutoDoneRef.current = true
       return () => clearTimeout(t)
     }
     // Not rendered yet — if it exists further up, expand the window and this
@@ -861,6 +1122,52 @@ export function ChatView({
     }
   }, [visibleCount, messages.length, initialJumpMessageId, messages])
 
+  /* ---- 14-f: auto-scroll once so the unread divider sits ~25% from the top
+     of the viewport (clamped to the bottom when too few messages sit below
+     the boundary — e.g. a single new message at the end of the chat), with
+     the existing flash treatment on the first unread message. A queued
+     initial jump (initialJumpMessageId) always wins; the divider stays. ---- */
+  useEffect(() => {
+    const firstId = unreadFirstId
+    if (!firstId || unreadAutoDoneRef.current) return
+    // Skip renders whose state still carries the PREVIOUS open's anchor —
+    // the capture effect has already derived the fresh one (mirrored in
+    // unreadFirstIdRef synchronously); waiting for the next commit keeps the
+    // auto-scroll from fighting the re-derivation on a same-chat re-open.
+    if (unreadFirstIdRef.current !== firstId) return
+    if (pendingJumpRef.current) return
+    const idx = messages.findIndex((m) => m.id === firstId)
+    if (idx === -1) return
+    const needed = messages.length - idx
+    if (needed > visibleCountRef.current) {
+      const raf = requestAnimationFrame(() => {
+        visibleCountRef.current = needed
+        setVisibleCount(needed)
+      })
+      return () => cancelAnimationFrame(raf)
+    }
+    const wrap = scrollRef.current
+    const el = wrap?.querySelector('[data-unread-divider]') as HTMLElement | null
+    if (!wrap || !el) return
+    const target = Math.max(0, el.offsetTop - wrap.clientHeight * 0.25)
+    const max = wrap.scrollHeight - wrap.clientHeight
+    const clamped = target > max + 1
+    unreadClampedRef.current = clamped
+    const raf = requestAnimationFrame(() => {
+      const w = scrollRef.current
+      if (!w) return
+      unreadAutoDoneRef.current = true
+      const t = Math.min(target, w.scrollHeight - w.clientHeight)
+      autoScrollTargetRef.current = t
+      autoScrollSettlingRef.current = true
+      w.scrollTop = t
+      if (clamped) setShowUnreadPill(true)
+      setJumpedId(firstId)
+      window.setTimeout(() => setJumpedId(null), 2000)
+    })
+    return () => cancelAnimationFrame(raf)
+  }, [unreadFirstId, visibleCount, messages])
+
   const shown = useMemo(() => {
     if (filtered) return filtered
     return messages.slice(Math.max(0, messages.length - visibleCount))
@@ -870,14 +1177,18 @@ export function ChatView({
     const out: Array<
       | { kind: 'date'; key: string; label: string }
       | { kind: 'system'; key: string; id: string; body: string; ts: string }
+      | { kind: 'unread-divider'; key: string }
       | { kind: 'msg'; key: string; msg: ChatMessage; showTail: boolean; showAvatar: boolean }
     > = []
     let prev: ChatMessage | null = null
     let prevDay = ''
+    let dividerPlaced = false
     for (const m of shown) {
       const dk = dayKey(m.ts)
       if (dk !== prevDay) {
-        out.push({ kind: 'date', key: `d-${dk}`, label: formatDayLabel(new Date(m.ts)) })
+        // Append the row count: with non-monotonic imports the same day can
+        // legitimately appear twice, and React keys must stay unique.
+        out.push({ kind: 'date', key: `d-${dk}-${out.length}`, label: formatDayLabel(new Date(m.ts)) })
         prevDay = dk
         prev = null
       }
@@ -885,6 +1196,13 @@ export function ChatView({
         out.push({ kind: 'system', key: `s-${m.id}`, id: m.id, body: m.body, ts: m.ts })
         prev = null
         continue
+      }
+      // 14-f: WhatsApp-style unread divider — a normal list row rendered
+      // right before the first unread message (transcript view only; search/
+      // filter results are a different lens and never show it).
+      if (!filtered && !dividerPlaced && m.id === unreadFirstId) {
+        out.push({ kind: 'unread-divider', key: 'unread-divider' })
+        dividerPlaced = true
       }
       const showTail =
         !prev ||
@@ -895,7 +1213,7 @@ export function ChatView({
       prev = m
     }
     return out
-  }, [shown])
+  }, [shown, filtered, unreadFirstId])
 
   function handleLoadEarlier() {
     const el = scrollRef.current
@@ -1138,6 +1456,10 @@ export function ChatView({
   /* ------------ Multi-select + reply + forward dialog (10-b) ------------ */
 
   const isSavedChat = detail?.chat.id === SAVED_CHAT_ID
+  /* ---- 14-b: demo-chat marker — persona auto-replies only ever run here
+     (sourceFile is `demo://<id>@v2` for demo chats; imports keep their file
+     name and Saved Messages is `local`). */
+  const isDemoChat = isDemoSource(detail?.chat.sourceFile)
   const selectedCount = selectedIds.size
   const selectedMessages = useMemo(
     () => messages.filter((m) => selectedIds.has(m.id)),
@@ -1422,6 +1744,136 @@ export function ChatView({
     )
   }
 
+  /* ---- 14-b: simulated persona replies (demo chats only) ---- */
+
+  /**
+   * Decide whether the just-sent message earns a persona reply and schedule
+   * one. Returns true when scheduled — handleSent then skips the random 10-b
+   * typing decoration (the real reply replaces it). Guards: demo chat only,
+   * auto-reply enabled, plain TEXT from 'You', nothing already pending,
+   * and a persona must exist in the transcript. Media/audio/poll/etc. sends
+   * never trigger a reply (type filter below).
+   */
+  function schedulePersonaReply(msg: ChatMessage): boolean {
+    if (!detail || !isDemoChat || !autoReplyOn) return false
+    if (personaPendingRef.current) return false // exactly ONE pending reply
+    if (msg.type !== 'text' || !msg.body.trim()) return false
+    if (msg.sender && msg.sender !== 'You') return false
+    const persona = derivePersona(detail.messages)
+    if (!persona) return false
+
+    const chatIdAtSend = chatId
+    const controller = new AbortController()
+    personaPendingRef.current = true
+    personaAbortRef.current = controller
+
+    // Recent outgoing texts (newest first) — keyword source for the offline
+    // builder. `detail` still holds the pre-append snapshot here, so the
+    // just-sent body leads the list.
+    const recentUserTexts = [
+      msg.body,
+      ...detail.messages
+        .filter((m) => m.sender === 'You' && m.type === 'text' && m.body.trim())
+        .slice(-3)
+        .reverse()
+        .map((m) => m.body),
+    ]
+    const seedCount = detail.messages.length + 1
+
+    // AI reply starts immediately — it has 4s from the send to settle.
+    const aiPromise = fetchAiReply(chatIdAtSend, { signal: controller.signal })
+
+    // Typing dots ~700ms after the send...
+    personaTimersRef.current.push(
+      window.setTimeout(() => {
+        if (!personaPendingRef.current) return
+        setTypingName(persona)
+      }, 700)
+    )
+    // ...the reply lands 1.5–4s after the send (total, randomized).
+    const delay = 1500 + Math.random() * 2500
+    personaTimersRef.current.push(
+      window.setTimeout(() => {
+        void deliverPersonaReply(
+          chatIdAtSend,
+          persona,
+          seedCount,
+          recentUserTexts,
+          aiPromise,
+          controller
+        )
+      }, delay)
+    )
+    return true
+  }
+
+  /**
+   * Generate + POST the persona reply. AI text wins when it settled within
+   * its 4s window; otherwise the deterministic offline line is used. The
+   * reply is POSTed as an ordinary incoming message and appended with the
+   * SAME mechanism as scheduled-message deliveries (refetch-free setDetail
+   * append). No toast — the message just appears. Failures only switch the
+   * typing indicator off and log; they never break the chat.
+   */
+  async function deliverPersonaReply(
+    chatIdAtSend: string,
+    persona: string,
+    seedCount: number,
+    recentUserTexts: string[],
+    aiPromise: Promise<string | null>,
+    controller: AbortController
+  ) {
+    try {
+      let text = pickPersonaReply({
+        chatId: chatIdAtSend,
+        messageCount: seedCount,
+        recentUserMessages: recentUserTexts,
+      })
+      try {
+        const ai = await aiPromise // resolves ≤4s after the send, or null
+        if (ai && ai.trim()) text = ai.trim()
+      } catch {
+        /* offline line — silent */
+      }
+      if (controller.signal.aborted) return // chat switched — cleanup owns state
+      const res = await fetch(`/api/chats/${chatIdAtSend}/messages`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ type: 'text', sender: persona, body: text }),
+        signal: controller.signal,
+      })
+      if (!res.ok) throw new Error(`status ${res.status}`)
+      const data = (await res.json()) as { message?: ChatMessage }
+      const reply = data.message
+      if (!reply) throw new Error('no message returned')
+      if (controller.signal.aborted) return // superseded while POSTing
+      personaPendingRef.current = false
+      personaAbortRef.current = null
+      personaTimersRef.current = [] // both timers already fired
+      setTypingName(null)
+      setDetail((d) =>
+        d && d.chat.id === chatIdAtSend
+          ? { ...d, messages: [...d.messages, reply] }
+          : d
+      )
+    } catch (err) {
+      if (controller.signal.aborted) return // chat switch — nothing to reset
+      personaPendingRef.current = false
+      personaAbortRef.current = null
+      setTypingName(null)
+      console.error('Persona reply failed:', err)
+    }
+  }
+
+  /** 14-b: flip the persisted auto-reply toggle (⋮ menu, demo chats only). */
+  function toggleAutoReply() {
+    setAutoReplyOn((v) => {
+      const next = !v
+      writeAutoReplyEnabled(next)
+      return next
+    })
+  }
+
   function handleSent(msg: ChatMessage) {
     // Stale-send guard: an upload started in chat A but finishing after the
     // user switched to chat B must not append to B's transcript.
@@ -1431,7 +1883,14 @@ export function ChatView({
       const el = scrollRef.current
       if (el) el.scrollTo({ top: el.scrollHeight, behavior: 'smooth' })
     })
-    scheduleTypingSimulation()
+    // 14-b: in demo chats a persona reply replaces the random 10-b typing
+    // decoration — the dots now lead to a real incoming message. Extra sends
+    // while a reply is pending are ignored for scheduling (no stacking) and
+    // also skip the 10-b decoration so its auto-clear timer can't kill the
+    // persona's typing indicator mid-flight.
+    if (!schedulePersonaReply(msg) && !personaPendingRef.current) {
+      scheduleTypingSimulation()
+    }
     onChatChanged?.()
   }
 
@@ -1495,6 +1954,64 @@ export function ChatView({
       return d.getFullYear() === ys && d.getMonth() === ms - 1
     })
     if (hit) jumpToMessageId(hit.id)
+  }
+
+  /* ---- 14-f: unread pill — live count, scroll tracking, click-to-jump ---- */
+
+  /** Anchor position + live unread count, recomputed as messages change
+     (deletes shift the anchor safely; the anchor disappearing kills it). */
+  const unreadInfo = useMemo(() => {
+    if (!unreadFirstId) return null
+    const idx = messages.findIndex((m) => m.id === unreadFirstId)
+    if (idx === -1) return null
+    let count = 0
+    for (let i = idx; i < messages.length; i++) {
+      const m = messages[i]
+      if (m.sender && m.sender !== 'You' && m.type !== 'system') count++
+    }
+    return { idx, count }
+  }, [messages, unreadFirstId])
+
+  /**
+   * Pill visibility, driven by the container's scroll events:
+   *  - hidden when dismissed (pill click) or no unread anchor;
+   *  - visible while the first unread message is out of view (above the
+   *    viewport top after scrolling past it, below it after scrolling up,
+   *    or windowed out entirely);
+   *  - when on screen: hidden — except right after an open whose auto-scroll
+   *    was clamped (the 25% divider placement was impossible), where the
+   *    pill stays visible until the user actually scrolls on their own.
+   */
+  const updateUnreadPill = useCallback((wrap: HTMLDivElement) => {
+    const firstId = unreadFirstIdRef.current
+    if (!firstId || unreadDismissedRef.current) {
+      setShowUnreadPill(false)
+      return
+    }
+    const msgEl = wrap.querySelector(`[data-mid="${firstId}"]`)
+    const wr = wrap.getBoundingClientRect()
+    let out = true
+    if (msgEl) {
+      const r = msgEl.getBoundingClientRect()
+      out = r.bottom <= wr.top + 1 || r.top >= wr.bottom - 1
+    }
+    if (out) {
+      setShowUnreadPill(true)
+      return
+    }
+    if (!unreadClampedRef.current || userScrolledRef.current) {
+      setShowUnreadPill(false)
+    }
+  }, [])
+
+  /** Pill click: dismiss the pill, then reuse the standard jump machinery —
+      it expands the render window if needed, smooth-scrolls to the first
+      unread message and applies the flash treatment. */
+  function handleUnreadPillClick() {
+    unreadDismissedRef.current = true
+    setShowUnreadPill(false)
+    const firstId = unreadFirstIdRef.current
+    if (firstId) jumpToMessageId(firstId)
   }
 
   /**
@@ -2087,6 +2604,41 @@ export function ChatView({
                 <Palette className="h-4 w-4 text-(--wa-text-2)" />
                 Chat wallpaper
               </DropdownMenuItem>
+              {/* 14-b: demo-only toggle — personas answer your texts here.
+                  onSelect preventDefault keeps the menu open so the Switch
+                  visibly flips; onClick does the actual toggling (exactly
+                  once — Radix fires select after click). */}
+              {isDemoChat && (
+                <>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem
+                    onClick={toggleAutoReply}
+                    onSelect={(e) => e.preventDefault()}
+                    className="gap-2"
+                    aria-label={`Simulated replies — ${
+                      autoReplyOn ? 'on' : 'off'
+                    }`}
+                  >
+                    <Bot className="h-4 w-4 text-(--wa-text-2)" />
+                    <span className="min-w-0 flex-1">
+                      <span className="block text-[13px] leading-tight">
+                        Simulated replies
+                      </span>
+                      <span className="mt-0.5 block truncate text-[11px] leading-tight text-(--wa-text-2)">
+                        {autoReplyOn
+                          ? 'On — personas answer your texts'
+                          : 'Off'}
+                      </span>
+                    </span>
+                    <Switch
+                      checked={autoReplyOn}
+                      tabIndex={-1}
+                      aria-hidden
+                      className="pointer-events-none"
+                    />
+                  </DropdownMenuItem>
+                </>
+              )}
               <DropdownMenuItem
                 onClick={() => setWordCloudOpen(true)}
                 className="gap-2"
@@ -2406,6 +2958,19 @@ export function ChatView({
         onScroll={(e) => {
           const el = e.currentTarget
           setShowFab(el.scrollHeight - el.scrollTop - el.clientHeight > 400)
+          // 14-f: classify the scroll — a deviation from our own auto-scroll
+          // target (or any scroll once it settled) is the user's own, which
+          // ends the clamped-open pill exception.
+          if (autoScrollSettlingRef.current) {
+            const t = autoScrollTargetRef.current
+            if (t == null || Math.abs(el.scrollTop - t) > 4) {
+              autoScrollSettlingRef.current = false
+              userScrolledRef.current = true
+            }
+          } else {
+            userScrolledRef.current = true
+          }
+          updateUnreadPill(el)
         }}
         style={{ '--wa-msg-size': `${msgFontPx}px` } as React.CSSProperties}
         className="wa-scroll relative flex-1 overflow-y-auto overflow-x-hidden py-3"
@@ -2456,6 +3021,31 @@ export function ChatView({
                 <span className="anim-pop rounded-lg bg-(--wa-in)/95 px-3 py-1 text-[12.2px] font-medium uppercase tracking-wide text-(--wa-text-2) shadow-[0_1px_1px_rgba(11,20,26,0.12)] backdrop-blur-sm dark:bg-(--wa-panel-2)/95 dark:text-(--wa-text-2)">
                   {item.label}
                 </span>
+              </div>
+            )
+          }
+          if (item.kind === 'unread-divider') {
+            return (
+              <div
+                key={item.key}
+                data-unread-divider
+                className="my-3 flex items-center gap-2 px-2"
+              >
+                <span
+                  aria-hidden
+                  className="min-w-6 flex-1 border-t-2 border-emerald-500/70"
+                />
+                <span
+                  aria-hidden
+                  className="rounded-full bg-(--wa-in)/95 px-3 py-1 text-[11px] font-medium uppercase tracking-wide text-emerald-600 shadow-[0_1px_1px_rgba(11,20,26,0.12)] backdrop-blur-sm dark:bg-(--wa-panel-2)/95 dark:text-emerald-400"
+                >
+                  Unread messages
+                </span>
+                <span
+                  aria-hidden
+                  className="min-w-6 flex-1 border-t-2 border-emerald-500/70"
+                />
+                <span className="sr-only">Unread messages start here</span>
               </div>
             )
           }
@@ -2567,6 +3157,33 @@ export function ChatView({
       >
         <ChevronDown className="h-6 w-6" />
       </button>
+
+      {/* Unread pill (14-f) — WhatsApp-style "N new messages" (emerald),
+          stacked above the scroll-to-bottom chevron (bottom-[68px] + h-10)
+          and clear of the scheduled chip (top edge ≈116px above the
+          composer); hidden with the rest of the chrome while the search
+          panel is open; visible while the first unread message is out of
+          view (plus the clamped-open exception — see updateUnreadPill). */}
+      {unreadInfo && unreadInfo.count > 0 && (
+        <button
+          type="button"
+          onClick={handleUnreadPillClick}
+          aria-label="Jump to unread messages"
+          aria-hidden={!showUnreadPill || selecting || searchOpen}
+          tabIndex={showUnreadPill && !selecting && !searchOpen ? 0 : -1}
+          className={cn(
+            'absolute bottom-[120px] right-4 z-20 flex h-9 items-center gap-1.5 rounded-full bg-emerald-600 px-3.5 text-[12.5px] font-medium text-white shadow-lg transition-all duration-300 [transition-timing-function:cubic-bezier(0.34,1.56,0.64,1)] hover:bg-emerald-500 active:scale-95 dark:bg-emerald-600 dark:hover:bg-emerald-500',
+            showUnreadPill && !selecting && !searchOpen
+              ? 'translate-y-0 scale-100 opacity-100'
+              : 'pointer-events-none translate-y-4 scale-50 opacity-0'
+          )}
+        >
+          <ArrowDown className="h-4 w-4 shrink-0" aria-hidden />
+          <span className="whitespace-nowrap tabular-nums">
+            {unreadInfo.count} new message{unreadInfo.count === 1 ? '' : 's'}
+          </span>
+        </button>
+      )}
 
       {/* Movie mode (10-i) — entry FAB + playback bar (auto-scroll the chat) */}
       <MovieMode
@@ -2800,10 +3417,11 @@ export function ChatView({
         onForwarded={() => exitSelection()}
       />
 
-      {/* AI message tools (translate / explain) — #13 */}
+      {/* AI message tools (translate / explain / ask-about-this-chat) — #13 */}
       <AIToolsDialog
         open={!!aiMsg}
         message={aiMsg}
+        chatId={chatId}
         onOpenChange={(v) => {
           if (!v) setAiMsg(null)
         }}
