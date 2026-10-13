@@ -59,3 +59,28 @@ reactions, notes, lock, export, import — becomes fully device-local.
 No Turso/Vercel-DB migration is needed on this path: the hosted site becomes a
 thin, free entry point (PWA install + optional AI), while the data never leaves
 the device. Hosting cost stays $0.
+
+## App stores & distribution (F-Droid / IzzyOnDroid / iOS)
+
+**F-Droid & IzzyOnDroid compliance after this refactor:**
+
+- ✅ License: MIT (permissive, accepted by both).
+- ✅ Self-contained FOSS app: bundles real functionality (local DB, import,
+  export) — **not** a mere website wrapper, which F-Droid would reject.
+- ✅ No proprietary SDK bundled: the sandbox AI SDK is removed on this path;
+  Gemini is a user-key network API (declare the `NonFreeNet` anti-feature).
+- ⚠️ Build must be reproducible from source with standard npm/node (keep an
+  npm fallback for the bun-specific scripts) — F-Droid builds apps itself.
+- ⚠️ Trademark: "WhatsApp Viewer" may draw a Meta complaint; a
+  "… for WhatsApp"-style distinct name is safer for store listings.
+- ✅ IzzyOnDroid accepts MIT apps built from source; faster inclusion than
+  main F-Droid.
+
+**iOS later:** same codebase via the Capacitor iOS platform — no rewrite.
+Costs are Apple-side: a Mac (or CI macOS runner) to build, $99/yr for App
+Store/TestFlight (or free 7-day sideloading). Local-first suits iOS well
+because Safari/PWA storage is eviction-prone — the native shell protects data.
+
+**Distribution without any hosting:** APKs can ship via GitHub Releases
+(free) + F-Droid/IzzyOnDroid; the hosted site becomes optional (a thin
+install page / demo), not infrastructure.
