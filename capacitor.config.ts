@@ -1,21 +1,20 @@
 import type { CapacitorConfig } from '@capacitor/cli'
 
 /**
- * Android app configuration for WhatsApp Viewer.
+ * Android app configuration for WhatsApp Viewer — STANDALONE (Phase 3).
  *
- * ⚠️ THE ONLY LINE YOU NEED TO EDIT: `server.url` below.
- * Point it at wherever you host the web app (e.g. https://your-app.vercel.app),
- * commit, push — and GitHub Actions builds a fresh APK automatically.
+ * The APK bundles the entire built frontend (scripts/build-capacitor.mjs →
+ * capacitor-web/) and runs the on-device transport exclusively: SQLite WASM
+ * in the WebView (OPFS persistence), client-side import, direct Gemini AI
+ * with the user's own key. No hosted URL, no server, works fully offline.
+ *
+ * ⚠️ NOTHING TO EDIT ANYMORE: the old `server.url` line is gone on purpose.
+ * GitHub Actions builds a fresh standalone APK on every push to main.
  */
 const config: CapacitorConfig = {
   appId: 'com.whatsappviewer.app',
   appName: 'WhatsApp Viewer',
   webDir: 'capacitor-web',
-  server: {
-    // ⬇️ PUT YOUR HOSTED URL HERE (HTTPS required)
-    url: 'https://whatsapp-viewer.vercel.app',
-    cleartext: false,
-  },
 }
 
 export default config

@@ -267,11 +267,18 @@ function parseConfig(raw: string | null): WallpaperConfig | null {
   if (!raw.startsWith('{')) return mapLegacyKey(raw.trim(), null)
   try {
     const o = JSON.parse(raw) as Record<string, unknown>
-    // The photo lands inside a CSS url("…") — only our own upload endpoint
-    // may ever appear there (a hand-edited value can't inject CSS).
+    // The photo lands inside a CSS url("…") — only two producers may ever
+    // appear there (a hand-edited value can't inject CSS):
+    //   • /api/wallpaper/<name>   — the server upload endpoint (server mode)
+    //   • data:image/<fmt>;base64 — the device path (Phase 3: the downscale
+    //     helper embeds the JPEG directly, no server file storage needed)
     const rawPhoto = typeof o.photo === 'string' && o.photo ? o.photo : null
     const photo =
-      rawPhoto && /^\/api\/wallpaper\/[a-zA-Z0-9._-]+$/.test(rawPhoto)
+      rawPhoto &&
+      (/^\/api\/wallpaper\/[a-zA-Z0-9._-]+$/.test(rawPhoto) ||
+        /^data:image\/(?:png|jpeg|jpg|webp);base64,[A-Za-z0-9+/=]+$/.test(
+          rawPhoto
+        ))
         ? rawPhoto
         : null
     const kStr = typeof o.k === 'string' ? o.k : null
@@ -400,4 +407,44 @@ export async function downscaleImage(file: File): Promise<Blob> {
   } catch {
     return file
   }
+}
+
+/**
+ * Device-path upload (Phase 3): no server file storage — downscale and embed
+ * the image as a self-contained JPEG data: URL that localStorage can hold.
+ * Shrinks progressively until the encoded URL fits a ~1.05 MB budget (safe
+ * inside the 5 MB localStorage quota even alongside other keys).
+ */
+export async function downscaleImageToDataUrl(file: File): Promise<string> {
+  const steps: [number, number][] = [
+    [1280, 0.82],
+    [1024, 0.78],
+    [820, 0.72],
+    [640, 0.68],
+  ]
+  let last = ''
+  for (const [max, quality] of steps) {
+    try {
+      const bitmap = await createImageBitmap(file)
+      const scale = Math.min(1, max / Math.max(bitmap.width, bitmap.height))
+      const w = Math.max(1, Math.round(bitmap.width * scale))
+      const h = Math.max(1, Math.round(bitmap.height * scale))
+      const canvas = document.createElement('canvas')
+      canvas.width = w
+      canvas.height = h
+      const ctx = canvas.getContext('2d')
+      if (!ctx) {
+        bitmap.close()
+        break
+      }
+      ctx.drawImage(bitmap, 0, 0, w, h)
+      bitmap.close()
+      last = canvas.toDataURL('image/jpeg', quality)
+      if (last.length <= 1_050_000) return last
+    } catch {
+      break
+    }
+  }
+  if (last) return last
+  throw new Error('Could not read that image')
 }

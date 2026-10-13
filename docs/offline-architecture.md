@@ -47,14 +47,39 @@ either way, so nothing is lost by *not* choosing RN now.
   "On this device" card in Data & storage (import → status → per-chat
   delete → wipe). Verified in-browser: import 16 messages + 4 media →
   counts exact → survives full page reload via OPFS.
-- **Phase 2 — feature swap:** move chat list, messages, reactions, scheduled
-  messages, settings, lock and export onto the local adapter, module by
-  module (app stays working at every step).
-- **Phase 3 — offline APK:** switch the Capacitor shell from `server.url`
-  (remote) to **bundling the built frontend** + native SQLite. The APK becomes
-  a truly standalone, no-internet app.
-- **Phase 4 — polish:** offline-aware AI states, optional Whisper-WASM on-device
-  transcription, optional sync server (only if multi-device is ever wanted).
+- **Phase 2 — feature swap ✅ DONE:** every chat/message/media/scheduled/
+  search/starred/media-gallery/forward/memories/import/demo/backup/lock flow
+  runs through the DataClient seam with a user-facing storage-mode switch
+  (Settings → Data & storage: Server ☁ / This device 📱).
+- **Phase 3 — offline APK ✅ DONE:** the Capacitor shell no longer points at
+  a hosted URL — it **bundles the whole built frontend** and runs the device
+  transport exclusively:
+  - `bun run build:capacitor` (scripts/build-capacitor.mjs) static-exports
+    the app (`CAP_EXPORT=1` branch in next.config.ts, `src/app/api` moved
+    aside for the build) into `capacitor-web/`; GitHub Actions builds the
+    export before `cap sync` on every push.
+  - Inside the shell the native bridge injects `window.Capacitor` — detected
+    by `isNativeApp()` (storage-mode.ts) so the DEFAULT storage mode is
+    'device' and Settings shows a static "on-device storage" card instead of
+    the mode switch.
+  - AI runs **directly against Google Gemini** with the user's free key
+    (src/lib/device-ai.ts + the shared ai-prompts.ts — the same prompt
+    assembly the server route uses). No /api/ai in the loop.
+  - Stats + word cloud compute **on-device** (isomorphic stats-compute.ts /
+    wordcloud.ts — the API routes share the exact same code).
+  - Custom wallpaper photos embed as self-contained JPEG data: URLs on the
+    device path (progressively downscaled to fit localStorage); AI wallpaper
+    generation is server-only and shows a friendly note instead.
+  - Boot-order fix: DataProvider exposes `modeResolved`; mount effects
+    (chat list, scheduled poller) wait for it so a device-mode app never
+    fires one doomed server request at startup.
+  - **Native SQLite not needed for v1:** the SQLite-WASM + OPFS engine runs
+    as-is in the Android System WebView (async OPFS + IndexedDB fallback);
+    `@capacitor-community/sqlite` stays a Phase-4 hardening option for
+    older WebViews.
+- **Phase 4 — polish:** offline-aware AI states (done for the no-key case),
+  optional Whisper-WASM on-device transcription, optional sync server (only
+  if multi-device is ever wanted), optional native-SQLite driver.
 
 ## What offline still can't do
 

@@ -12,6 +12,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog'
 import { aiHeaders } from '@/lib/ai-client'
+import { runDeviceAi } from '@/lib/device-ai'
 import { useData } from './data-provider'
 
 interface TldrSummary {
@@ -52,10 +53,10 @@ function parseTldr(text: string): TldrSummary {
 /**
  * Controlled dialog: AI-generated TL;DR of a chat's recent messages.
  * Props: { chatId, open, onOpenChange, onBuildContext? }
- * Talks to POST /api/ai { mode: 'summarize', chatId } → { ok, result }.
- * On the device transport the caller also passes `onBuildContext`, so the
- * body carries the on-device transcript lines (`context`) and the route
- * never touches the server DB; the server transport sends nothing extra.
+ * Server transport: POST /api/ai { mode: 'summarize', chatId } → { ok, result }.
+ * Device transport (Phase 3): runDeviceAi calls Gemini directly with the
+ * user's own key; the body carries the on-device transcript lines
+ * (`context`) via onBuildContext — no server in the loop at all.
  */
 export function TldrDialog({
   chatId,
@@ -82,26 +83,30 @@ export function TldrDialog({
     setSummary(null)
     setRaw(null)
     try {
-      const payload: Record<string, unknown> = {
-        mode: 'summarize',
-        chatId: id,
-      }
-      // Device transport: the transcript lives on-device — ship the context
-      // lines (oldest first) so the route never touches the server DB.
-      if (transportMode === 'device' && onBuildContext) {
-        payload.context = onBuildContext()
-      }
-      const res = await fetch('/api/ai', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...aiHeaders() },
-        body: JSON.stringify(payload),
-      })
-      const data = (await res.json().catch(() => null)) as
-        | { ok?: boolean; result?: string; error?: string }
-        | null
-      if (!res.ok || !data?.ok) {
-        throw new Error(data?.error ?? 'The AI service did not respond')
-      }
+      // Device transport (Phase 3): the transcript lives on-device —
+      // runDeviceAi builds the same summarize prompt (ai-prompts.ts) and
+      // calls Gemini directly with the user's own key, no server hop.
+      // Server transport: the route reads its own DB via chatId.
+      const data =
+        transportMode === 'device'
+          ? await runDeviceAi({
+              mode: 'summarize',
+              context: onBuildContext ? onBuildContext() : [],
+            })
+          : await (async () => {
+              const res = await fetch('/api/ai', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', ...aiHeaders() },
+                body: JSON.stringify({ mode: 'summarize', chatId: id }),
+              })
+              const json = (await res.json().catch(() => null)) as
+                | { ok?: boolean; result?: string; error?: string }
+                | null
+              if (!res.ok || !json?.ok) {
+                throw new Error(json?.error ?? 'The AI service did not respond')
+              }
+              return json
+            })()
       const text =
         typeof data.result === 'string' ? data.result : String(data.result ?? '')
       setRaw(text)

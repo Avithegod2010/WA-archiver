@@ -31,6 +31,7 @@ import {
   WALLPAPER_PATTERNS,
   WALLPAPER_PRESETS,
   downscaleImage,
+  downscaleImageToDataUrl,
   hasWallpaperOverride,
   readWallpaper,
   resetWallpaper,
@@ -38,6 +39,7 @@ import {
   writeWallpaper,
   type WallpaperConfig,
 } from './wallpaper'
+import { useData } from './data-provider'
 import { colorForName } from './types'
 
 /**
@@ -284,6 +286,10 @@ export function WallpaperPicker({
   const [uploading, setUploading] = useState(false)
   const [aiPrompt, setAiPrompt] = useState('')
   const [generating, setGenerating] = useState(false)
+  // Active transport (Phase 3): on-device photos embed as data: URLs instead
+  // of server file storage, and AI generation (a server image model) is
+  // unavailable — the form swaps for a note.
+  const { mode: transportMode } = useData()
 
   const raw = useSyncExternalStore(
     subscribeWallpaper,
@@ -395,9 +401,10 @@ export function WallpaperPicker({
   }
 
   /**
-   * Generate a wallpaper from a text prompt (task 14-i) — same flow as
-   * upload(): the result lands in db/wallpapers/ via the API and is applied
-   * immediately as the chat's custom photo wallpaper.
+   * Generate a wallpaper from a text prompt (task 14-i) — server transport
+   * only: the image model lives behind the hosted app. The device transport
+   * swaps this form for a note (see the render below) and offers the photo
+   * upload instead.
    */
   async function generate() {
     const prompt = aiPrompt.trim()
@@ -440,6 +447,14 @@ export function WallpaperPicker({
     }
     setUploading(true)
     try {
+      // Device transport (Phase 3): no server file storage — downscale and
+      // embed the JPEG as a self-contained data: URL in the wallpaper store.
+      if (transportMode === 'device') {
+        const url = await downscaleImageToDataUrl(file)
+        writeWallpaper(chatId, { k: 'custom', photo: url })
+        toast.success('Custom wallpaper applied')
+        return
+      }
       const blob = await downscaleImage(file)
       const form = new FormData()
       form.append('file', new File([blob], 'wallpaper.jpg', { type: blob.type || 'image/jpeg' }))
@@ -481,7 +496,19 @@ export function WallpaperPicker({
           {/* ------------------------- LEFT: photo + colors + patterns */}
           <div>
             {/* Generate with AI (task 14-i) — writes the same custom-wallpaper
-                slot as the upload below, so both flows stay interchangeable. */}
+                slot as the upload below, so both flows stay interchangeable.
+                Server transport only: the image model lives behind the hosted
+                app; device mode gets a note + the offline upload flow. */}
+            {transportMode === 'device' ? (
+              <p className="mb-1 flex items-start gap-1.5 rounded-xl border border-dashed border-(--wa-line) bg-black/[0.03] p-2 text-[11.5px] leading-snug text-(--wa-text-2) dark:bg-white/[0.04]">
+                <Sparkles className="mt-0.5 h-3.5 w-3.5 shrink-0 text-(--wa-text-2)" aria-hidden />
+                <span>
+                  <b className="font-semibold text-(--wa-text)">AI wallpapers</b>{' '}
+                  need the hosted app — upload a photo below instead; it is
+                  stored right on this device.
+                </span>
+              </p>
+            ) : (
             <form
               onSubmit={(e) => {
                 e.preventDefault()
@@ -539,6 +566,7 @@ export function WallpaperPicker({
                 </p>
               )}
             </form>
+            )}
 
             {/* Custom photo — prominent row */}
             <div className="mb-1 flex items-center gap-2.5 rounded-xl border border-dashed border-(--wa-line) bg-black/[0.03] p-2 dark:bg-white/[0.04]">

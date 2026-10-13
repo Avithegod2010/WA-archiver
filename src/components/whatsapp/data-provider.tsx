@@ -45,6 +45,14 @@ interface DataContextValue {
   data: DataClient
   /** False until the device engine finished loading (always true on server). */
   ready: boolean
+  /**
+   * False during the very first paint: the persisted storage mode has not
+   * been read from localStorage yet (SSR initial state is 'server'). Mount
+   * effects that fetch through `data` must wait for this — otherwise a
+   * device-mode app (standalone APK, offline PWA) fires one doomed server
+   * request first and flashes a spurious error toast (Phase 3 fix).
+   */
+  modeResolved: boolean
 }
 
 const DataContext = createContext<DataContextValue | null>(null)
@@ -53,10 +61,17 @@ export function DataProvider({ children }: { children: ReactNode }) {
   const [mode, setMode] = useState<StorageMode>('server')
   // Only meaningful in device mode; server transport is always ready.
   const [deviceReady, setDeviceReady] = useState(false)
+  // False until the mount sync below read the persisted mode.
+  const [modeResolved, setModeResolved] = useState(false)
 
   // Read the persisted mode after mount (SSR-safe) and follow external changes.
   useEffect(() => {
-    const sync = () => setMode(getStorageMode())
+    const sync = () => {
+      setMode(getStorageMode())
+      // Flip after the first read — mount effects fetching through `data`
+      // wait for this (see modeResolved above).
+      setModeResolved(true)
+    }
     sync()
     return subscribeStorageMode(sync)
   }, [])
@@ -81,7 +96,10 @@ export function DataProvider({ children }: { children: ReactNode }) {
 
   const data = useMemo(() => createDataClient(mode), [mode])
   const ready = mode === 'server' || deviceReady
-  const value = useMemo(() => ({ mode, data, ready }), [mode, data, ready])
+  const value = useMemo(
+    () => ({ mode, data, ready, modeResolved }),
+    [mode, data, ready, modeResolved]
+  )
 
   return <DataContext.Provider value={value}>{children}</DataContext.Provider>
 }

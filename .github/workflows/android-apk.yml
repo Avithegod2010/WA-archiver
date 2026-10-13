@@ -1,6 +1,8 @@
 name: Build Android APK
 
-# Builds a ready-to-install debug APK on every push to main (and on demand).
+# Builds a ready-to-install STANDALONE debug APK on every push to main (and
+# on demand). The APK bundles the whole web app (static export) and the
+# on-device SQLite database — it works with no internet and no hosted URL.
 # Download it from the run's "Artifacts" section → whatsapp-viewer-apk
 
 on:
@@ -24,6 +26,12 @@ jobs:
 
       - name: Install dependencies
         run: bun install --frozen-lockfile
+
+      # Phase 3: the APK no longer points at a hosted URL — it BUNDLES the
+      # app. This static-exports the frontend into capacitor-web/ (device
+      # transport only; API routes are excluded from the bundle on purpose).
+      - name: Build web bundle (static export)
+        run: bun run build:capacitor
 
       - name: Set up JDK 21
         uses: actions/setup-java@v4

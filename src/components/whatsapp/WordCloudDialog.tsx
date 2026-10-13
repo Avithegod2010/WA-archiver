@@ -3,7 +3,7 @@
 import './stats-extras.css'
 
 import { useEffect, useRef, useState } from 'react'
-import { Cloud, CloudOff, TriangleAlert } from 'lucide-react'
+import { Cloud, TriangleAlert } from 'lucide-react'
 import {
   Dialog,
   DialogContent,
@@ -12,6 +12,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog'
 import { useData } from './data-provider'
+import { computeChatWordCloud } from '@/lib/wordcloud'
 import { cn } from '@/lib/utils'
 
 /** Warm palette for cloud glyphs — aligned with the app's avatar colors
@@ -33,9 +34,11 @@ interface WordEntry {
 }
 
 /**
- * Per-chat word cloud dialog. Fetches /api/chats/:id/wordcloud when it
- * opens; every word is a large hit-area button that reports the picked
- * word via onPickWord (typically to seed an in-chat search) and closes.
+ * Per-chat word cloud dialog. Server mode fetches /api/chats/:id/wordcloud;
+ * device mode computes the identical cloud on-device from the chat's rows
+ * (shared computeChatWordCloud core). Every word is a large hit-area button
+ * that reports the picked word via onPickWord (typically to seed an in-chat
+ * search) and closes.
  */
 export function WordCloudDialog({
   open,
@@ -50,11 +53,9 @@ export function WordCloudDialog({
   chatTitle: string
   onPickWord: (word: string) => void
 }) {
-  // undefined = loading, null = fetch failed, [] / entries = loaded
+  // undefined = loading, null = load failed, [] / entries = loaded
   const [words, setWords] = useState<WordEntry[] | null | undefined>(undefined)
-  // Word counts are a server-side computation — device mode shows a hint
-  // instead of a request that has no on-device equivalent.
-  const { mode } = useData()
+  const { mode, data, ready } = useData()
 
   // Reset the fetch state whenever the dialog opens for a (new) chat.
   // Render-time state adjustment — same pattern GlobalSearch uses.
@@ -96,6 +97,28 @@ export function WordCloudDialog({
     }
   }, [open, chatId, mode])
 
+  // Device port: the same cloud computed on-device from the local rows.
+  // Rows come back idx-ASC, so reverse to newest-first before scanning —
+  // matching the server route's ts-DESC query and its scan cap/tie order.
+  // Wait for `ready` so a dialog opened during engine boot keeps loading.
+  useEffect(() => {
+    if (!open || !chatId || mode !== 'device' || !ready) return
+    let alive = true
+    data
+      .getChatDetail(chatId)
+      .then((detail) => {
+        if (!alive) return
+        const newestFirst = [...detail.messages].reverse()
+        setWords(computeChatWordCloud(newestFirst))
+      })
+      .catch(() => {
+        if (alive) setWords(null)
+      })
+    return () => {
+      alive = false
+    }
+  }, [open, chatId, mode, ready, data])
+
   const loading = words === undefined
   const last = (words?.length ?? 1) - 1
 
@@ -115,18 +138,7 @@ export function WordCloudDialog({
         </DialogHeader>
 
         <div className="wa-scroll min-h-[160px] flex-1 overflow-y-auto overscroll-contain px-4 py-4">
-          {mode === 'device' ? (
-            <div className="flex flex-col items-center px-4 py-10 text-center">
-              <CloudOff className="mb-2 h-6 w-6 text-(--wa-text-2)" />
-              <p className="text-[13.5px] font-medium text-(--wa-text)">
-                Insights are computed on the server
-              </p>
-              <p className="mt-1 text-[12px] text-(--wa-text-2)">
-                Switch to Server storage in Settings → Data &amp; storage to
-                see stats for server-hosted chats.
-              </p>
-            </div>
-          ) : loading ? (
+          {loading ? (
             /* Loading skeleton — pulse blobs + shimmer sweep (stats-extras.css) */
             <div role="status" aria-live="polite" className="px-2 py-4">
               <span className="sr-only">Loading word cloud…</span>

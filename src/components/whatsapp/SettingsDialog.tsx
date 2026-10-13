@@ -23,6 +23,7 @@ import {
   Upload,
 } from 'lucide-react'
 import { aiHeaders, getGeminiKey, setGeminiKey } from '@/lib/ai-client'
+import { runDeviceAi } from '@/lib/device-ai'
 import { GettingStartedDialog, openGettingStarted } from './GettingStartedDialog'
 import { StorageDialog } from './StorageDialog'
 import {
@@ -50,6 +51,7 @@ import { LOCK_CHANGED_EVENT } from './AppLock'
 import { useData } from './data-provider'
 import {
   getStorageMode,
+  isNativeApp,
   setStorageMode,
   type StorageMode,
 } from './storage-mode'
@@ -158,6 +160,8 @@ export function SettingsDialog({
   const [toastsOn, setToastsOn] = useState(true)
   const [autoCleanOn, setAutoCleanOn] = useState(false)
   const [exportAudioOn, setExportAudioOn] = useState(false)
+  // Standalone shell detection (Phase 3) — read in an effect so SSR/CSR agree.
+  const [native, setNative] = useState(false)
 
   const syncLock = useCallback(async () => {
     try {
@@ -197,6 +201,7 @@ export function SettingsDialog({
 
   useEffect(() => {
     setAiKey(getGeminiKey())
+    setNative(isNativeApp())
     try {
       setToastsOn(localStorage.getItem(TOASTS_PREF_KEY) !== '0')
       setAutoCleanOn(localStorage.getItem(AUTO_CLEAN_PREF_KEY) === '1')
@@ -225,21 +230,33 @@ export function SettingsDialog({
     setGeminiKey(key)
     setTestingKey(true)
     try {
-      const res = await fetch('/api/ai', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...aiHeaders() },
-        body: JSON.stringify({ mode: 'translate', text: 'hello' }),
-      })
-      const data = (await res.json().catch(() => null)) as
-        | { ok?: boolean; error?: string }
-        | null
-      if (res.ok && data?.ok) {
-        toast.success('Gemini key works — Translate, Explain & Reply will use it')
+      // Device transport (Phase 3): there is no /api/ai in the standalone
+      // app — ping Gemini directly with the pasted key. Server transport:
+      // the classic proxy test (server uses the key when present).
+      if (mode === 'device' || isNativeApp()) {
+        await runDeviceAi({ mode: 'translate', text: 'hello' })
       } else {
-        toast.error(data?.error ?? 'Gemini test failed — try again')
+        const res = await fetch('/api/ai', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', ...aiHeaders() },
+          body: JSON.stringify({ mode: 'translate', text: 'hello' }),
+        })
+        const data = (await res.json().catch(() => null)) as
+          | { ok?: boolean; error?: string }
+          | null
+        if (!res.ok || !data?.ok) {
+          throw new Error(data?.error ?? 'Gemini test failed — try again')
+        }
       }
-    } catch {
-      toast.error('Gemini test failed — check your connection')
+      toast.success(
+        'Gemini key works — Translate, Explain & Reply will use it'
+      )
+    } catch (err) {
+      toast.error(
+        err instanceof Error && err.message
+          ? err.message
+          : 'Gemini test failed — check your connection'
+      )
     } finally {
       setTestingKey(false)
     }
@@ -748,11 +765,21 @@ export function SettingsDialog({
               Storage mode
             </p>
             <p className="mt-0.5 text-[11.5px] leading-snug text-(--wa-text-2)">
-              {mode === 'device'
-                ? 'Chats and media live in this browser — fully offline, nothing leaves the device.'
-                : 'Chats live on the server via /api — the classic hosted mode.'}
+              {native
+                ? 'Standalone app — chats and media live on this device. Nothing to configure.'
+                : mode === 'device'
+                  ? 'Chats and media live in this browser — fully offline, nothing leaves the device.'
+                  : 'Chats live on the server via /api — the classic hosted mode.'}
             </p>
-            <div className="mt-2.5 grid grid-cols-2 gap-2">
+            {native ? (
+              // Standalone shell (Phase 3): there is no server to switch to —
+              // the bundled app runs the device transport exclusively.
+              <p className="mt-2.5 flex items-center gap-1.5 rounded-md bg-(--wa-accent)/10 px-2.5 py-2 text-[11.5px] font-medium leading-snug text-(--wa-accent-strong) dark:text-(--wa-accent)">
+                <Smartphone className="h-3.5 w-3.5 shrink-0" aria-hidden />
+                On-device storage — this app works fully offline.
+              </p>
+            ) : (
+              <div className="mt-2.5 grid grid-cols-2 gap-2">
               {(
                 [
                   {
@@ -816,7 +843,8 @@ export function SettingsDialog({
                   </button>
                 )
               })}
-            </div>
+              </div>
+            )}
           </div>
 
           <button

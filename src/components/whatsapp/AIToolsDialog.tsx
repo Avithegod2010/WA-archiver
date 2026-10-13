@@ -24,6 +24,7 @@ import {
 } from '@/components/ui/dialog'
 import { cn } from '@/lib/utils'
 import { aiHeaders, getGeminiKey } from '@/lib/ai-client'
+import { runDeviceAi } from '@/lib/device-ai'
 import { useData } from './data-provider'
 import type { ChatMessage } from './types'
 
@@ -44,11 +45,11 @@ const SUGGESTED_QUESTIONS = [
 /**
  * AI message tools — ask AI questions about the whole chat transcript, or
  * translate/explain a single message.
- * Talks to `POST /api/ai` ({ mode, … } → { ok, mode, result | answer }).
- * On the device transport the caller also passes `onBuildContext`, so the
- * 'ask' body carries the on-device transcript lines (`context`) and the
- * route never touches the server DB; the server transport sends nothing
- * extra (the route reads its own DB, as before).
+ * Server transport talks to `POST /api/ai` ({ mode, … } → { ok, mode, result
+ * | answer }); the 'ask' body lets the route read its own DB.
+ * Device transport (Phase 3): no server in the loop — runDeviceAi builds the
+ * SAME prompt (ai-prompts.ts) and calls Gemini directly with the user's own
+ * key; the 'ask' body carries the on-device transcript lines (`context`).
  * Media-only messages have no text to analyze, so Run is disabled.
  */
 export function AIToolsDialog({
@@ -121,17 +122,25 @@ export function AIToolsDialog({
     setRunning(true)
     setError(null)
     try {
-      const res = await fetch('/api/ai', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...aiHeaders() },
-        body: JSON.stringify({ mode, text: body }),
-      })
-      const data = (await res.json().catch(() => null)) as
-        | { ok?: boolean; result?: string; error?: string }
-        | null
-      if (!res.ok || !data?.ok) {
-        throw new Error(data?.error ?? 'The AI service did not respond')
-      }
+      // Device transport: direct Gemini call with the user's own key —
+      // same prompt assembly as the route (ai-prompts.ts), no server hop.
+      const data =
+        transportMode === 'device'
+          ? await runDeviceAi({ mode, text: body })
+          : await (async () => {
+              const res = await fetch('/api/ai', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', ...aiHeaders() },
+                body: JSON.stringify({ mode, text: body }),
+              })
+              const json = (await res.json().catch(() => null)) as
+                | { ok?: boolean; result?: string; error?: string }
+                | null
+              if (!res.ok || !json?.ok) {
+                throw new Error(json?.error ?? 'The AI service did not respond')
+              }
+              return json
+            })()
       setResult(typeof data.result === 'string' ? data.result : String(data.result ?? ''))
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Something went wrong — try again')
@@ -163,30 +172,38 @@ export function AIToolsDialog({
       const history = turns
         .slice(-MAX_ASK_TURNS)
         .map((t) => ({ q: t.q, a: t.a }))
-      const payload: Record<string, unknown> = {
-        mode: 'ask',
-        chatId: sentChatId,
-        question: q,
-        history,
-      }
-      // Device transport: the transcript lives on-device — ship the context
-      // lines (oldest first) so the route never touches the server DB.
-      if (transportMode === 'device' && onBuildContext) {
-        payload.context = onBuildContext()
-      }
-      const res = await fetch('/api/ai', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...aiHeaders() },
-        body: JSON.stringify(payload),
-      })
-      const data = (await res.json().catch(() => null)) as
-        | { ok?: boolean; answer?: string; error?: string }
-        | null
-      const answer = data?.answer
-      if (!res.ok || !data?.ok || typeof answer !== 'string' || !answer.trim()) {
-        throw new Error(
-          data?.error ?? 'The assistant could not answer. Please try again.'
-        )
+      // Device transport: the transcript lives on-device — runDeviceAi ships
+      // the context lines (oldest first) straight to Gemini with the user's
+      // key. Server transport: the route reads its own DB via chatId.
+      const context =
+        transportMode === 'device' && onBuildContext ? onBuildContext() : null
+      const data =
+        transportMode === 'device'
+          ? await runDeviceAi({ mode: 'ask', question: q, history, context: context ?? [] })
+          : await (async () => {
+              const res = await fetch('/api/ai', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', ...aiHeaders() },
+                body: JSON.stringify({
+                  mode: 'ask',
+                  chatId: sentChatId,
+                  question: q,
+                  history,
+                }),
+              })
+              const json = (await res.json().catch(() => null)) as
+                | { ok?: boolean; answer?: string; error?: string }
+                | null
+              if (!res.ok || !json?.ok) {
+                throw new Error(
+                  json?.error ?? 'The assistant could not answer. Please try again.'
+                )
+              }
+              return json
+            })()
+      const answer = 'answer' in data ? data.answer : undefined
+      if (typeof answer !== 'string' || !answer.trim()) {
+        throw new Error('The assistant could not answer. Please try again.')
       }
       // Chat switched mid-request — drop the stale answer.
       if (threadChatRef.current && threadChatRef.current !== sentChatId) return

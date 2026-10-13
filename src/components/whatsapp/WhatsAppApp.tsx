@@ -121,7 +121,7 @@ function WhatsAppAppInner() {
   const { resolvedTheme, setTheme } = useTheme()
   // Active transport (Phase 2): 'server' = REST /api/*, 'device' = on-device
   // SQLite-WASM. Every data flow below goes through `data`.
-  const { mode, data } = useData()
+  const { mode, data, modeResolved } = useData()
   const normalizeMessages = useMessageNormalizer()
   const [mounted, setMounted] = useState(false)
   const [chats, setChats] = useState<ChatSummary[]>([])
@@ -326,6 +326,10 @@ function WhatsAppAppInner() {
   }, [refreshChats])
 
   useEffect(() => {
+    // Phase 3: wait until the persisted storage mode has been read — the
+    // initial 'server' state is a guess, and in device mode (standalone APK,
+    // offline PWA) a premature server fetch can only fail.
+    if (!modeResolved) return
     refreshChats()
     // One-shot v1→v2 demo upgrade (server transport only): swap the short v1
     // demo conversations for the richer v2 scripts. Idempotent.
@@ -345,7 +349,7 @@ function WhatsAppAppInner() {
         }
       })
       .catch(() => {})
-  }, [refreshChats, mode])
+  }, [modeResolved, refreshChats, mode])
 
   // ---- Web Share Target (Task 10-f #2) ------------------------------------
   // Resolve the Saved Messages chat id. GET /api/chats guarantees the chat

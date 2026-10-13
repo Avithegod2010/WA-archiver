@@ -37,7 +37,10 @@ const ERROR_MS = 1800
  * `wa-lock-changed` (dispatched by SettingsDialog and lockVerify).
  */
 export function AppLock() {
-  const { mode, data } = useData()
+  // Phase 3: modeResolved gates the first status check — before the persisted
+  // storage mode is read, the (wrong) default transport would fail open and
+  // briefly reveal the chat list before the lock screen appears.
+  const { mode, data, modeResolved } = useData()
   const [checking, setChecking] = useState(true)
   const [locked, setLocked] = useState(false)
   const [pin, setPin] = useState('')
@@ -49,6 +52,7 @@ export function AppLock() {
 
   // Resolve the lock state for the active transport.
   const sync = useCallback(async () => {
+    if (!modeResolved) return // wait for the real transport (no fail-open flash)
     try {
       const status = await lockStatus(mode, data)
       setLocked(status.enabled && !status.unlocked)
@@ -58,7 +62,7 @@ export function AppLock() {
     } finally {
       setChecking(false)
     }
-  }, [mode, data])
+  }, [mode, data, modeResolved])
 
   // Migration cleanup: drop the pre-server-side localStorage hash, then sync.
   useEffect(() => {

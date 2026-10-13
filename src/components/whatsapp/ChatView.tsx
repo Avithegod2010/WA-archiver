@@ -86,7 +86,7 @@ import {
   readAutoReplyEnabled,
   writeAutoReplyEnabled,
 } from '@/lib/persona-engine'
-import { aiHeaders } from '@/lib/ai-client'
+import { runDeviceAi } from '@/lib/device-ai'
 import { useData, useMessageNormalizer } from './data-provider'
 
 type SchedItem = {
@@ -1757,7 +1757,9 @@ export function ChatView({
      works on the server transport (the route derives persona + context from
      its own DB). On-device there is no server DB, so the persona (already
      derived above) and the transcript lines travel with the request. Same
-     4s race + silent fallback contract as fetchAiReply. */
+     4s race + silent fallback contract as fetchAiReply.
+     Phase 3: the device path calls Gemini DIRECTLY with the user's own key
+     (runDeviceAi) — no /api/ai hop, so it also works in the standalone APK. */
   async function fetchDeviceAiReply(
     persona: string,
     context: string[],
@@ -1768,18 +1770,12 @@ export function ChatView({
     const onOuterAbort = () => controller.abort()
     signal?.addEventListener('abort', onOuterAbort, { once: true })
     try {
-      const res = await fetch('/api/ai', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...aiHeaders() },
-        body: JSON.stringify({ mode: 'reply', persona, context }),
-        signal: controller.signal,
-      })
-      if (!res.ok) return null
-      const payload = (await res.json().catch(() => null)) as {
-        result?: unknown
-      } | null
+      const payload = await runDeviceAi(
+        { mode: 'reply', persona, context },
+        { signal: controller.signal }
+      )
       const text =
-        typeof payload?.result === 'string' ? payload.result.trim() : ''
+        typeof payload.result === 'string' ? payload.result.trim() : ''
       if (!text) return null
       return unwrapQuoted(text).slice(0, 500)
     } catch {

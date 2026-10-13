@@ -94,23 +94,28 @@ no import needed. To use your own chats: in WhatsApp, open a chat →
 
 ---
 
-## 📱 Android APK
+## 📱 Android APK (fully offline, standalone)
 
 The repo ships with a ready Capacitor Android shell **plus a GitHub Actions
-workflow that builds an installable APK on every push** — no Android Studio
-needed on your machine.
+workflow that builds a STANDALONE, installable APK on every push** — no
+Android Studio needed on your machine, and **no hosted URL either**: the
+entire app (UI + on-device SQLite) is bundled inside the APK.
 
-1. Host the web app (see Deploying) and copy its URL.
-2. Edit **one line**: `capacitor.config.ts` → `server.url` → your hosted URL.
-3. Push to GitHub → open the **Actions** tab → latest run → download
+1. Push to GitHub → open the **Actions** tab → latest run → download
    **whatsapp-viewer-apk** → install on any Android phone
    (allow "install unknown apps" when prompted).
 
-Prefer zero config? After hosting, you can also generate a signed package at
-[pwabuilder.com](https://www.pwabuilder.com) by pasting your site URL.
+The APK works with **no internet at all**: chats live in an on-device SQLite
+database (OPFS-persisted), importing, searching, stats, lock and backups all
+happen on the phone. The only online-optional features are the AI tools —
+add your own free
+[Gemini API key](https://aistudio.google.com/apikey) in Settings → AI and
+they call Google directly (optional). Voice transcription is server-only and
+hidden inside the APK.
 
-> Note: the APK is a native shell around your hosted app — the server keeps
-> your data, so the phone needs an internet connection.
+Build it yourself with `bun run build:capacitor` (static-exports the app into
+`capacitor-web/`) followed by `bunx cap sync android` and a Gradle debug
+build.
 
 ---
 

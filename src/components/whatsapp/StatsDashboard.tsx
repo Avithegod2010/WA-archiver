@@ -9,7 +9,6 @@ import {
   CalendarCheck2,
   CalendarDays,
   Cloud,
-  CloudOff,
   EyeOff,
   Flame,
   HelpCircle,
@@ -37,6 +36,7 @@ import { Avatar } from './Avatar'
 import { useData } from './data-provider'
 import type { StatsData } from './types'
 import { colorForName } from './types'
+import { computeStats } from '@/lib/stats-compute'
 import { cn } from '@/lib/utils'
 
 const TYPE_LABELS: Record<string, string> = {
@@ -644,13 +644,10 @@ export function StatsDashboard({
   open: boolean
   onOpenChange: (v: boolean) => void
 }) {
-  // undefined = not fetched yet (loading), null = fetch error
+  // undefined = not fetched yet (loading), null = load error
   const [data, setData] = useState<StatsData | null | undefined>(undefined)
   const [chatQuery, setChatQuery] = useState('')
-  // Insights are a server-side computation (SQL across all chats) — the
-  // on-device engine has no equivalent yet, so device mode shows a hint
-  // instead of a spinner that would never resolve.
-  const { mode } = useData()
+  const { mode, data: dataClient, ready } = useData()
 
   useEffect(() => {
     if (!open || mode !== 'server') return
@@ -667,6 +664,70 @@ export function StatsDashboard({
       alive = false
     }
   }, [open, mode])
+
+  // Device port: gather the same rows the route reads (chats, all messages,
+  // per-chat media storage) from the on-device DataClient and run the exact
+  // same pure compute core (src/lib/stats-compute.ts). seqRef = latest-load-
+  // wins so rapid close/open can't land a stale result (MemoriesDialog's
+  // pattern); `ready` keeps the skeleton up while the engine boots.
+  const deviceSeqRef = useRef(0)
+  useEffect(() => {
+    if (!open || mode !== 'device' || !ready) return
+    const seq = ++deviceSeqRef.current
+    let alive = true
+    void (async () => {
+      try {
+        const chats = await dataClient.listChats()
+        if (!alive || deviceSeqRef.current !== seq) return
+        // Server orders chats by messageCount desc — mirror that so
+        // perChat ties and top-10 slicing behave the same way.
+        const ordered = [...chats].sort(
+          (a, b) => b.messageCount - a.messageCount
+        )
+        const [details, mediaLists] = await Promise.all([
+          Promise.all(ordered.map((c) => dataClient.getChatDetail(c.id))),
+          Promise.all(ordered.map((c) => dataClient.listChatMedia(c.id))),
+        ])
+        if (!alive || deviceSeqRef.current !== seq) return
+        const messages = details.flatMap((d, i) =>
+          d.messages.map((m) => ({
+            chatId: ordered[i].id,
+            ts: m.ts,
+            sender: m.sender,
+            type: m.type,
+            body: m.body,
+          }))
+        )
+        // Device analogue of the server's db/media/<chatId>/ disk walk:
+        // per-chat blob sizes from the media store (missing blobs don't
+        // count, like vanished files on disk).
+        const perChatStorage = mediaLists
+          .map((res, i) => ({
+            chatId: ordered[i].id,
+            bytes: res.items.reduce((s, it) => s + (it.bytes ?? 0), 0),
+            files: res.items.filter((it) => it.bytes != null).length,
+          }))
+          .filter((row) => row.files > 0)
+          .sort((a, b) => b.bytes - a.bytes)
+        setData(
+          computeStats({
+            chats: ordered,
+            messages,
+            storage: {
+              totalBytes: perChatStorage.reduce((s, r) => s + r.bytes, 0),
+              files: perChatStorage.reduce((s, r) => s + r.files, 0),
+              perChat: perChatStorage,
+            },
+          })
+        )
+      } catch {
+        if (alive && deviceSeqRef.current === seq) setData(null)
+      }
+    })()
+    return () => {
+      alive = false
+    }
+  }, [open, mode, ready, dataClient])
 
   const loading = data === undefined
 
@@ -718,20 +779,7 @@ export function StatsDashboard({
         </DialogHeader>
 
         <div className="wa-scroll -mx-1 min-h-0 flex-1 space-y-5 overflow-y-auto px-1 pb-1">
-          {mode === 'device' ? (
-            <div className="flex flex-col items-center px-6 py-12 text-center">
-              <div className="mb-3 flex h-14 w-14 items-center justify-center rounded-full bg-black/5 dark:bg-white/5">
-                <CloudOff className="h-6 w-6 text-(--wa-text-2)" />
-              </div>
-              <p className="text-[14px] font-medium text-(--wa-text)">
-                Insights are computed on the server
-              </p>
-              <p className="mt-1.5 max-w-[320px] text-[12.5px] leading-relaxed text-(--wa-text-2)">
-                Switch to Server storage in Settings → Data &amp; storage to
-                see stats for server-hosted chats.
-              </p>
-            </div>
-          ) : loading && !data ? (
+          {loading && !data ? (
             <div className="flex h-40 items-center justify-center gap-2 text-[13.5px] text-(--wa-text-2)">
               <Loader2 className="h-4 w-4 animate-spin" />
               Crunching numbers...

@@ -22,10 +22,13 @@ export function fireScheduledCheck() {
  * Renders nothing — mount it once near the app root.
  */
 export function ScheduledDispatchPoller() {
-  const { data } = useData()
+  // Phase 3: modeResolved gates the first dispatch — before the persisted
+  // storage mode is read, `data` is still the (wrong) default transport.
+  const { data, modeResolved } = useData()
   const inFlightRef = useRef(false)
 
   useEffect(() => {
+    if (!modeResolved) return
     async function dispatchOnce() {
       if (inFlightRef.current) return
       inFlightRef.current = true
@@ -56,7 +59,7 @@ export function ScheduledDispatchPoller() {
       window.removeEventListener('focus', check)
       window.removeEventListener(SCHEDULED_CHECK_EVENT, check)
     }
-  }, [data])
+  }, [data, modeResolved])
 
   return null
 }
