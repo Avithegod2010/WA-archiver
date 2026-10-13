@@ -61,7 +61,11 @@ self.addEventListener('fetch', (event) => {
     url.pathname.startsWith('/api/media/') ||
     url.pathname.startsWith('/icons/') ||
     url.pathname === '/manifest.json' ||
-    url.pathname === '/manifest.webmanifest'
+    url.pathname === '/manifest.webmanifest' ||
+    // On-device SQLite engine (local-first refactor, Phase 1) — cached so
+    // the database engine itself also works with no network.
+    url.pathname === '/sql-wasm.js' ||
+    url.pathname === '/sql-wasm.wasm'
 
   if (!cacheable) return
 

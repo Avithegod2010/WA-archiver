@@ -318,7 +318,11 @@ export function parseWhatsAppText(raw: string): ParseResult {
 
 /** Derive a chat title from the export filename. */
 export function guessTitleFromFilename(filename: string): string {
-  let base = filename.replace(/\.(txt|zip)$/i, '').trim()
+  // Nested zips keep the transcript in a folder — titles must come from the
+  // bare filename only ("WhatsApp Chat with X/Foo.txt" → "Foo", not the
+  // duplicated "WhatsApp Chat with X/WhatsApp Chat with X").
+  const basename = filename.split('/').pop() ?? filename
+  let base = basename.replace(/\.(txt|zip)$/i, '').trim()
   base = base.replace(/^whatsapp chat with /i, '').trim()
   base = base.replace(/^whatsapp chat /i, '').trim()
   return base || 'Imported Chat'

@@ -1,0 +1,818 @@
+'use client'
+
+/**
+ * LocalDataClient — the on-device implementation of the DataClient seam.
+ *
+ * Everything here runs with zero network: rows live in a SQLite-WASM
+ * database (see engine.ts), media blobs in IndexedDB (see media.ts). The
+ * SQL surface mirrors the Prisma queries used by /api routes so behavior
+ * (ordering, aggregate recomputation, reply resolution) matches the server
+ * exactly — Phase 2 can swap transports without visual changes.
+ */
+
+import type {
+  ChatDetail,
+  ChatMessage,
+  ChatSummary,
+} from '@/components/whatsapp/types'
+import { buildPreview, type MessageType } from '@/lib/whatsapp-parser'
+import {
+  DataError,
+  type DataClient,
+  type DeviceStatus,
+  type ImportParsedInput,
+  type ScheduledItem,
+  type SendMessageInput,
+} from '../types'
+import { getEngine, type LocalEngine } from './engine'
+import {
+  clearAllMedia,
+  deleteMediaForChat,
+  getMediaBlob,
+  mediaStats,
+  putMediaBlob,
+} from './media'
+import { MEDIA_TYPES, previewText } from './preview'
+import { SAVED_CHAT_ID } from '@/components/whatsapp/types'
+
+// ---- Row coercions (SQLite stores booleans as 0/1, dates as ISO text) ----
+
+function str(v: unknown): string {
+  return typeof v === 'string' ? v : v == null ? '' : String(v)
+}
+function nstr(v: unknown): string | null {
+  return v == null ? null : String(v)
+}
+function bool(v: unknown): boolean {
+  return v === 1 || v === true || v === '1'
+}
+function num(v: unknown): number {
+  return typeof v === 'number' ? v : Number(v ?? 0)
+}
+function isoDate(v: unknown): string | null {
+  if (v == null) return null
+  if (v instanceof Date) return v.toISOString()
+  const s = String(v)
+  const d = new Date(s)
+  return Number.isNaN(d.getTime()) ? null : d.toISOString()
+}
+
+function newId(): string {
+  return crypto.randomUUID()
+}
+
+function toIsoInput(v: Date | string | undefined): string {
+  if (!v) return new Date().toISOString()
+  return (v instanceof Date ? v : new Date(v)).toISOString()
+}
+
+function parseReactions(raw: unknown): Record<string, string[]> | null {
+  if (!raw) return null
+  try {
+    const parsed: unknown = JSON.parse(String(raw))
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+      return null
+    }
+    const out: Record<string, string[]> = {}
+    let any = false
+    for (const [emoji, senders] of Object.entries(
+      parsed as Record<string, unknown>
+    )) {
+      if (
+        !emoji ||
+        emoji === '__proto__' ||
+        emoji === 'constructor' ||
+        emoji === 'prototype'
+      )
+        continue
+      if (!Array.isArray(senders)) continue
+      const list = senders.filter(
+        (s): s is string => typeof s === 'string' && s.length > 0
+      )
+      if (list.length === 0) continue
+      out[emoji] = list
+      any = true
+    }
+    return any ? out : null
+  } catch {
+    return null
+  }
+}
+
+function parsePollOptions(raw: unknown): string[] | null {
+  if (!raw) return null
+  try {
+    const parsed: unknown = JSON.parse(String(raw))
+    if (!Array.isArray(parsed)) return null
+    const list = parsed
+      .filter((o): o is string => typeof o === 'string')
+      .map((o) => o.slice(0, 100))
+      .slice(0, 12)
+    return list.length > 0 ? list : null
+  } catch {
+    return null
+  }
+}
+
+// ---- Serialization (mirror of message-dto.ts / chats route) ---------------
+
+interface MessageRowLike {
+  id: unknown
+  idx: unknown
+  ts: unknown
+  sender: unknown
+  body: unknown
+  type: unknown
+  chatId: unknown
+  mediaPath: unknown
+  mediaName: unknown
+  starred: unknown
+  edited: unknown
+  forwardedFrom: unknown
+  pollOptions: unknown
+  pinned: unknown
+  reactions: unknown
+  replyToId: unknown
+}
+
+function serializeMessage(
+  m: MessageRowLike,
+  replyToById?: Map<string, { id: string; sender: string; body: string; type: string }>
+): ChatMessage {
+  const replyToId = nstr(m.replyToId)
+  return {
+    id: str(m.id),
+    idx: num(m.idx),
+    ts: isoDate(m.ts) ?? new Date().toISOString(),
+    sender: nstr(m.sender),
+    body: str(m.body),
+    type: str(m.type),
+    chatId: str(m.chatId),
+    mediaPath: nstr(m.mediaPath),
+    mediaName: nstr(m.mediaName),
+    starred: bool(m.starred),
+    edited: bool(m.edited),
+    forwardedFrom: nstr(m.forwardedFrom),
+    pollOptions: parsePollOptions(m.pollOptions),
+    pinned: bool(m.pinned),
+    reactions: parseReactions(m.reactions),
+    replyTo: replyToId
+      ? (replyToById?.get(replyToId) ?? null)
+      : null,
+  }
+}
+
+interface ChatRowLike {
+  id: unknown
+  title: unknown
+  isGroup: unknown
+  messageCount: unknown
+  mediaCount: unknown
+  firstAt: unknown
+  lastAt: unknown
+  lastPreview: unknown
+  lastSender: unknown
+  lastType: unknown
+  sourceFile: unknown
+  pinned: unknown
+  archived: unknown
+}
+
+function serializeChat(c: ChatRowLike): ChatSummary {
+  return {
+    id: str(c.id),
+    title: str(c.title),
+    isGroup: bool(c.isGroup),
+    messageCount: num(c.messageCount),
+    mediaCount: num(c.mediaCount),
+    firstAt: isoDate(c.firstAt),
+    lastAt: isoDate(c.lastAt),
+    lastPreview: str(c.lastPreview),
+    lastSender: nstr(c.lastSender),
+    lastType: str(c.lastType),
+    sourceFile: str(c.sourceFile),
+    pinned: bool(c.pinned),
+    archived: bool(c.archived),
+  }
+}
+
+// ---- The client ------------------------------------------------------------
+
+const SAVED_PREVIEW = 'Your personal space — notes, links & media'
+const MAX_MESSAGES = 12000
+const INSERT_CHUNK = 150
+
+export class LocalDataClient implements DataClient {
+  private engine: LocalEngine
+  private urlCache = new Map<string, string>()
+
+  constructor() {
+    this.engine = getEngine()
+  }
+
+  private async db(): Promise<LocalEngine> {
+    await this.engine.ready()
+    return this.engine
+  }
+
+  whenReady(): Promise<void> {
+    return this.engine.ready()
+  }
+
+  // ---- chats -------------------------------------------------------------
+
+  /** Port of ensureSavedMessagesChat(). */
+  private async ensureSavedMessages(e: LocalEngine): Promise<void> {
+    const existing = e.first('SELECT id FROM "Chat" WHERE id = ?', [
+      SAVED_CHAT_ID,
+    ])
+    if (existing) return
+    e.runNoSave(
+      `INSERT INTO "Chat"
+        (id, title, isGroup, lastPreview, sourceFile, pinned, createdAt)
+       VALUES (?, ?, 0, ?, 'local', 1, ?)`,
+      [SAVED_CHAT_ID, 'Saved Messages', SAVED_PREVIEW, new Date().toISOString()]
+    )
+  }
+
+  async listChats(): Promise<ChatSummary[]> {
+    const e = await this.db()
+    this.ensureSavedMessages(e)
+    const rows = e.all(
+      `SELECT id, title, isGroup, messageCount, mediaCount, firstAt, lastAt,
+              lastPreview, lastSender, lastType, sourceFile, pinned, archived
+         FROM "Chat"
+        ORDER BY lastAt DESC, createdAt DESC`
+    )
+    return rows.map((r) => serializeChat(r as unknown as ChatRowLike))
+  }
+
+  async getChatDetail(id: string): Promise<ChatDetail> {
+    const e = await this.db()
+    const chat = e.first(
+      `SELECT id, title, isGroup, messageCount, mediaCount, firstAt, lastAt,
+              sourceFile
+         FROM "Chat" WHERE id = ?`,
+      [id]
+    )
+    if (!chat) throw new DataError('Chat not found')
+    const rows = e.all(
+      `SELECT id, chatId, idx, ts, sender, body, type, mediaPath, mediaName,
+              starred, edited, forwardedFrom, pollOptions, pinned, reactions,
+              replyToId
+         FROM "Message" WHERE chatId = ?
+        ORDER BY idx ASC LIMIT ${MAX_MESSAGES}`,
+      [id]
+    )
+    const messages = this.withReplyTos(
+      e,
+      rows.map((r) => r as unknown as MessageRowLike)
+    )
+    return {
+      chat: {
+        id: str(chat.id),
+        title: str(chat.title),
+        isGroup: bool(chat.isGroup),
+        messageCount: num(chat.messageCount),
+        mediaCount: num(chat.mediaCount),
+        firstAt: isoDate(chat.firstAt),
+        lastAt: isoDate(chat.lastAt),
+        sourceFile: str(chat.sourceFile),
+      },
+      messages,
+    }
+  }
+
+  /** Port of withReplyTos(): batch-resolve quoted messages. */
+  private withReplyTos(
+    e: LocalEngine,
+    rows: MessageRowLike[]
+  ): ChatMessage[] {
+    const ids = [
+      ...new Set(
+        rows
+          .map((r) => nstr(r.replyToId))
+          .filter((v): v is string => !!v && v.length > 0)
+      ),
+    ]
+    if (ids.length === 0) {
+      return rows.map((r) => serializeMessage(r))
+    }
+    const placeholders = ids.map(() => '?').join(',')
+    const targets = e.all(
+      `SELECT id, sender, body, type FROM "Message" WHERE id IN (${placeholders})`,
+      ids
+    )
+    const map = new Map(
+      targets.map((t) => [
+        str(t.id),
+        {
+          id: str(t.id),
+          sender: nstr(t.sender) ?? '',
+          body: str(t.body),
+          type: str(t.type),
+        },
+      ])
+    )
+    return rows.map((r) => serializeMessage(r, map))
+  }
+
+  async createChat(input: {
+    title: string
+    isGroup?: boolean
+    sourceFile?: string
+    pinned?: boolean
+    lastPreview?: string
+  }): Promise<ChatSummary> {
+    const e = await this.db()
+    const id = newId()
+    const now = new Date().toISOString()
+    e.run(
+      `INSERT INTO "Chat"
+         (id, title, isGroup, lastPreview, sourceFile, pinned, createdAt)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      [
+        id,
+        input.title.trim() || 'Imported Chat',
+        input.isGroup ? 1 : 0,
+        input.lastPreview ?? '',
+        input.sourceFile ?? '',
+        input.pinned ? 1 : 0,
+        now,
+      ]
+    )
+    const row = e.first('SELECT * FROM "Chat" WHERE id = ?', [id])
+    if (!row) throw new DataError('Could not create chat')
+    return serializeChat(row as unknown as ChatRowLike)
+  }
+
+  async deleteChat(id: string): Promise<void> {
+    const e = await this.db()
+    e.run('DELETE FROM "Message" WHERE chatId = ?', [id])
+    e.run('DELETE FROM "ScheduledMessage" WHERE chatId = ?', [id])
+    e.run('DELETE FROM "Chat" WHERE id = ?', [id])
+    await deleteMediaForChat(id).catch(() => undefined)
+    await this.engine.flush()
+  }
+
+  async setChatFlags(
+    id: string,
+    flags: { pinned?: boolean; archived?: boolean }
+  ): Promise<void> {
+    const e = await this.db()
+    if (flags.pinned !== undefined) {
+      e.run('UPDATE "Chat" SET pinned = ? WHERE id = ?', [flags.pinned ? 1 : 0, id])
+    }
+    if (flags.archived !== undefined) {
+      e.run('UPDATE "Chat" SET archived = ? WHERE id = ?', [
+        flags.archived ? 1 : 0,
+        id,
+      ])
+    }
+    await this.engine.flush()
+  }
+
+  // ---- messages ------------------------------------------------------------
+
+  private async refreshAggregates(e: LocalEngine, chatId: string): Promise<void> {
+    const messageCount = num(
+      e.scalar('SELECT COUNT(*) FROM "Message" WHERE chatId = ?', [chatId])
+    )
+    const typePlaceholders = [...MEDIA_TYPES].map(() => '?').join(',')
+    const mediaCount = num(
+      e.scalar(
+        `SELECT COUNT(*) FROM "Message"
+          WHERE chatId = ? AND type IN (${typePlaceholders}) AND mediaPath IS NOT NULL`,
+        [chatId, ...MEDIA_TYPES]
+      )
+    )
+    const first = e.first(
+      'SELECT ts, sender, type FROM "Message" WHERE chatId = ? ORDER BY idx ASC LIMIT 1',
+      [chatId]
+    )
+    const last = e.first(
+      'SELECT body, mediaName, sender, type, ts FROM "Message" WHERE chatId = ? ORDER BY idx DESC LIMIT 1',
+      [chatId]
+    )
+    const saved = chatId === SAVED_CHAT_ID
+    e.run(
+      `UPDATE "Chat" SET messageCount = ?, mediaCount = ?, firstAt = ?,
+              lastAt = ?, lastPreview = ?, lastSender = ?, lastType = ?
+        WHERE id = ?`,
+      [
+        messageCount,
+        mediaCount,
+        first ? isoDate(first.ts) : null,
+        last ? isoDate(last.ts) : null,
+        last
+          ? previewText(str(last.type), str(last.body), nstr(last.mediaName))
+          : saved
+            ? SAVED_PREVIEW
+            : '',
+        last ? nstr(last.sender) : null,
+        last ? str(last.type) : 'text',
+        chatId,
+      ]
+    )
+  }
+
+  async sendMessage(
+    chatId: string,
+    input: SendMessageInput
+  ): Promise<ChatMessage> {
+    const e = await this.db()
+    const chat = e.first('SELECT id FROM "Chat" WHERE id = ?', [chatId])
+    if (!chat) throw new DataError('Chat not found')
+
+    const idx =
+      num(
+        e.scalar(
+          'SELECT MAX(idx) FROM "Message" WHERE chatId = ?',
+          [chatId]
+        )
+      ) + 1
+    const id = newId()
+    const sender = ((input.sender ?? 'You') || 'You').trim().slice(0, 80) || 'You'
+    const body = (input.body ?? '').slice(0, 8000)
+    const type = input.type || 'text'
+
+    // replyToId must reference a message of the same chat (else ignored —
+    // mirrors the server route).
+    let replyToId: string | null = null
+    if (typeof input.replyToId === 'string' && input.replyToId.trim()) {
+      const target = e.first(
+        'SELECT id FROM "Message" WHERE id = ? AND chatId = ?',
+        [input.replyToId.trim(), chatId]
+      )
+      if (target) replyToId = str(target.id)
+    }
+
+    e.run(
+      `INSERT INTO "Message"
+         (id, chatId, idx, ts, sender, body, type, mediaPath, mediaName,
+          forwardedFrom, pollOptions, replyToId)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        id,
+        chatId,
+        idx,
+        toIsoInput(input.ts),
+        sender,
+        body,
+        type,
+        input.mediaPath ?? null,
+        input.mediaName ? input.mediaName.slice(0, 255) : null,
+        input.forwardedFrom ? input.forwardedFrom.trim().slice(0, 120) || null : null,
+        input.pollOptions?.length ? JSON.stringify(input.pollOptions.slice(0, 12)) : null,
+        replyToId,
+      ]
+    )
+    await this.refreshAggregates(e, chatId)
+    await this.engine.flush()
+
+    const row = e.first(
+      `SELECT id, chatId, idx, ts, sender, body, type, mediaPath, mediaName,
+              starred, edited, forwardedFrom, pollOptions, pinned, reactions,
+              replyToId
+         FROM "Message" WHERE id = ?`,
+      [id]
+    )
+    return this.withReplyTos(e, [row as unknown as MessageRowLike])[0]
+  }
+
+  async importParsed(input: ImportParsedInput): Promise<{ chatId: string }> {
+    const e = await this.db()
+    const now = new Date().toISOString()
+    const mediaMap = input.mediaMap ?? new Map<string, string>()
+
+    // Reuse the caller-created chat row when given (device import attaches
+    // media to that id first); otherwise create a fresh chat.
+    const chatId = input.chatId ?? newId()
+    if (!input.chatId) {
+      e.runNoSave(
+        `INSERT INTO "Chat" (id, title, isGroup, sourceFile, createdAt)
+         VALUES (?, ?, ?, ?, ?)`,
+        [chatId, input.title.trim() || 'Imported Chat', input.isGroup ? 1 : 0, input.sourceFile, now]
+      )
+    }
+
+    let mediaCount = 0
+    const rows = input.messages.map((m, i) => {
+      let mediaPath: string | null = null
+      let mediaName: string | null = m.mediaName
+      if (mediaName) {
+        const stored = mediaMap.get(mediaName.toLowerCase())
+        if (stored) {
+          mediaPath = stored
+          mediaName = stored.split('/').pop() ?? stored
+          mediaCount++
+        }
+      }
+      return {
+        id: newId(),
+        chatId,
+        idx: i,
+        ts: (m.ts instanceof Date ? m.ts : new Date(m.ts)).toISOString(),
+        sender: m.sender,
+        body: m.body.slice(0, 8000),
+        type: m.type,
+        mediaPath,
+        mediaName: mediaName ? mediaName.slice(0, 255) : null,
+        pollOptions: m.pollOptions?.length ? JSON.stringify(m.pollOptions.slice(0, 12)) : null,
+      }
+    })
+
+    const cols =
+      '(id, chatId, idx, ts, sender, body, type, mediaPath, mediaName, pollOptions)'
+    for (let i = 0; i < rows.length; i += INSERT_CHUNK) {
+      const chunk = rows.slice(i, i + INSERT_CHUNK)
+      const valuesSql = chunk
+        .map(() => '(?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
+        .join(',')
+      const params: unknown[] = []
+      for (const r of chunk) {
+        params.push(
+          r.id,
+          r.chatId,
+          r.idx,
+          r.ts,
+          r.sender,
+          r.body,
+          r.type,
+          r.mediaPath,
+          r.mediaName,
+          r.pollOptions
+        )
+      }
+      e.runNoSave(
+        `INSERT INTO "Message" ${cols} VALUES ${valuesSql}`,
+        params
+      )
+    }
+
+    // Import-time aggregates mirror persistParsedChat(): preview from the
+    // parser's buildPreview (label style), counts from the parsed rows.
+    const last = input.messages.at(-1) ?? null
+    const first = input.messages[0] ?? null
+    e.runNoSave(
+      `UPDATE "Chat" SET title = ?, isGroup = ?, sourceFile = ?,
+              messageCount = ?, mediaCount = ?, firstAt = ?, lastAt = ?,
+              lastPreview = ?, lastSender = ?, lastType = ?
+        WHERE id = ?`,
+      [
+        input.title.trim() || 'Imported Chat',
+        input.isGroup ? 1 : 0,
+        input.sourceFile,
+        input.messages.length,
+        mediaCount,
+        first ? (first.ts instanceof Date ? first.ts : new Date(first.ts)).toISOString() : null,
+        last ? (last.ts instanceof Date ? last.ts : new Date(last.ts)).toISOString() : null,
+        last
+          ? buildPreview({ body: last.body, type: last.type as MessageType }).slice(0, 300)
+          : '',
+        last?.sender ?? null,
+        last?.type ?? 'text',
+        chatId,
+      ]
+    )
+    await this.engine.flush()
+    return { chatId }
+  }
+
+  async deleteMessage(id: string): Promise<void> {
+    const e = await this.db()
+    const row = e.first('SELECT chatId FROM "Message" WHERE id = ?', [id])
+    if (!row) return
+    e.run('DELETE FROM "Message" WHERE id = ?', [id])
+    await this.refreshAggregates(e, str(row.chatId))
+    await this.engine.flush()
+  }
+
+  async toggleStar(id: string): Promise<boolean> {
+    const e = await this.db()
+    const row = e.first('SELECT starred FROM "Message" WHERE id = ?', [id])
+    if (!row) throw new DataError('Message not found')
+    const next = !bool(row.starred)
+    e.run('UPDATE "Message" SET starred = ? WHERE id = ?', [next ? 1 : 0, id])
+    await this.engine.flush()
+    return next
+  }
+
+  async setMessagePinned(id: string, pinned: boolean): Promise<void> {
+    const e = await this.db()
+    e.run('UPDATE "Message" SET pinned = ? WHERE id = ?', [pinned ? 1 : 0, id])
+    await this.engine.flush()
+  }
+
+  private async serializedById(
+    e: LocalEngine,
+    id: string
+  ): Promise<ChatMessage | null> {
+    const row = e.first(
+      `SELECT id, chatId, idx, ts, sender, body, type, mediaPath, mediaName,
+              starred, edited, forwardedFrom, pollOptions, pinned, reactions,
+              replyToId
+         FROM "Message" WHERE id = ?`,
+      [id]
+    )
+    if (!row) return null
+    return this.withReplyTos(e, [row as unknown as MessageRowLike])[0]
+  }
+
+  async setReactions(
+    id: string,
+    reactions: Record<string, string[]> | null
+  ): Promise<ChatMessage | null> {
+    const e = await this.db()
+    e.run('UPDATE "Message" SET reactions = ? WHERE id = ?', [
+      reactions && Object.keys(reactions).length > 0
+        ? JSON.stringify(reactions)
+        : null,
+      id,
+    ])
+    await this.engine.flush()
+    return this.serializedById(e, id)
+  }
+
+  async markMessageEdited(id: string, body: string): Promise<ChatMessage | null> {
+    const e = await this.db()
+    const row = e.first('SELECT chatId FROM "Message" WHERE id = ?', [id])
+    if (!row) return null
+    e.run('UPDATE "Message" SET body = ?, edited = 1 WHERE id = ?', [
+      body.slice(0, 8000),
+      id,
+    ])
+    await this.refreshAggregates(e, str(row.chatId))
+    await this.engine.flush()
+    return this.serializedById(e, id)
+  }
+
+  // ---- media ----------------------------------------------------------------
+
+  async putMedia(
+    chatId: string,
+    originalName: string,
+    blob: Blob
+  ): Promise<string> {
+    await this.whenReady()
+    return putMediaBlob(chatId, originalName, blob)
+  }
+
+  async mediaUrl(chatId: string, name: string): Promise<string | null> {
+    const key = `${chatId}/${name}`
+    const cached = this.urlCache.get(key)
+    if (cached) return cached
+    const rec = await getMediaBlob(chatId, name).catch(() => null)
+    if (!rec) return null
+    const url = URL.createObjectURL(rec.blob)
+    this.urlCache.set(key, url)
+    return url
+  }
+
+  releaseMediaUrl(url: string): void {
+    for (const [key, u] of this.urlCache) {
+      if (u === url) {
+        URL.revokeObjectURL(url)
+        this.urlCache.delete(key)
+        return
+      }
+    }
+  }
+
+  // ---- scheduled messages -----------------------------------------------------
+
+  private serializeScheduled(r: Record<string, unknown>): ScheduledItem {
+    return {
+      id: str(r.id),
+      chatId: str(r.chatId),
+      body: str(r.body),
+      sender: str(r.sender),
+      deliverAt: isoDate(r.deliverAt) ?? new Date().toISOString(),
+      createdAt: isoDate(r.createdAt) ?? new Date().toISOString(),
+      status: str(r.status),
+    }
+  }
+
+  async listScheduled(chatId?: string): Promise<ScheduledItem[]> {
+    const e = await this.db()
+    const rows = chatId
+      ? e.all(
+          'SELECT * FROM "ScheduledMessage" WHERE chatId = ? ORDER BY deliverAt ASC',
+          [chatId]
+        )
+      : e.all('SELECT * FROM "ScheduledMessage" ORDER BY deliverAt ASC')
+    return rows.map((r) => this.serializeScheduled(r))
+  }
+
+  async createScheduled(input: {
+    chatId: string
+    body: string
+    sender?: string
+    deliverAt: Date | string
+  }): Promise<ScheduledItem> {
+    const e = await this.db()
+    const chat = e.first('SELECT id FROM "Chat" WHERE id = ?', [input.chatId])
+    if (!chat) throw new DataError('Chat not found')
+    const id = newId()
+    const now = new Date().toISOString()
+    e.run(
+      `INSERT INTO "ScheduledMessage" (id, chatId, body, sender, deliverAt, createdAt, status)
+       VALUES (?, ?, ?, ?, ?, ?, 'pending')`,
+      [
+        id,
+        input.chatId,
+        input.body.slice(0, 4000),
+        (input.sender ?? 'You').slice(0, 80) || 'You',
+        toIsoInput(input.deliverAt),
+        now,
+      ]
+    )
+    await this.engine.flush()
+    const row = e.first('SELECT * FROM "ScheduledMessage" WHERE id = ?', [id])
+    return this.serializeScheduled(row!)
+  }
+
+  async cancelScheduled(id: string): Promise<void> {
+    const e = await this.db()
+    e.run("DELETE FROM \"ScheduledMessage\" WHERE id = ? AND status = 'pending'", [id])
+    await this.engine.flush()
+  }
+
+  async setScheduledStatus(id: string, status: string): Promise<void> {
+    const e = await this.db()
+    e.run('UPDATE "ScheduledMessage" SET status = ? WHERE id = ?', [status, id])
+    await this.engine.flush()
+  }
+
+  // ---- app settings -----------------------------------------------------------
+
+  async getSetting(key: string): Promise<string | null> {
+    const e = await this.db()
+    const row = e.first('SELECT value FROM "AppSetting" WHERE key = ?', [key])
+    return row ? str(row.value) : null
+  }
+
+  async setSetting(key: string, value: string): Promise<void> {
+    const e = await this.db()
+    e.run(
+      `INSERT INTO "AppSetting" (key, value, updatedAt) VALUES (?, ?, ?)
+       ON CONFLICT(key) DO UPDATE SET value = excluded.value,
+         updatedAt = excluded.updatedAt`,
+      [key, value, new Date().toISOString()]
+    )
+    await this.engine.flush()
+  }
+
+  async deleteSetting(key: string): Promise<void> {
+    const e = await this.db()
+    e.run('DELETE FROM "AppSetting" WHERE key = ?', [key])
+    await this.engine.flush()
+  }
+
+  // ---- lifecycle / diagnostics --------------------------------------------------
+
+  async deviceStatus(): Promise<DeviceStatus> {
+    await this.whenReady()
+    const e = this.engine
+    const media = await mediaStats().catch(() => ({ files: 0, bytes: 0 }))
+    return {
+      ready: true,
+      engine: 'sqlite-wasm',
+      persistence: e.getPersistence(),
+      dbBytes: e.dbBytes(),
+      chats: num(e.scalar('SELECT COUNT(*) FROM "Chat"')),
+      messages: num(e.scalar('SELECT COUNT(*) FROM "Message"')),
+      scheduled: num(e.scalar('SELECT COUNT(*) FROM "ScheduledMessage"')),
+      mediaFiles: media.files,
+      mediaBytes: media.bytes,
+      lastSavedAt: e.getLastSavedAt(),
+    }
+  }
+
+  async flush(): Promise<void> {
+    await this.whenReady()
+    await this.engine.flush()
+  }
+
+  async wipe(): Promise<void> {
+    for (const url of this.urlCache.values()) URL.revokeObjectURL(url)
+    this.urlCache.clear()
+    await clearAllMedia().catch(() => undefined)
+    await this.engine.reset()
+  }
+}
+
+/** Client-side singleton. */
+let client: LocalDataClient | null = null
+
+export function getLocalClient(): LocalDataClient {
+  if (!client) {
+    client = new LocalDataClient()
+    // Best-effort: never lose the last mutation when the tab/app closes.
+    void client
+      .whenReady()
+      .then(() => getEngine().installLifecycleHooks())
+      .catch(() => undefined)
+  }
+  return client
+}

@@ -36,9 +36,17 @@ either way, so nothing is lost by *not* choosing RN now.
 
 ## Phases
 
-- **Phase 1 — storage seam:** introduce a data-client interface; implement the
-  on-device SQLite (WASM/OPFS) adapter; port the Prisma schema; rewrite import
-  as client-side zip parsing.
+- **Phase 1 — storage seam ✅ DONE:** `src/lib/data/types.ts` defines the
+  DataClient interface; `src/lib/data/local/` implements it fully on-device —
+  sql.js (SQLite WASM, loaded from /sql-wasm.* assets, copied by
+  scripts/copy-sql-wasm.mjs), the Prisma schema ported to plain DDL
+  (schema.ts), the database file persisted to OPFS with an IndexedDB
+  fallback (debounced autosave + flush on pagehide), media blobs in an
+  IndexedDB store, and a complete client-side zip importer
+  (local/import.ts) that reuses the server's parser and guards. UI entry:
+  "On this device" card in Data & storage (import → status → per-chat
+  delete → wipe). Verified in-browser: import 16 messages + 4 media →
+  counts exact → survives full page reload via OPFS.
 - **Phase 2 — feature swap:** move chat list, messages, reactions, scheduled
   messages, settings, lock and export onto the local adapter, module by
   module (app stays working at every step).

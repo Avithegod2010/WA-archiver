@@ -34,6 +34,7 @@ import {
 } from '@/components/ui/dialog'
 import { cn } from '@/lib/utils'
 import { Avatar } from './Avatar'
+import { DeviceStorageSection } from './DeviceStorageSection'
 
 interface ChatStorageRow {
   chatId: string
@@ -246,6 +247,10 @@ export function StorageDialog({
             Media stored on disk for each chat, plus the size of the database.
           </DialogDescription>
         </DialogHeader>
+
+        {/* On-device database (Phase 1, local-first refactor) — independent
+            of the server stats below, so it renders immediately. */}
+        <DeviceStorageSection visible={open} />
 
         {loading && !data && (
           <div className="flex flex-col gap-3" role="status" aria-live="polite">
