@@ -10,14 +10,15 @@ import {
   Eye,
   EyeOff,
   FileDown,
+  Cloud,
   HardDrive,
+  Smartphone,
   Info,
   Keyboard,
   KeyRound,
   Loader2,
   Lock,
   ShieldCheck,
-  Smartphone,
   Sparkles,
   Upload,
 } from 'lucide-react'
@@ -41,10 +42,24 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
+import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Switch } from '@/components/ui/switch'
 import { LOCK_CHANGED_EVENT } from './AppLock'
+import { useData } from './data-provider'
+import {
+  getStorageMode,
+  setStorageMode,
+  type StorageMode,
+} from './storage-mode'
+import {
+  lockChange,
+  lockDisable,
+  lockReset,
+  lockSet,
+  lockStatus,
+} from '@/lib/data/lock-client'
 import {
   CADENCE_OPTIONS,
   DEFAULT_BACKUP_REMIND,
@@ -107,6 +122,8 @@ export function SettingsDialog({
   onOpenShortcuts: () => void
   onRefreshChats: () => Promise<void> | void
 }) {
+  // Active transport (Phase 2) — server REST vs on-device engine
+  const { mode, data } = useData()
   // Backup & restore
   const [backingUp, setBackingUp] = useState(false)
   const [storageOpen, setStorageOpen] = useState(false)
@@ -144,16 +161,13 @@ export function SettingsDialog({
 
   const syncLock = useCallback(async () => {
     try {
-      const res = await fetch('/api/auth/lock', { cache: 'no-store' })
-      if (res.ok) {
-        const data = (await res.json()) as { enabled?: boolean }
-        setLockOn(!!data.enabled)
-      }
+      const status = await lockStatus(mode, data)
+      setLockOn(status.enabled)
     } catch {
       // Keep the last known state; lockReady still flips so the UI isn't stuck
     }
     setLockReady(true)
-  }, [])
+  }, [mode, data])
 
   useEffect(() => {
     void syncLock()
@@ -283,9 +297,7 @@ export function SettingsDialog({
     setBackingUp(true)
     toast.success('Preparing your backup…')
     try {
-      const res = await fetch('/api/backup', { cache: 'no-store' })
-      if (!res.ok) throw new Error('backup failed')
-      const blob = await res.blob()
+      const blob = await data.exportBackup()
       const url = URL.createObjectURL(blob)
       const a = document.createElement('a')
       a.href = url
@@ -306,7 +318,7 @@ export function SettingsDialog({
     } finally {
       setBackingUp(false)
     }
-  }, [])
+  }, [data])
 
   // Task 14-j — backup reminders: read the stored prefs + fire the
   // once-per-session due check whenever the settings dialog opens.
@@ -324,45 +336,46 @@ export function SettingsDialog({
   const restoreBackup = async (file: File) => {
     setRestoring(true)
     try {
-      const text = await file.text()
-      JSON.parse(text) // sanity check — invalid JSON throws before the request
-      const res = await fetch('/api/backup', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: text,
-      })
-      const data: RestoreResult | null = await res.json().catch(() => null)
-      if (!res.ok) {
-        toast.error(data?.error ?? 'Restore failed — invalid backup file')
-        return
+      let created = 0
+      let skipped = 0
+      let imported = 0
+      if (mode === 'device') {
+        // On-device restore: parse + insert locally, nothing uploaded.
+        const res = await data.importBackup(file)
+        created = res.chats
+        imported = res.messages
+      } else {
+        const text = await file.text()
+        JSON.parse(text) // sanity check — invalid JSON throws before the request
+        const res = await fetch('/api/backup', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: text,
+        })
+        const json: RestoreResult | null = await res.json().catch(() => null)
+        if (!res.ok) {
+          toast.error(json?.error ?? 'Restore failed — invalid backup file')
+          return
+        }
+        created = json?.chatsCreated ?? 0
+        skipped = json?.chatsSkipped ?? 0
+        imported = json?.messagesImported ?? 0
       }
-      const created = data?.chatsCreated ?? 0
-      const skipped = data?.chatsSkipped ?? 0
-      const imported = data?.messagesImported ?? 0
       toast.success(
-        `Restored: ${created} chat${created === 1 ? '' : 's'} created · ${skipped} skipped · ${imported.toLocaleString()} messages imported`
+        `Restored: ${created} chat${created === 1 ? '' : 's'} created${skipped ? ` · ${skipped} skipped` : ''} · ${imported.toLocaleString()} messages imported`
       )
       await onRefreshChats()
-    } catch {
-      toast.error('Restore needs a connection')
+    } catch (err) {
+      toast.error(
+        err instanceof Error && err.message
+          ? err.message
+          : mode === 'device'
+            ? 'Restore failed — invalid backup file'
+            : 'Restore needs a connection'
+      )
     } finally {
       setRestoring(false)
     }
-  }
-
-  /** POST /api/auth/lock and normalize the response. */
-  const postLock = async (
-    payload: Record<string, unknown>
-  ): Promise<{ ok: boolean; error?: string }> => {
-    const res = await fetch('/api/auth/lock', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload),
-    })
-    const data = (await res.json().catch(() => null)) as
-      | { ok?: boolean; error?: string }
-      | null
-    return { ok: res.ok && !!data?.ok, error: data?.error }
   }
 
   const enableLock = async () => {
@@ -376,20 +389,24 @@ export function SettingsDialog({
     }
     setLockBusy(true)
     try {
-      const r = await postLock({ action: 'set', pin: pinCreate })
-      if (!r.ok) {
-        setPinError(r.error ?? 'Could not enable app lock — try again')
-        return
-      }
+      await lockSet(mode, data, pinCreate)
       setLockOn(true)
       setPinStage('idle')
       setPinCreate('')
       setPinConfirm('')
       setPinError(null)
       window.dispatchEvent(new Event(LOCK_CHANGED_EVENT))
-      toast.success('App lock enabled — verified on the server')
-    } catch {
-      setPinError('Could not enable app lock — check your connection')
+      toast.success(
+        mode === 'device'
+          ? 'App lock enabled — verified on this device'
+          : 'App lock enabled — verified on the server'
+      )
+    } catch (err) {
+      setPinError(
+        err instanceof Error
+          ? err.message
+          : 'Could not enable app lock — try again'
+      )
     } finally {
       setLockBusy(false)
     }
@@ -402,19 +419,17 @@ export function SettingsDialog({
     }
     setLockBusy(true)
     try {
-      const r = await postLock({ action: 'change', pin: pinCurrent, newPin: pinNew })
-      if (!r.ok) {
-        setPinError(r.error ?? 'Could not change the PIN — try again')
-        return
-      }
+      await lockChange(mode, data, pinCurrent, pinNew)
       setPinStage('idle')
       setPinCurrent('')
       setPinNew('')
       setPinError(null)
       window.dispatchEvent(new Event(LOCK_CHANGED_EVENT))
-      toast.success('PIN changed — server session refreshed')
-    } catch {
-      setPinError('Could not change the PIN — check your connection')
+      toast.success('PIN changed')
+    } catch (err) {
+      setPinError(
+        err instanceof Error ? err.message : 'Could not change the PIN — try again'
+      )
     } finally {
       setLockBusy(false)
     }
@@ -427,20 +442,16 @@ export function SettingsDialog({
     }
     setLockBusy(true)
     try {
-      const r = await postLock({ action: 'disable', pin: pinDisable })
-      if (!r.ok) {
-        setPinError(r.error ?? 'Wrong PIN — try again')
-        setPinDisable('')
-        return
-      }
+      await lockDisable(mode, data, pinDisable)
       setLockOn(false)
       setPinStage('idle')
       setPinDisable('')
       setPinError(null)
       window.dispatchEvent(new Event(LOCK_CHANGED_EVENT))
       toast.success('App lock disabled')
-    } catch {
-      setPinError('Could not verify the PIN — check your connection')
+    } catch (err) {
+      setPinError(err instanceof Error ? err.message : 'Wrong PIN — try again')
+      setPinDisable('')
     } finally {
       setLockBusy(false)
     }
@@ -450,11 +461,7 @@ export function SettingsDialog({
     setResetOpen(false)
     setLockBusy(true)
     try {
-      const r = await postLock({ action: 'reset' })
-      if (!r.ok) {
-        toast.error(r.error ?? 'Could not reset the lock — try again')
-        return
-      }
+      await lockReset(mode, data)
       setLockOn(false)
       setPinStage('idle')
       setPinCreate('')
@@ -465,8 +472,12 @@ export function SettingsDialog({
       setPinError(null)
       window.dispatchEvent(new Event(LOCK_CHANGED_EVENT))
       toast.success('App lock reset — set a new PIN anytime')
-    } catch {
-      toast.error('Could not reset the lock — check your connection')
+    } catch (err) {
+      toast.error(
+        err instanceof Error
+          ? err.message
+          : 'Could not reset the lock — try again'
+      )
     } finally {
       setLockBusy(false)
     }
@@ -727,6 +738,87 @@ export function SettingsDialog({
             <HardDrive className="h-3.5 w-3.5 text-(--wa-accent)" aria-hidden />
             Data and storage
           </h3>
+          {/* Storage mode (Phase 2): where chats + media live */}
+          <div
+            role="group"
+            aria-label="Storage mode"
+            className="rounded-lg bg-black/[0.03] p-3 dark:bg-white/[0.04]"
+          >
+            <p className="text-[12.5px] font-medium text-(--wa-text)">
+              Storage mode
+            </p>
+            <p className="mt-0.5 text-[11.5px] leading-snug text-(--wa-text-2)">
+              {mode === 'device'
+                ? 'Chats and media live in this browser — fully offline, nothing leaves the device.'
+                : 'Chats live on the server via /api — the classic hosted mode.'}
+            </p>
+            <div className="mt-2.5 grid grid-cols-2 gap-2">
+              {(
+                [
+                  {
+                    key: 'server' as StorageMode,
+                    label: 'Server',
+                    icon: Cloud,
+                    hint: 'Hosted / demo mode',
+                  },
+                  {
+                    key: 'device' as StorageMode,
+                    label: 'This device',
+                    icon: Smartphone,
+                    hint: 'Offline-first, private',
+                  },
+                ]
+              ).map((opt) => {
+                const active = mode === opt.key
+                return (
+                  <button
+                    key={opt.key}
+                    type="button"
+                    aria-pressed={active}
+                    onClick={() => {
+                      if (active) return
+                      setStorageMode(opt.key)
+                      toast.info(
+                        `Switching to ${opt.label.toLowerCase()} storage — reloading…`
+                      )
+                      // The transport owns every in-memory cache; a reload
+                      // re-resolves the whole data boundary cleanly.
+                      setTimeout(() => window.location.reload(), 450)
+                    }}
+                    className={`
+                      flex flex-col items-start gap-0.5 rounded-md px-2.5 py-2
+                      text-left transition-transform duration-150
+                      hover:scale-[1.02] active:scale-[0.98]
+                      ${
+                        active
+                          ? 'bg-(--wa-accent)/10 ring-1 ring-(--wa-accent)'
+                          : 'hover:bg-black/[0.04] dark:hover:bg-white/[0.06]'
+                      }
+                    `}
+                  >
+                    <span className="flex w-full items-center gap-1.5">
+                      <opt.icon
+                        className={`h-3.5 w-3.5 ${active ? 'text-(--wa-accent)' : 'text-(--wa-text-2)'}`}
+                        aria-hidden
+                      />
+                      <span
+                        className={cn(
+                          'text-[12px] font-semibold',
+                          active ? 'text-(--wa-accent)' : 'text-(--wa-text)'
+                        )}
+                      >
+                        {opt.label}
+                      </span>
+                    </span>
+                    <span className="text-[10.5px] leading-tight text-(--wa-text-2)">
+                      {opt.hint}
+                    </span>
+                  </button>
+                )
+              })}
+            </div>
+          </div>
+
           <button
             type="button"
             onClick={() => setStorageOpen(true)}
@@ -780,7 +872,7 @@ export function SettingsDialog({
 
         <div className="h-px bg-black/10 dark:bg-white/10" />
 
-        {/* d) App lock (PIN) — verified on the server (Task 14) */}
+        {/* d) App lock (PIN) — verified on the server (server) or on-device (device) */}
         <section aria-label="App lock" className="flex flex-col gap-2">
           <div className="flex items-center justify-between gap-3">
             <div className="min-w-0">
@@ -790,11 +882,15 @@ export function SettingsDialog({
               </h3>
               {lockReady && lockOn ? (
                 <p className="mt-0.5 text-[12px] leading-snug text-(--wa-text-2)">
-                  Server-verified · session lasts 12 h
+                  {mode === 'device'
+                    ? 'Device-verified · unlocks until the tab closes'
+                    : 'Server-verified · session lasts 12 h'}
                 </p>
               ) : (
                 <p className="mt-0.5 text-[12px] leading-snug text-(--wa-text-2)">
-                  Lock the app behind a 4–8 digit PIN, verified on the server.
+                  {mode === 'device'
+                    ? 'Lock the app behind a 4–8 digit PIN, verified on this device.'
+                    : 'Lock the app behind a 4–8 digit PIN, verified on the server.'}
                 </p>
               )}
             </div>
@@ -891,7 +987,9 @@ export function SettingsDialog({
                 </Button>
               </div>
               <p className="text-[11.5px] leading-snug text-(--wa-text-2)">
-                4–8 digits. Unlocking starts a 12-hour verified session.
+                {mode === 'device'
+                  ? '4–8 digits. Unlocking lasts until you close the tab.'
+                  : '4–8 digits. Unlocking starts a 12-hour verified session.'}
               </p>
               {pinError && (
                 <p role="alert" className="text-[12px] font-medium text-red-600 dark:text-red-400">

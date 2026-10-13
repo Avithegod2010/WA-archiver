@@ -4,6 +4,8 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { Delete, LockKeyhole } from 'lucide-react'
 import { WhatsAppLogo } from './icons'
 import { cn } from '@/lib/utils'
+import { useData } from './data-provider'
+import { lockStatus, lockVerify } from '@/lib/data/lock-client'
 
 /** Window event dispatched whenever the server-side lock state may have changed. */
 export const LOCK_CHANGED_EVENT = 'wa-lock-changed'
@@ -25,14 +27,17 @@ const SHAKE_MS = 550
 const ERROR_MS = 1800
 
 /**
- * Full-screen PIN lock overlay (Task 14 — server-side lock).
- * Hydration-safe: never locks during SSR / first paint — the server decides
- * in an effect (GET /api/auth/lock → { enabled, unlocked }). The PIN itself is
- * verified by the server (scrypt hash in the DB) and unlocking issues a signed
- * 12-hour httpOnly session cookie; the old client-side SHA-256/localStorage
- * flow is gone. Reacts to `wa-lock-changed` (dispatched by SettingsDialog).
+ * Full-screen PIN lock overlay (Task 14 — server-side lock; Phase 2 adds the
+ * on-device transport). Hydration-safe: never locks during SSR / first paint
+ * — the lock state resolves in an effect. Server transport: the PIN is
+ * verified by the server (scrypt hash in the DB) and unlocking issues a
+ * signed 12-hour httpOnly session cookie. Device transport: the PIN is
+ * verified against a WebCrypto hash in the local database and the unlock
+ * marker lives in sessionStorage (see lock-client.ts). Reacts to
+ * `wa-lock-changed` (dispatched by SettingsDialog and lockVerify).
  */
 export function AppLock() {
+  const { mode, data } = useData()
   const [checking, setChecking] = useState(true)
   const [locked, setLocked] = useState(false)
   const [pin, setPin] = useState('')
@@ -42,20 +47,18 @@ export function AppLock() {
   const shakeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const errorTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
-  // Ask the server whether the lock is enabled and whether we hold a session.
+  // Resolve the lock state for the active transport.
   const sync = useCallback(async () => {
     try {
-      const res = await fetch('/api/auth/lock', { cache: 'no-store' })
-      if (!res.ok) throw new Error(`status ${res.status}`)
-      const data = (await res.json()) as { enabled?: boolean; unlocked?: boolean }
-      setLocked(!!data.enabled && !data.unlocked)
+      const status = await lockStatus(mode, data)
+      setLocked(status.enabled && !status.unlocked)
     } catch {
       // Fail open — a network hiccup must never brick the app.
       setLocked(false)
     } finally {
       setChecking(false)
     }
-  }, [])
+  }, [mode, data])
 
   // Migration cleanup: drop the pre-server-side localStorage hash, then sync.
   useEffect(() => {
@@ -87,37 +90,30 @@ export function AppLock() {
     errorTimerRef.current = setTimeout(() => setError(null), ERROR_MS)
   }, [])
 
-  // Server-side verification: POST /api/auth/lock { action: 'verify', pin }.
+  // Transport-appropriate verification, then re-sync the app.
   const verify = useCallback(
     async (code: string) => {
       if (verifyingRef.current) return
       verifyingRef.current = true
       try {
-        const res = await fetch('/api/auth/lock', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ action: 'verify', pin: code }),
-        })
-        const data = (await res.json().catch(() => null)) as
-          | { ok?: boolean; error?: string }
-          | null
-        if (res.ok && data?.ok) {
-          setPin('')
-          setError(null)
-          setLocked(false)
-          // Tell the rest of the app (chat list, settings) to re-sync —
-          // their fetches may have 401'd while the lock was up.
-          window.dispatchEvent(new Event(LOCK_CHANGED_EVENT))
-        } else {
-          fail(data?.error ?? 'Incorrect PIN — try again')
-        }
-      } catch {
-        fail('Could not verify the PIN — check your connection')
+        await lockVerify(mode, data, code)
+        setPin('')
+        setError(null)
+        setLocked(false)
+        // Tell the rest of the app (chat list, settings) to re-sync —
+        // their fetches may have 401'd while the lock was up.
+        window.dispatchEvent(new Event(LOCK_CHANGED_EVENT))
+      } catch (err) {
+        fail(
+          err instanceof Error
+            ? err.message
+            : 'Incorrect PIN — try again'
+        )
       } finally {
         verifyingRef.current = false
       }
     },
-    [fail]
+    [fail, mode, data]
   )
 
   const pushDigit = useCallback((d: string) => {

@@ -34,6 +34,13 @@ export interface SendMessageInput {
   /** Media already stored with the client — stored name inside the media store. */
   mediaPath?: string | null
   mediaName?: string | null
+  /**
+   * Raw media to attach (browser File/Blob). Implementations store it
+   * themselves — server transport uploads multipart, device transport writes
+   * into the IndexedDB media store — and infer the message type from the
+   * file name when `type` is absent or generic.
+   */
+  media?: Blob | null
   replyToId?: string | null
   forwardedFrom?: string | null
   pollOptions?: string[] | null
@@ -76,6 +83,84 @@ export interface ScheduledItem {
   deliverAt: string
   createdAt: string
   status: string
+}
+
+// ---- Cross-transport DTOs (mirror the /api JSON responses) -----------------
+
+/** One hit inside GlobalSearch (mirrors GET /api/search chats[].hits[]). */
+export interface SearchHit {
+  id: string
+  idx: number
+  ts: string
+  sender: string | null
+  body: string
+  type: string
+}
+
+/** Per-chat bucket of search results (mirrors GET /api/search chats[]). */
+export interface SearchChatGroup {
+  id: string
+  title: string
+  isGroup: boolean
+  count: number
+  hits: SearchHit[]
+}
+
+export interface SearchResult {
+  query: string
+  totalChats: number
+  totalHits: number
+  truncated: boolean
+  chats: SearchChatGroup[]
+}
+
+/** Starred list row (mirrors GET /api/chats/:id/starred items[]). */
+export interface StarredItem {
+  id: string
+  idx: number
+  ts: string
+  sender: string | null
+  body: string
+  type: string
+  mediaPath: string | null
+  mediaName: string | null
+}
+
+/** Media gallery row (mirrors GET /api/chats/:id/media items[]). */
+export interface MediaItem extends StarredItem {
+  /** File size in bytes when known (null when the blob is missing). */
+  bytes: number | null
+}
+
+/** One "On this day" card (mirrors GET /api/memories groups[].items[]). */
+export interface MemoryItem {
+  id: string
+  chatId: string
+  chatTitle: string
+  isGroup: boolean
+  sender: string | null
+  ts: string
+  type: string
+  preview: string
+  hasMedia: boolean
+  mediaName?: string
+}
+
+export interface MemoryGroup {
+  key: string
+  label: string
+  items: MemoryItem[]
+}
+
+export interface MemoriesResult {
+  date: string
+  groups: MemoryGroup[]
+}
+
+/** Result envelope for local backup import. */
+export interface BackupImportResult {
+  chats: number
+  messages: number
 }
 
 /** Live status of the on-device database (drives the Device storage card). */
@@ -127,13 +212,23 @@ export interface DataClient {
   /** Import a parsed export (creates the chat row + all messages). */
   importParsed(input: ImportParsedInput): Promise<{ chatId: string }>
   deleteMessage(id: string): Promise<void>
-  toggleStar(id: string): Promise<boolean>
+  /**
+   * Apply a star state; resolves to the applied value. Callers pass the
+   * explicit target state (the UI computes it before calling).
+   */
+  toggleStar(id: string, starred: boolean): Promise<boolean>
   setMessagePinned(id: string, pinned: boolean): Promise<void>
+  /**
+   * Store the given absolute reaction map (null clears). The UI computes the
+   * toggled map locally so both transports behave identically.
+   */
   setReactions(
     id: string,
     reactions: Record<string, string[]> | null
   ): Promise<ChatMessage | null>
   markMessageEdited(id: string, body: string): Promise<ChatMessage | null>
+  /** Copy a message (incl. its media blob) into another chat. */
+  forwardMessage(id: string, targetChatId: string): Promise<ChatMessage | null>
 
   // ---- media (device-local blob store) -----------------------------------
   /** Persist one media blob; returns the unique stored name. */
@@ -157,6 +252,19 @@ export interface DataClient {
   }): Promise<ScheduledItem>
   cancelScheduled(id: string): Promise<void>
   setScheduledStatus(id: string, status: string): Promise<void>
+  /**
+   * Deliver every due pending scheduled message now (same contract as
+   * POST /api/scheduled/dispatch). Idempotent.
+   */
+  dispatchScheduled(): Promise<{ delivered: number; chatIds: string[] }>
+
+  // ---- discovery / reads (ported server analytics) --------------------------
+  searchAll(query: string): Promise<SearchResult>
+  listStarred(chatId: string): Promise<{ items: StarredItem[] }>
+  listChatMedia(chatId: string): Promise<{ items: MediaItem[] }>
+  /** A downloadable zip of the chat's media (blob), or null when empty. */
+  chatMediaZip(chatId: string): Promise<Blob | null>
+  memories(mmd?: string): Promise<MemoriesResult>
 
   // ---- app settings (key/value, on-device) --------------------------------
   getSetting(key: string): Promise<string | null>
@@ -171,4 +279,10 @@ export interface DataClient {
   flush(): Promise<void>
   /** Delete the whole on-device database + media store. */
   wipe(): Promise<void>
+
+  // ---- backup (JSON snapshot, same shape as GET /api/backup) ---------------
+  /** Build the full JSON backup blob (media excluded, like the server). */
+  exportBackup(): Promise<Blob>
+  /** Restore from a backup file produced by exportBackup or GET /api/backup. */
+  importBackup(file: File): Promise<BackupImportResult>
 }

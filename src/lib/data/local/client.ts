@@ -16,19 +16,28 @@ import type {
   ChatSummary,
 } from '@/components/whatsapp/types'
 import { buildPreview, type MessageType } from '@/lib/whatsapp-parser'
+import { isAudioName, isVideoName } from '@/lib/media-kinds'
 import {
   DataError,
+  type BackupImportResult,
   type DataClient,
   type DeviceStatus,
   type ImportParsedInput,
+  type MemoryGroup,
+  type MemoryItem,
+  type MemoriesResult,
+  type MediaItem,
   type ScheduledItem,
+  type SearchResult,
   type SendMessageInput,
+  type StarredItem,
 } from '../types'
 import { getEngine, type LocalEngine } from './engine'
 import {
   clearAllMedia,
   deleteMediaForChat,
   getMediaBlob,
+  mediaBytesByName,
   mediaStats,
   putMediaBlob,
 } from './media'
@@ -59,6 +68,22 @@ function isoDate(v: unknown): string | null {
 
 function newId(): string {
   return crypto.randomUUID()
+}
+
+/**
+ * File → message kind, mirroring the server's typeFromMime (image/video/
+ * audio/document from the MIME) with an extension fallback for browsers
+ * that hand us empty MIME types.
+ */
+function mediaKindFromMime(mime: string, name: string): string {
+  if (mime.startsWith('image/')) return 'image'
+  if (mime.startsWith('video/')) return 'video'
+  if (mime.startsWith('audio/')) return 'audio'
+  if (!mime) {
+    if (isVideoName(name)) return 'video'
+    if (isAudioName(name)) return 'audio'
+  }
+  return 'document'
 }
 
 function toIsoInput(v: Date | string | undefined): string {
@@ -112,6 +137,48 @@ function parsePollOptions(raw: unknown): string[] | null {
   } catch {
     return null
   }
+}
+
+// ---- Backup-file coercions (mirror /api/backup's sanitizers) ---------------
+
+function strOrNull(v: unknown): string | null {
+  return typeof v === 'string' && v.length > 0 ? v : null
+}
+
+function boolOr(v: unknown, fallback = false): boolean {
+  return typeof v === 'boolean' ? v : fallback
+}
+
+/** Poll options from untrusted backup JSON → compact column value. */
+function jsonListColumn(v: unknown): string | null {
+  let arr: unknown = v
+  if (typeof v === 'string') {
+    try {
+      arr = JSON.parse(v)
+    } catch {
+      return null
+    }
+  }
+  if (!Array.isArray(arr)) return null
+  const list = arr
+    .filter((o): o is string => typeof o === 'string' && o.length > 0)
+    .slice(0, 12)
+  return list.length ? JSON.stringify(list) : null
+}
+
+/** Reactions from untrusted backup JSON → compact column value. */
+function jsonReactionsColumn(v: unknown): string | null {
+  let raw: string | null = null
+  if (typeof v === 'string') raw = v
+  else if (v && typeof v === 'object' && !Array.isArray(v)) {
+    try {
+      raw = JSON.stringify(v)
+    } catch {
+      return null
+    }
+  }
+  const parsed = parseReactions(raw)
+  return parsed ? JSON.stringify(parsed) : null
 }
 
 // ---- Serialization (mirror of message-dto.ts / chats route) ---------------
@@ -424,6 +491,22 @@ export class LocalDataClient implements DataClient {
     const chat = e.first('SELECT id FROM "Chat" WHERE id = ?', [chatId])
     if (!chat) throw new DataError('Chat not found')
 
+    // Media attachment: store the blob first (mirrors the server's multipart
+    // path, which saves the file before creating the row).
+    let storedMediaPath: string | null = input.mediaPath ?? null
+    let storedMediaName = input.mediaName ? input.mediaName.slice(0, 255) : null
+    let type = input.type || 'text'
+    if (input.media && input.media.size > 0) {
+      const name = input.mediaName || (input.media instanceof File ? input.media.name : 'attachment')
+      storedMediaPath = await putMediaBlob(chatId, name, input.media)
+      storedMediaName = storedMediaPath.split('/').pop() ?? storedMediaPath
+      if (!input.type || input.type === 'text') {
+        type = mediaKindFromMime(input.media.type || '', storedMediaName)
+      } else {
+        type = input.type
+      }
+    }
+
     const idx =
       num(
         e.scalar(
@@ -434,7 +517,6 @@ export class LocalDataClient implements DataClient {
     const id = newId()
     const sender = ((input.sender ?? 'You') || 'You').trim().slice(0, 80) || 'You'
     const body = (input.body ?? '').slice(0, 8000)
-    const type = input.type || 'text'
 
     // replyToId must reference a message of the same chat (else ignored —
     // mirrors the server route).
@@ -460,8 +542,8 @@ export class LocalDataClient implements DataClient {
         sender,
         body,
         type,
-        input.mediaPath ?? null,
-        input.mediaName ? input.mediaName.slice(0, 255) : null,
+        storedMediaPath,
+        storedMediaName,
         input.forwardedFrom ? input.forwardedFrom.trim().slice(0, 120) || null : null,
         input.pollOptions?.length ? JSON.stringify(input.pollOptions.slice(0, 12)) : null,
         replyToId,
@@ -588,11 +670,11 @@ export class LocalDataClient implements DataClient {
     await this.engine.flush()
   }
 
-  async toggleStar(id: string): Promise<boolean> {
+  async toggleStar(id: string, starred?: boolean): Promise<boolean> {
     const e = await this.db()
     const row = e.first('SELECT starred FROM "Message" WHERE id = ?', [id])
     if (!row) throw new DataError('Message not found')
-    const next = !bool(row.starred)
+    const next = starred === undefined ? !bool(row.starred) : Boolean(starred)
     e.run('UPDATE "Message" SET starred = ? WHERE id = ?', [next ? 1 : 0, id])
     await this.engine.flush()
     return next
@@ -799,6 +881,533 @@ export class LocalDataClient implements DataClient {
     this.urlCache.clear()
     await clearAllMedia().catch(() => undefined)
     await this.engine.reset()
+  }
+
+  // ---- forward (Phase 2) -----------------------------------------------------
+  // Mirrors POST /api/messages/:id/forward: copy into the target chat,
+  // attributed to "You", with a "Forwarded from <sender>" marker; the media
+  // blob is copied into the target chat's media store so the new row is
+  // self-contained (the server copies the file on disk the same way).
+
+  async forwardMessage(id: string, targetChatId: string): Promise<ChatMessage | null> {
+    const e = await this.db()
+    const source = e.first(
+      `SELECT id, chatId, sender, body, type, mediaPath, mediaName, forwardedFrom, pollOptions
+         FROM "Message" WHERE id = ?`,
+      [id]
+    )
+    if (!source) throw new DataError('Message not found')
+
+    const target = e.first('SELECT id FROM "Chat" WHERE id = ?', [targetChatId])
+    if (!target) throw new DataError('Target chat not found')
+
+    // Copy media into the target chat's store when present.
+    let mediaPath: string | null = null
+    let mediaName: string | null = nstr(source.mediaName)
+    if (nstr(source.mediaPath)) {
+      const rec = await getMediaBlob(str(source.chatId), str(source.mediaPath)).catch(
+        () => null
+      )
+      if (rec) {
+        const stored = await putMediaBlob(
+          targetChatId,
+          mediaName ?? str(source.mediaPath),
+          rec.blob
+        )
+        mediaPath = stored
+        mediaName = stored.split('/').pop() ?? stored
+      }
+    }
+
+    const idx =
+      num(
+        e.scalar('SELECT MAX(idx) FROM "Message" WHERE chatId = ?', [targetChatId])
+      ) + 1
+    const newMsgId = newId()
+    const forwardedFrom =
+      str(source.chatId) === targetChatId
+        ? nstr(source.forwardedFrom) ?? nstr(source.sender)
+        : nstr(source.sender)
+
+    e.run(
+      `INSERT INTO "Message"
+         (id, chatId, idx, ts, sender, body, type, mediaPath, mediaName,
+          forwardedFrom, pollOptions)
+       VALUES (?, ?, ?, ?, 'You', ?, ?, ?, ?, ?, ?)`,
+      [
+        newMsgId,
+        targetChatId,
+        idx,
+        new Date().toISOString(),
+        str(source.body),
+        str(source.type),
+        mediaPath,
+        mediaName,
+        forwardedFrom,
+        nstr(source.pollOptions),
+      ]
+    )
+    await this.refreshAggregates(e, targetChatId)
+    await this.engine.flush()
+    return this.serializedById(e, newMsgId)
+  }
+
+  // ---- scheduled dispatch (Phase 2) -------------------------------------------
+  // Mirrors POST /api/scheduled/dispatch: claim pending→sent atomically, then
+  // insert a real message stamped with the SCHEDULED time.
+
+  async dispatchScheduled(): Promise<{ delivered: number; chatIds: string[] }> {
+    const e = await this.db()
+    const due = e.all(
+      `SELECT id, chatId, body, sender, deliverAt FROM "ScheduledMessage"
+        WHERE status = 'pending' AND deliverAt <= ?
+        ORDER BY deliverAt ASC LIMIT 50`,
+      [new Date().toISOString()]
+    )
+
+    const chatIds = new Set<string>()
+    let delivered = 0
+    for (const item of due) {
+      e.run(
+        `UPDATE "ScheduledMessage" SET status = 'sent'
+          WHERE id = ? AND status = 'pending'`,
+        [str(item.id)]
+      )
+      // Claim check — a row already claimed by another tick is skipped.
+      const claimed = num(e.scalar('SELECT changes()'))
+      if (claimed !== 1) continue
+
+      const chat = e.first('SELECT id FROM "Chat" WHERE id = ?', [str(item.chatId)])
+      if (!chat) {
+        // Chat vanished since scheduling — drop the item instead of delivering.
+        e.run(`UPDATE "ScheduledMessage" SET status = 'cancelled' WHERE id = ?`, [
+          str(item.id),
+        ])
+        continue
+      }
+      const idx =
+        num(
+          e.scalar('SELECT MAX(idx) FROM "Message" WHERE chatId = ?', [
+            str(item.chatId),
+          ])
+        ) + 1
+      e.run(
+        `INSERT INTO "Message" (id, chatId, idx, ts, sender, body, type)
+         VALUES (?, ?, ?, ?, ?, ?, 'text')`,
+        [
+          newId(),
+          str(item.chatId),
+          idx,
+          isoDate(item.deliverAt) ?? new Date().toISOString(),
+          nstr(item.sender) ?? 'You',
+          str(item.body).slice(0, 8000),
+        ]
+      )
+      await this.refreshAggregates(e, str(item.chatId))
+      chatIds.add(str(item.chatId))
+      delivered++
+    }
+    if (delivered > 0) await this.engine.flush()
+    return { delivered, chatIds: [...chatIds] }
+  }
+
+  // ---- discovery / reads (Phase 2) --------------------------------------------
+
+  async searchAll(query: string): Promise<SearchResult> {
+    const e = await this.db()
+    const q = query.trim()
+    if (!q) {
+      return { query: '', totalChats: 0, totalHits: 0, truncated: false, chats: [] }
+    }
+    const like = `%${q}%`
+    const rows = e.all(
+      `SELECT m.id, m.idx, m.ts, m.sender, m.body, m.type, m.chatId,
+              c.title AS chatTitle, c.isGroup AS isGroup
+         FROM "Message" m JOIN "Chat" c ON c.id = m.chatId
+        WHERE m.body LIKE ?
+        ORDER BY m.ts DESC
+        LIMIT 200`,
+      [like]
+    )
+    const countRows = e.all(
+      `SELECT chatId, COUNT(*) AS n FROM "Message" WHERE body LIKE ? GROUP BY chatId`,
+      [like]
+    )
+    const counts = new Map(
+      countRows.map((r) => [str(r.chatId), num(r.n)] as const)
+    )
+
+    const ordered: {
+      id: string
+      title: string
+      isGroup: boolean
+      count: number
+      hits: SearchResult['chats'][number]['hits']
+    }[] = []
+    const byChat = new Map<string, (typeof ordered)[number]>()
+    for (const r of rows) {
+      const chatId = str(r.chatId)
+      let entry = byChat.get(chatId)
+      if (!entry) {
+        entry = {
+          id: chatId,
+          title: str(r.chatTitle),
+          isGroup: bool(r.isGroup),
+          count: counts.get(chatId) ?? 0,
+          hits: [],
+        }
+        byChat.set(chatId, entry)
+        ordered.push(entry)
+      }
+      if (entry.hits.length < 20) {
+        entry.hits.push({
+          id: str(r.id),
+          idx: num(r.idx),
+          ts: isoDate(r.ts) ?? new Date(0).toISOString(),
+          sender: nstr(r.sender),
+          body: str(r.body),
+          type: str(r.type),
+        })
+      }
+    }
+    return {
+      query: q,
+      totalChats: ordered.length,
+      totalHits: rows.length,
+      truncated: rows.length >= 200,
+      chats: ordered,
+    }
+  }
+
+  async listStarred(chatId: string): Promise<{ items: StarredItem[] }> {
+    const e = await this.db()
+    const rows = e.all(
+      `SELECT id, idx, ts, sender, body, type, mediaPath, mediaName
+         FROM "Message" WHERE chatId = ? AND starred = 1
+        ORDER BY idx ASC`,
+      [chatId]
+    )
+    return {
+      items: rows.map((r) => ({
+        id: str(r.id),
+        idx: num(r.idx),
+        ts: isoDate(r.ts) ?? new Date(0).toISOString(),
+        sender: nstr(r.sender),
+        body: str(r.body),
+        type: str(r.type),
+        mediaPath: nstr(r.mediaPath),
+        mediaName: nstr(r.mediaName),
+      })),
+    }
+  }
+
+  async listChatMedia(chatId: string): Promise<{ items: MediaItem[] }> {
+    const e = await this.db()
+    const placeholders = [...MEDIA_TYPES].map(() => '?').join(',')
+    const rows = e.all(
+      `SELECT id, idx, ts, sender, body, type, mediaPath, mediaName
+         FROM "Message"
+        WHERE chatId = ? AND type IN (${placeholders}) AND mediaPath IS NOT NULL
+        ORDER BY ts DESC, idx DESC`,
+      [chatId, ...MEDIA_TYPES]
+    )
+    const sizes = await mediaBytesByName(chatId).catch(() => new Map<string, number>())
+    return {
+      items: rows.map((r) => {
+        const mediaPath = nstr(r.mediaPath)
+        const bytes = mediaPath ? (sizes.get(mediaPath) ?? null) : null
+        return {
+          id: str(r.id),
+          idx: num(r.idx),
+          ts: isoDate(r.ts) ?? new Date(0).toISOString(),
+          sender: nstr(r.sender),
+          body: str(r.body),
+          type: str(r.type),
+          mediaPath,
+          mediaName: nstr(r.mediaName),
+          bytes,
+        }
+      }),
+    }
+  }
+
+  async chatMediaZip(chatId: string): Promise<Blob | null> {
+    const e = await this.db()
+    const placeholders = [...MEDIA_TYPES].map(() => '?').join(',')
+    const rows = e.all(
+      `SELECT mediaPath FROM "Message"
+        WHERE chatId = ? AND type IN (${placeholders}) AND mediaPath IS NOT NULL`,
+      [chatId, ...MEDIA_TYPES]
+    )
+    const names = [
+      ...new Set(rows.map((r) => nstr(r.mediaPath)).filter((v): v is string => !!v)),
+    ]
+    if (names.length === 0) return null
+    const { default: JSZip } = await import('jszip')
+    const zip = new JSZip()
+    let added = 0
+    for (const name of names) {
+      const rec = await getMediaBlob(chatId, name).catch(() => null)
+      if (!rec) continue
+      zip.file(name, rec.blob)
+      added++
+    }
+    if (added === 0) return null
+    return zip.generateAsync({ type: 'blob' })
+  }
+
+  async memories(mmd?: string): Promise<MemoriesResult> {
+    const e = await this.db()
+    const MMD_RE = /^(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])$/
+    let target: string
+    if (mmd != null) {
+      if (!MMD_RE.test(mmd)) throw new DataError('Invalid mmd — expected MM-DD')
+      target = mmd
+    } else {
+      const now = new Date()
+      target = `${String(now.getUTCMonth() + 1).padStart(2, '0')}-${String(
+        now.getUTCDate()
+      ).padStart(2, '0')}`
+    }
+    const startOfToday = new Date()
+    startOfToday.setUTCHours(0, 0, 0, 0)
+
+    // Local rows store ts as ISO text — substr gives the calendar parts the
+    // same way the server route's strftime('%m-%d') does on epoch ms.
+    const rows = e.all(
+      `SELECT m.id, m.chatId, m.ts, m.sender, m.body, m.type,
+              m.mediaPath, m.mediaName,
+              c.title AS chatTitle, c.isGroup AS isGroup
+         FROM "Message" m JOIN "Chat" c ON c.id = m.chatId
+        WHERE m.type != 'system' AND substr(m.ts, 6, 5) = ? AND m.ts < ?
+        ORDER BY m.ts DESC
+        LIMIT 120`,
+      [target, startOfToday.toISOString()]
+    )
+
+    const currentYear = new Date().getUTCFullYear()
+    const byYear = new Map<number, MemoryItem[]>()
+    for (const r of rows) {
+      const ts = isoDate(r.ts) ?? new Date(0).toISOString()
+      const year = Number.isNaN(new Date(ts).getUTCFullYear())
+        ? 1970
+        : new Date(ts).getUTCFullYear()
+      const hasMedia = MEDIA_TYPES.has(str(r.type))
+      const item: MemoryItem = {
+        id: str(r.id),
+        chatId: str(r.chatId),
+        chatTitle: str(r.chatTitle),
+        isGroup: bool(r.isGroup),
+        sender: nstr(r.sender),
+        ts,
+        type: str(r.type),
+        preview: hasMedia ? '' : str(r.body).trim().slice(0, 200),
+        hasMedia,
+      }
+      const mediaName = nstr(r.mediaName)
+      if (mediaName) item.mediaName = mediaName
+      const bucket = byYear.get(year)
+      if (bucket) bucket.push(item)
+      else byYear.set(year, [item])
+    }
+
+    const relativeLabel = (diff: number): string => {
+      if (diff <= 0) return 'Earlier this year'
+      if (diff === 1) return 'Last year'
+      return `${diff} years ago`
+    }
+    const groups: MemoryGroup[] = [...byYear.entries()]
+      .sort((a, b) => b[0] - a[0])
+      .map(([year, items]) => ({
+        key: String(year),
+        label: `${year} · ${relativeLabel(currentYear - year)}`,
+        items,
+      }))
+    return { date: target, groups }
+  }
+
+  // ---- backup (Phase 2) ---------------------------------------------------------
+  // Same JSON shape as GET /api/backup so a file produced on-device restores
+  // on the server and vice versa. Media files are excluded on both sides.
+
+  async exportBackup(): Promise<Blob> {
+    const e = await this.db()
+    const chats = e.all(
+      `SELECT id, title, isGroup, messageCount, mediaCount, firstAt, lastAt,
+              lastPreview, lastSender, lastType, sourceFile, pinned, archived, createdAt
+         FROM "Chat" ORDER BY createdAt ASC`
+    )
+    const messages = e.all(
+      `SELECT id, chatId, idx, ts, sender, body, type, mediaPath, mediaName,
+              starred, edited, forwardedFrom, pollOptions, pinned, reactions
+         FROM "Message" ORDER BY chatId ASC, idx ASC`
+    )
+    const byChat = new Map<string, Record<string, unknown>[]>()
+    for (const m of messages) {
+      const chatId = str(m.chatId)
+      let list = byChat.get(chatId)
+      if (!list) {
+        list = []
+        byChat.set(chatId, list)
+      }
+      list.push({
+        id: str(m.id),
+        idx: num(m.idx),
+        ts: isoDate(m.ts) ?? new Date(0).toISOString(),
+        sender: nstr(m.sender),
+        body: str(m.body),
+        type: str(m.type),
+        mediaPath: nstr(m.mediaPath),
+        mediaName: nstr(m.mediaName),
+        starred: bool(m.starred),
+        edited: bool(m.edited),
+        forwardedFrom: nstr(m.forwardedFrom),
+        pollOptions: parsePollOptions(m.pollOptions),
+        pinned: bool(m.pinned),
+        reactions: parseReactions(m.reactions),
+      })
+    }
+    const payload = {
+      version: 1,
+      exportedAt: new Date().toISOString(),
+      mediaNote: 'Media files are not included in JSON backups',
+      chats: chats.map((c) => ({
+        id: str(c.id),
+        title: str(c.title),
+        isGroup: bool(c.isGroup),
+        messageCount: num(c.messageCount),
+        mediaCount: num(c.mediaCount),
+        firstAt: isoDate(c.firstAt),
+        lastAt: isoDate(c.lastAt),
+        lastPreview: str(c.lastPreview),
+        lastSender: nstr(c.lastSender),
+        lastType: str(c.lastType),
+        sourceFile: str(c.sourceFile),
+        pinned: bool(c.pinned),
+        archived: bool(c.archived),
+        createdAt: isoDate(c.createdAt) ?? new Date().toISOString(),
+        messages: byChat.get(str(c.id)) ?? [],
+      })),
+    }
+    return new Blob([JSON.stringify(payload)], { type: 'application/json' })
+  }
+
+  async importBackup(file: File): Promise<BackupImportResult> {
+    const text = await file.text()
+    let payload: unknown
+    try {
+      payload = JSON.parse(text)
+    } catch {
+      throw new DataError('Invalid JSON')
+    }
+    const { chats } = (payload ?? {}) as { chats?: unknown }
+    if (!Array.isArray(chats)) throw new DataError('Field "chats" must be an array')
+
+    const e = await this.db()
+    let chatsCreated = 0
+    let messagesImported = 0
+
+    for (const raw of chats) {
+      if (!raw || typeof raw !== 'object' || Array.isArray(raw)) continue
+      const c = raw as Record<string, unknown>
+      if (typeof c.title !== 'string' || !c.title.trim()) continue
+
+      const candidateId = strOrNull(c.id)
+      const sourceFile = typeof c.sourceFile === 'string' ? c.sourceFile : ''
+      // Duplicate guard: same id OR same title+sourceFile (server parity).
+      const dup = candidateId
+        ? e.first(
+            'SELECT id FROM "Chat" WHERE id = ? OR (title = ? AND sourceFile = ?)',
+            [candidateId, c.title.trim(), sourceFile]
+          )
+        : e.first('SELECT id FROM "Chat" WHERE title = ? AND sourceFile = ?', [
+            c.title.trim(),
+            sourceFile,
+          ])
+      if (dup) continue
+
+      let chatId: string | null = null
+      if (candidateId) {
+        const taken = e.first('SELECT id FROM "Chat" WHERE id = ?', [candidateId])
+        if (!taken) {
+          e.runNoSave(
+            `INSERT INTO "Chat" (id, title, isGroup, sourceFile, pinned, archived, createdAt)
+             VALUES (?, ?, ?, ?, ?, ?, ?)`,
+            [
+              candidateId,
+              c.title.trim().slice(0, 300),
+              boolOr(c.isGroup) ? 1 : 0,
+              sourceFile,
+              boolOr(c.pinned) ? 1 : 0,
+              boolOr(c.archived) ? 1 : 0,
+              isoDate(c.createdAt) ?? new Date().toISOString(),
+            ]
+          )
+          chatId = candidateId
+        }
+      }
+      if (!chatId) {
+        chatId = newId()
+        e.runNoSave(
+          `INSERT INTO "Chat" (id, title, isGroup, sourceFile, pinned, archived, createdAt)
+           VALUES (?, ?, ?, ?, ?, ?, ?)`,
+          [
+            chatId,
+            c.title.trim().slice(0, 300),
+            boolOr(c.isGroup) ? 1 : 0,
+            sourceFile,
+            boolOr(c.pinned) ? 1 : 0,
+            boolOr(c.archived) ? 1 : 0,
+            isoDate(c.createdAt) ?? new Date().toISOString(),
+          ]
+        )
+      }
+      chatsCreated++
+
+      const messages = Array.isArray(c.messages) ? c.messages : []
+      for (const rawMsg of messages) {
+        if (!rawMsg || typeof rawMsg !== 'object' || Array.isArray(rawMsg)) continue
+        const m = rawMsg as Record<string, unknown>
+        const msgId = strOrNull(m.id)
+        if (msgId && e.first('SELECT id FROM "Message" WHERE id = ?', [msgId])) continue
+        const ts = isoDate(m.ts)
+        if (!ts) continue // invalid dates are dropped (server parity)
+        // Media references from a backup are untrusted — basename only.
+        let mediaPath = strOrNull(m.mediaPath)
+        if (mediaPath) {
+          const base = mediaPath.split(/[/\\]/).pop() ?? ''
+          mediaPath = base && base !== '.' && base !== '..' ? base.slice(0, 255) : null
+        }
+        const finalId = msgId ?? newId()
+        e.runNoSave(
+          `INSERT INTO "Message"
+             (id, chatId, idx, ts, sender, body, type, mediaPath, mediaName,
+              starred, edited, forwardedFrom, pollOptions, pinned, reactions)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          [
+            finalId,
+            chatId,
+            num(m.idx),
+            ts,
+            strOrNull(m.sender),
+            typeof m.body === 'string' ? m.body.slice(0, 8000) : '',
+            typeof m.type === 'string' && m.type ? m.type.slice(0, 40) : 'text',
+            mediaPath,
+            strOrNull(m.mediaName),
+            boolOr(m.starred) ? 1 : 0,
+            boolOr(m.edited) ? 1 : 0,
+            strOrNull(m.forwardedFrom),
+            jsonListColumn(m.pollOptions),
+            boolOr(m.pinned) ? 1 : 0,
+            jsonReactionsColumn(m.reactions),
+          ]
+        )
+        messagesImported++
+      }
+      await this.refreshAggregates(e, chatId)
+    }
+    if (chatsCreated > 0) await this.engine.flush()
+    return { chats: chatsCreated, messages: messagesImported }
   }
 }
 

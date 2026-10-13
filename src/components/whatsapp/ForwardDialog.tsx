@@ -5,6 +5,7 @@ import { toast } from 'sonner'
 import { Check, Loader2, Search, SendHorizontal } from 'lucide-react'
 import { Avatar, SavedAvatar } from './Avatar'
 import { SAVED_CHAT_ID, type ChatMessage, type ChatSummary } from './types'
+import { useData } from './data-provider'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import {
@@ -18,34 +19,10 @@ import {
 import { cn } from '@/lib/utils'
 
 /**
- * Text payload for a forwarded message: the caption/text when present,
- * otherwise a friendly placeholder for media-only messages.
- */
-const FORWARD_PLACEHOLDERS: Record<string, string> = {
-  image: '📷 Photo',
-  video: '🎥 Video',
-  gif: '🎞 GIF',
-  audio: '🎤 Voice message',
-  sticker: '🌟 Sticker',
-  document: '📎 Document',
-  contact: '👤 Contact card',
-  location: '📍 Location',
-  poll: '📊 Poll',
-  media: '📷 Media',
-  deleted: 'This message was deleted',
-}
-
-function forwardBody(m: ChatMessage): string {
-  const b = (m.body ?? '').trim()
-  if (b) return b
-  return FORWARD_PLACEHOLDERS[m.type] ?? '[Message]'
-}
-
-/**
  * ForwardDialog (Task 10-b) — forwards one or more messages into other chats.
- * Searchable chat list, multi-select targets; each forward POSTs a text
- * message carrying `forwardedFrom` so the copy renders with the
- * "Forwarded from <chat>" chip.
+ * Searchable chat list, multi-select targets; each forward copies the original
+ * message (text, media, polls — DataClient.forwardMessage) into the target
+ * chat, where it renders with the "Forwarded from <sender>" chip.
  */
 export function ForwardDialog({
   open,
@@ -70,23 +47,29 @@ export function ForwardDialog({
   const [query, setQuery] = useState('')
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [busy, setBusy] = useState(false)
+  const { data } = useData()
+
+  // Reset the dialog state each time it opens — the React-sanctioned
+  // "adjust state when a prop changes" pattern (no effect, no refs).
+  const [wasOpen, setWasOpen] = useState(false)
+  if (open !== wasOpen) {
+    setWasOpen(open)
+    if (open) {
+      setChats(null)
+      setLoadFailed(false)
+      setQuery('')
+      setSelected(new Set())
+    }
+  }
 
   // Load the chat list fresh each time the dialog opens.
   useEffect(() => {
     if (!open) return
     let cancelled = false
-    setChats(null)
-    setLoadFailed(false)
-    setQuery('')
-    setSelected(new Set())
     ;(async () => {
       try {
-        const res = await fetch('/api/chats')
-        const data = await res.json()
-        if (!res.ok) throw new Error(data.error ?? 'Could not load chats')
-        if (!cancelled) {
-          setChats((Array.isArray(data.chats) ? data.chats : []) as ChatSummary[])
-        }
+        const list = await data.listChats()
+        if (!cancelled) setChats(list)
       } catch {
         if (!cancelled) setLoadFailed(true)
       }
@@ -94,7 +77,7 @@ export function ForwardDialog({
     return () => {
       cancelled = true
     }
-  }, [open])
+  }, [open, data])
 
   const targets = useMemo(() => {
     if (!chats) return []
@@ -128,17 +111,9 @@ export function ForwardDialog({
       let ok = true
       for (const m of messages) {
         try {
-          const res = await fetch(`/api/chats/${id}/messages`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              type: 'text',
-              body: forwardBody(m).slice(0, 8000),
-              sender: 'You',
-              forwardedFrom: sourceChatTitle,
-            }),
-          })
-          if (!res.ok) ok = false
+          // Copies the original message (incl. its media) into the target
+          // chat — the copy is attributed to "You" with a forwarded marker.
+          await data.forwardMessage(m.id, id)
         } catch {
           ok = false
         }

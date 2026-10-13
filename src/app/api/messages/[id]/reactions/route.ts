@@ -26,19 +26,9 @@ export async function POST(
   } catch {
     return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 })
   }
-  const { emoji } = (payload ?? {}) as { emoji?: unknown }
-  if (typeof emoji !== 'string' || !emoji.trim()) {
-    return NextResponse.json(
-      { error: 'Field "emoji" must be a non-empty string' },
-      { status: 400 }
-    )
-  }
-  const key = emoji.trim()
-  if ([...key].length > 8) {
-    return NextResponse.json(
-      { error: 'Field "emoji" must be at most 8 UTF-16 code units' },
-      { status: 400 }
-    )
+  const { emoji, reactions: absolute } = (payload ?? {}) as {
+    emoji?: unknown
+    reactions?: unknown
   }
 
   try {
@@ -48,6 +38,36 @@ export async function POST(
     })
     if (!current) {
       return NextResponse.json({ error: 'Message not found' }, { status: 404 })
+    }
+
+    // Absolute-set mode (DataClient transport): the client computed the new
+    // map locally, the server stores it verbatim after sanitizing.
+    if (absolute !== undefined) {
+      const parsed = parseReactions(
+        typeof absolute === 'string'
+          ? absolute
+          : JSON.stringify(absolute)
+      )
+      const hasAny = parsed !== null && Object.keys(parsed).length > 0
+      await db.message.update({
+        where: { id },
+        data: { reactions: hasAny ? JSON.stringify(parsed) : null },
+      })
+      return NextResponse.json({ reactions: parsed ?? {} })
+    }
+
+    if (typeof emoji !== 'string' || !emoji.trim()) {
+      return NextResponse.json(
+        { error: 'Provide "emoji" or "reactions"' },
+        { status: 400 }
+      )
+    }
+    const key = emoji.trim()
+    if ([...key].length > 8) {
+      return NextResponse.json(
+        { error: 'Field "emoji" must be at most 8 UTF-16 code units' },
+        { status: 400 }
+      )
     }
 
     const reactions = parseReactions(current.reactions) ?? {}

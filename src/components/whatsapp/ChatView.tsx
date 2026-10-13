@@ -78,6 +78,7 @@ import {
 } from './wallpaper'
 import { SAVED_CHAT_ID, type ChatDetail, type ChatMessage } from './types'
 import {
+  AI_REPLY_TIMEOUT_MS,
   derivePersona,
   fetchAiReply,
   isDemoSource,
@@ -85,6 +86,8 @@ import {
   readAutoReplyEnabled,
   writeAutoReplyEnabled,
 } from '@/lib/persona-engine'
+import { aiHeaders } from '@/lib/ai-client'
+import { useData, useMessageNormalizer } from './data-provider'
 
 type SchedItem = {
   id: string
@@ -481,6 +484,38 @@ function labelFromDayKey(key: string): string {
   })
 }
 
+/* ---------- 2-a: device-mode AI context + reply fetch ---------- */
+
+/**
+ * Chronological "Sender: text" transcript lines (oldest first) from the
+ * messages already loaded in this chat — what POST /api/ai accepts as
+ * `context` when the active transport is the on-device one (the route then
+ * never touches the server DB). System rows are skipped, the most recent
+ * ~60 lines win, media-only bodies become a short type placeholder.
+ */
+function buildAiContextLines(messages: ChatMessage[]): string[] {
+  return messages
+    .filter((m) => m.type !== 'system')
+    .slice(-60)
+    .map((m) => {
+      const sender = m.sender || 'Unknown'
+      const text = (m.body ?? '').trim()
+      return `${sender}: ${text ? text.slice(0, 400) : `[${m.type}]`}`
+    })
+}
+
+/** Strip a wrapping pair of straight/curly quotes some models add. */
+function unwrapQuoted(text: string): string {
+  const t = text.trim()
+  if (t.length >= 2) {
+    const first = t[0]
+    const last = t[t.length - 1]
+    const pairs: Record<string, string> = { '"': '"', "'": "'", '“': '”' }
+    if (pairs[first] && last === pairs[first]) return t.slice(1, -1).trim()
+  }
+  return t
+}
+
 /** Day-cell factory: shows "N messages" as the native tooltip per day. */
 function makeDayButton(counts: Map<string, number>) {
   return function CountedDayButton(props: React.ComponentProps<typeof CalendarDayButton>) {
@@ -517,6 +552,10 @@ export function ChatView({
   initialJumpMessageId?: string | null
   onChatChanged?: () => void
 }) {
+  // Active transport (Phase 2): 'server' = REST /api/*, 'device' = on-device
+  // SQLite-WASM. Every data flow below goes through `data`.
+  const { mode, data } = useData()
+  const normalizeMessages = useMessageNormalizer()
   const scrollRef = useRef<HTMLDivElement>(null)
   const visibleCountRef = useRef(PAGE_SIZE)
   const pendingJumpRef = useRef<string | null>(null)
@@ -600,16 +639,12 @@ export function ChatView({
   const loadSched = useCallback(async () => {
     if (!chatId) return
     try {
-      const res = await fetch(`/api/scheduled?chatId=${chatId}`, {
-        cache: 'no-store',
-      })
-      if (!res.ok) return
-      const data = await res.json()
-      setSchedItems(Array.isArray(data?.items) ? data.items : [])
+      const items = await data.listScheduled(chatId)
+      setSchedItems(items)
     } catch {
       /* offline — keep the last known list */
     }
-  }, [chatId])
+  }, [chatId, data])
   useEffect(() => {
     loadSched()
   }, [loadSched])
@@ -622,31 +657,31 @@ export function ChatView({
       window.removeEventListener('wa-scheduled-delivered', onChange)
     }
   }, [loadSched])
-  // A delivery touched this chat → pull the fresh transcript from the server.
+  // A delivery touched this chat → pull the fresh transcript from the active
+  // transport (device mode resolves media blob URLs while merging).
   useEffect(() => {
     const onDelivered = (e: Event) => {
       const ids = (e as CustomEvent<{ chatIds?: string[] }>).detail?.chatIds
       if (!Array.isArray(ids) || !ids.includes(chatId)) return
-      fetch(`/api/chats/${chatId}/messages`, { cache: 'no-store' })
-        .then((r) => (r.ok ? r.json() : null))
-        .then((data) => {
-          if (!data?.messages) return
+      void (async () => {
+        try {
+          const fresh = await data.getChatDetail(chatId)
+          const messages = await normalizeMessages(chatId, fresh.messages)
           setDetail((d) =>
-            d && d.chat.id === chatId ? { ...d, messages: data.messages } : d
+            d && d.chat.id === chatId ? { ...d, messages } : d
           )
-        })
-        .catch(() => {
+        } catch {
           /* offline — the poller fires again later */
-        })
+        }
+      })()
     }
     window.addEventListener('wa-scheduled-delivered', onDelivered)
     return () => window.removeEventListener('wa-scheduled-delivered', onDelivered)
-  }, [chatId, setDetail])
+  }, [chatId, setDetail, data, normalizeMessages])
   async function cancelScheduled(id: string) {
     setSchedItems((s) => s.filter((x) => x.id !== id))
     try {
-      const res = await fetch(`/api/scheduled/${id}`, { method: 'DELETE' })
-      if (!res.ok) throw new Error('failed')
+      await data.cancelScheduled(id)
     } catch {
       toast.error('Could not cancel the scheduled message')
       loadSched()
@@ -1302,19 +1337,12 @@ export function ChatView({
         : d
     )
     try {
-      const res = await fetch(`/api/messages/${msgId}/reactions`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ emoji }),
-      })
-      const data = (await res.json().catch(() => null)) as {
-        reactions?: ReactionMap | null
-        error?: string
-      } | null
-      if (!res.ok) throw new Error(data?.error ?? 'Reaction failed')
-      // Sync the server's authoritative map when it provides one
-      if (data && data.reactions && typeof data.reactions === 'object') {
-        const server = data.reactions
+      // Persist the absolute toggled map (both transports take it — the UI
+      // computed `next` locally so they behave identically) and re-sync the
+      // authoritative reactions when a message comes back.
+      const updated = await data.setReactions(msgId, nextIsEmpty ? null : next)
+      const server = updated?.reactions
+      if (server && typeof server === 'object') {
         setDetail((d) =>
           d
             ? {
@@ -1356,12 +1384,7 @@ export function ChatView({
         : d
     )
     try {
-      const res = await fetch(`/api/messages/${msg.id}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ pinned: next }),
-      })
-      if (!res.ok) throw new Error('Pin failed')
+      await data.setMessagePinned(msg.id, next)
       toast.success(next ? 'Message pinned' : 'Message unpinned')
     } catch {
       setDetail((d) =>
@@ -1545,12 +1568,7 @@ export function ChatView({
     )
     for (const t of targets) {
       try {
-        const res = await fetch(`/api/messages/${t.id}/forward`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ targetChatId: SAVED_CHAT_ID }),
-        })
-        if (!res.ok) throw new Error('failed')
+        await data.forwardMessage(t.id, SAVED_CHAT_ID)
         ok++
       } catch {
         /* keep going */
@@ -1608,8 +1626,8 @@ export function ChatView({
     try {
       for (const id of ids) {
         try {
-          const res = await fetch(`/api/messages/${id}`, { method: 'DELETE' })
-          if (res.ok) okIds.push(id)
+          await data.deleteMessage(id)
+          okIds.push(id)
         } catch {
           /* keep going — report the partial result at the end */
         }
@@ -1646,15 +1664,10 @@ export function ChatView({
   async function saveEdit() {
     if (!editing || !editBody.trim() || editSaving) return
     setEditSaving(true)
+    const trimmed = editBody.trim()
     try {
-      const res = await fetch(`/api/messages/${editing.id}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ body: editBody.trim() }),
-      })
-      const data = await res.json()
-      if (!res.ok) throw new Error(data.error ?? 'Save failed')
-      const newBody = data.message.body as string
+      const updated = await data.markMessageEdited(editing.id, trimmed)
+      const newBody = updated?.body ?? trimmed
       setDetail((d) =>
         d
           ? {
@@ -1678,21 +1691,15 @@ export function ChatView({
 
   /**
    * Inline edit persistence for MessageBubble (`onEditSave` contract):
-   * PATCH { body } then update local state. Returns success so the bubble
-   * can keep or revert its inline editor.
+   * persist the new body through the DataClient, then update local state.
+   * Returns success so the bubble can keep or revert its inline editor.
    */
   async function saveEditApi(id: string, body: string): Promise<boolean> {
     const trimmed = body.trim()
     if (!trimmed) return false
     try {
-      const res = await fetch(`/api/messages/${id}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ body: trimmed }),
-      })
-      const data = await res.json()
-      if (!res.ok) throw new Error(data.error ?? 'Save failed')
-      const newBody = data.message.body as string
+      const updated = await data.markMessageEdited(id, trimmed)
+      const newBody = updated?.body ?? trimmed
       setDetail((d) =>
         d
           ? {
@@ -1746,6 +1753,44 @@ export function ChatView({
 
   /* ---- 14-b: simulated persona replies (demo chats only) ---- */
 
+  /* ---- 2-a: device-mode AI persona reply ---- the shared fetchAiReply
+     works on the server transport (the route derives persona + context from
+     its own DB). On-device there is no server DB, so the persona (already
+     derived above) and the transcript lines travel with the request. Same
+     4s race + silent fallback contract as fetchAiReply. */
+  async function fetchDeviceAiReply(
+    persona: string,
+    context: string[],
+    signal?: AbortSignal
+  ): Promise<string | null> {
+    const controller = new AbortController()
+    const timer = setTimeout(() => controller.abort(), AI_REPLY_TIMEOUT_MS)
+    const onOuterAbort = () => controller.abort()
+    signal?.addEventListener('abort', onOuterAbort, { once: true })
+    try {
+      const res = await fetch('/api/ai', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...aiHeaders() },
+        body: JSON.stringify({ mode: 'reply', persona, context }),
+        signal: controller.signal,
+      })
+      if (!res.ok) return null
+      const payload = (await res.json().catch(() => null)) as {
+        result?: unknown
+      } | null
+      const text =
+        typeof payload?.result === 'string' ? payload.result.trim() : ''
+      if (!text) return null
+      return unwrapQuoted(text).slice(0, 500)
+    } catch {
+      // Timeout, outer abort (chat switch) or network error → silent fallback.
+      return null
+    } finally {
+      clearTimeout(timer)
+      signal?.removeEventListener('abort', onOuterAbort)
+    }
+  }
+
   /**
    * Decide whether the just-sent message earns a persona reply and schedule
    * one. Returns true when scheduled — handleSent then skips the random 10-b
@@ -1781,7 +1826,18 @@ export function ChatView({
     const seedCount = detail.messages.length + 1
 
     // AI reply starts immediately — it has 4s from the send to settle.
-    const aiPromise = fetchAiReply(chatIdAtSend, { signal: controller.signal })
+    // Server mode: the route picks persona + context from its own DB (the
+    // just-sent message is already persisted). Device mode: the transcript is
+    // local, so the context lines (with the just-sent message last) travel
+    // with the request instead.
+    const aiPromise =
+      mode === 'device'
+        ? fetchDeviceAiReply(
+            persona,
+            buildAiContextLines([...detail.messages, msg]),
+            controller.signal
+          )
+        : fetchAiReply(chatIdAtSend, { signal: controller.signal })
 
     // Typing dots ~700ms after the send...
     personaTimersRef.current.push(
@@ -1808,12 +1864,13 @@ export function ChatView({
   }
 
   /**
-   * Generate + POST the persona reply. AI text wins when it settled within
+   * Generate + send the persona reply. AI text wins when it settled within
    * its 4s window; otherwise the deterministic offline line is used. The
-   * reply is POSTed as an ordinary incoming message and appended with the
-   * SAME mechanism as scheduled-message deliveries (refetch-free setDetail
-   * append). No toast — the message just appears. Failures only switch the
-   * typing indicator off and log; they never break the chat.
+   * reply is sent through the DataClient as an ordinary incoming message and
+   * appended with the SAME mechanism as scheduled-message deliveries
+   * (refetch-free setDetail append). No toast — the message just appears.
+   * Failures only switch the typing indicator off and log; they never break
+   * the chat.
    */
   async function deliverPersonaReply(
     chatIdAtSend: string,
@@ -1836,24 +1893,22 @@ export function ChatView({
         /* offline line — silent */
       }
       if (controller.signal.aborted) return // chat switched — cleanup owns state
-      const res = await fetch(`/api/chats/${chatIdAtSend}/messages`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ type: 'text', sender: persona, body: text }),
-        signal: controller.signal,
+      const reply = await data.sendMessage(chatIdAtSend, {
+        type: 'text',
+        sender: persona,
+        body: text,
       })
-      if (!res.ok) throw new Error(`status ${res.status}`)
-      const data = (await res.json()) as { message?: ChatMessage }
-      const reply = data.message
-      if (!reply) throw new Error('no message returned')
-      if (controller.signal.aborted) return // superseded while POSTing
+      if (controller.signal.aborted) return // superseded while sending
+      // Device transport: resolve media paths (a text reply is a no-op there;
+      // server mode is a passthrough).
+      const [resolved] = await normalizeMessages(chatIdAtSend, [reply])
       personaPendingRef.current = false
       personaAbortRef.current = null
       personaTimersRef.current = [] // both timers already fired
       setTypingName(null)
       setDetail((d) =>
         d && d.chat.id === chatIdAtSend
-          ? { ...d, messages: [...d.messages, reply] }
+          ? { ...d, messages: [...d.messages, resolved] }
           : d
       )
     } catch (err) {
@@ -1900,14 +1955,15 @@ export function ChatView({
   ): Promise<boolean> {
     setPollCreating(true)
     try {
-      const res = await fetch(`/api/chats/${chatId}/messages`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ type: 'poll', body: question, pollOptions: options }),
+      const msg = await data.sendMessage(chatId, {
+        type: 'poll',
+        body: question,
+        pollOptions: options,
       })
-      const data = await res.json()
-      if (!res.ok) throw new Error(data.error ?? 'Failed')
-      handleSent(data.message as ChatMessage)
+      // Device transport: resolve media paths before the bubble renders
+      // (server mode is a passthrough).
+      const [resolved] = await normalizeMessages(chatId, [msg])
+      handleSent(resolved)
       toast.success('Poll created — tap an option to vote')
       return true
     } catch (err) {
@@ -3417,11 +3473,14 @@ export function ChatView({
         onForwarded={() => exitSelection()}
       />
 
-      {/* AI message tools (translate / explain / ask-about-this-chat) — #13 */}
+      {/* AI message tools (translate / explain / ask-about-this-chat) — #13.
+          onBuildContext feeds the device transport's inline transcript (the
+          server transport is ignored — the route reads its own DB). */}
       <AIToolsDialog
         open={!!aiMsg}
         message={aiMsg}
         chatId={chatId}
+        onBuildContext={() => buildAiContextLines(messages)}
         onOpenChange={(v) => {
           if (!v) setAiMsg(null)
         }}
@@ -3436,11 +3495,13 @@ export function ChatView({
         onPickWord={handlePickWord}
       />
 
-      {/* AI chat summary (Task 12-c) — ⋮ menu + desktop Sparkles button */}
+      {/* AI chat summary (Task 12-c) — ⋮ menu + desktop Sparkles button.
+          onBuildContext feeds the device transport's inline transcript. */}
       <TldrDialog
         chatId={chatId}
         open={tldrOpen}
         onOpenChange={setTldrOpen}
+        onBuildContext={() => buildAiContextLines(messages)}
       />
 
       {/* Print / Save-as-PDF preview (#10) — plain black-on-white transcript,

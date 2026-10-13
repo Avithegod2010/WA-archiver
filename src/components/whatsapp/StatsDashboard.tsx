@@ -9,6 +9,7 @@ import {
   CalendarCheck2,
   CalendarDays,
   Cloud,
+  CloudOff,
   EyeOff,
   Flame,
   HelpCircle,
@@ -33,6 +34,7 @@ import {
 } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 import { Avatar } from './Avatar'
+import { useData } from './data-provider'
 import type { StatsData } from './types'
 import { colorForName } from './types'
 import { cn } from '@/lib/utils'
@@ -645,9 +647,13 @@ export function StatsDashboard({
   // undefined = not fetched yet (loading), null = fetch error
   const [data, setData] = useState<StatsData | null | undefined>(undefined)
   const [chatQuery, setChatQuery] = useState('')
+  // Insights are a server-side computation (SQL across all chats) — the
+  // on-device engine has no equivalent yet, so device mode shows a hint
+  // instead of a spinner that would never resolve.
+  const { mode } = useData()
 
   useEffect(() => {
-    if (!open) return
+    if (!open || mode !== 'server') return
     let alive = true
     fetch('/api/stats', { cache: 'no-store' })
       .then((r) => r.json())
@@ -660,7 +666,7 @@ export function StatsDashboard({
     return () => {
       alive = false
     }
-  }, [open])
+  }, [open, mode])
 
   const loading = data === undefined
 
@@ -712,7 +718,20 @@ export function StatsDashboard({
         </DialogHeader>
 
         <div className="wa-scroll -mx-1 min-h-0 flex-1 space-y-5 overflow-y-auto px-1 pb-1">
-          {loading && !data ? (
+          {mode === 'device' ? (
+            <div className="flex flex-col items-center px-6 py-12 text-center">
+              <div className="mb-3 flex h-14 w-14 items-center justify-center rounded-full bg-black/5 dark:bg-white/5">
+                <CloudOff className="h-6 w-6 text-(--wa-text-2)" />
+              </div>
+              <p className="text-[14px] font-medium text-(--wa-text)">
+                Insights are computed on the server
+              </p>
+              <p className="mt-1.5 max-w-[320px] text-[12.5px] leading-relaxed text-(--wa-text-2)">
+                Switch to Server storage in Settings → Data &amp; storage to
+                see stats for server-hosted chats.
+              </p>
+            </div>
+          ) : loading && !data ? (
             <div className="flex h-40 items-center justify-center gap-2 text-[13.5px] text-(--wa-text-2)">
               <Loader2 className="h-4 w-4 animate-spin" />
               Crunching numbers...

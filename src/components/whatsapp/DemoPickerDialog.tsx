@@ -13,11 +13,19 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog'
 import { DEMO_CATALOG, type DemoChatMeta } from '@/lib/demo-catalog'
+import { buildDemoScript, v2Key } from '@/lib/demo-scripts'
+import { parseWhatsAppText } from '@/lib/whatsapp-parser'
 import { cn } from '@/lib/utils'
+import { useData } from './data-provider'
 
 /**
  * Lets the user pick which demo chats to load — WhatsApp-style selectable
  * cards with a live selection counter and spring animations.
+ *
+ * Transport-aware (Phase 2): on the server transport it POSTs /api/demo as
+ * before; on the device transport the same transcript is built locally
+ * (buildDemoScript) and inserted straight into the on-device database via
+ * data.importParsed — nothing leaves the device.
  */
 export function DemoPickerDialog({
   open,
@@ -29,6 +37,7 @@ export function DemoPickerDialog({
   /** Called with the chats that were just created (empty when skipped). */
   onLoaded: (created: { id: string; title: string }[]) => void
 }) {
+  const { mode, data } = useData()
   const [selected, setSelected] = useState<Set<string>>(
     () => new Set(DEMO_CATALOG.map((d) => d.id))
   )
@@ -50,26 +59,68 @@ export function DemoPickerDialog({
         setBusy(true)
         const toastId = toast.loading('Creating demo chats...')
         try {
+          if (mode === 'device') {
+            // On-device seeding: mirror the server route's duplicate guard
+            // (a chat with the same demo sourceFile is silently skipped).
+            const chats = await data.listChats()
+            const existing = new Set(chats.map((c) => c.sourceFile))
+            const created: { id: string; title: string }[] = []
+            for (const id of ids) {
+              const meta = DEMO_CATALOG.find((d) => d.id === id)
+              if (!meta) continue
+              if (existing.has(v2Key(id))) continue
+              const text = buildDemoScript(id)
+              if (text == null) {
+                throw new Error(`Unknown demo chat "${id}"`)
+              }
+              const parsed = parseWhatsAppText(text)
+              const { chatId } = await data.importParsed({
+                title: meta.title,
+                sourceFile: v2Key(id),
+                isGroup: meta.isGroup,
+                messages: parsed.messages.map((m) => ({
+                  ts: m.ts,
+                  sender: m.sender,
+                  body: m.body,
+                  type: m.type,
+                  mediaName: m.mediaName ?? null,
+                  pollOptions: m.pollOptions ?? null,
+                })),
+              })
+              created.push({ id: chatId, title: meta.title })
+            }
+            toast.success(
+              created.length === 0
+                ? 'Already loaded — refreshed your list'
+                : created.length === 1
+                  ? `Demo chat ready: ${created[0].title}`
+                  : `${created.length} demo chats ready`,
+              { id: toastId }
+            )
+            onOpenChange(false)
+            onLoaded(created)
+            return
+          }
           const res = await fetch('/api/demo', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ ids }),
           })
-          const data = await res.json()
-          if (!res.ok) throw new Error(data.error ?? 'Failed')
+          const payload = await res.json()
+          if (!res.ok) throw new Error(payload.error ?? 'Failed')
           toast.success(
-            data.skipped
+            payload.skipped
               ? 'Already loaded — refreshed your list'
-              : data.created.length === 1
-                ? `Demo chat ready: ${data.created[0]}`
-                : `${data.created.length} demo chats ready`,
+              : payload.created.length === 1
+                ? `Demo chat ready: ${payload.created[0]}`
+                : `${payload.created.length} demo chats ready`,
             { id: toastId }
           )
           onOpenChange(false)
-          const created = (data.skipped
+          const created = (payload.skipped
             ? []
-            : ((data.createdIds ?? []) as string[]).map(
-                (id: string, i: number) => ({ id, title: data.created[i] })
+            : ((payload.createdIds ?? []) as string[]).map(
+                (id: string, i: number) => ({ id, title: payload.created[i] })
               )) as { id: string; title: string }[]
           onLoaded(created)
         } catch (err) {
@@ -80,7 +131,7 @@ export function DemoPickerDialog({
           setBusy(false)
         }
       },
-    [busy, onLoaded, onOpenChange]
+    [busy, onLoaded, onOpenChange, mode, data]
   )
 
   return (

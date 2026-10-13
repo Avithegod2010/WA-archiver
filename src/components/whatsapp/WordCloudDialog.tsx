@@ -3,7 +3,7 @@
 import './stats-extras.css'
 
 import { useEffect, useRef, useState } from 'react'
-import { Cloud, TriangleAlert } from 'lucide-react'
+import { Cloud, CloudOff, TriangleAlert } from 'lucide-react'
 import {
   Dialog,
   DialogContent,
@@ -11,6 +11,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
+import { useData } from './data-provider'
 import { cn } from '@/lib/utils'
 
 /** Warm palette for cloud glyphs — aligned with the app's avatar colors
@@ -51,6 +52,9 @@ export function WordCloudDialog({
 }) {
   // undefined = loading, null = fetch failed, [] / entries = loaded
   const [words, setWords] = useState<WordEntry[] | null | undefined>(undefined)
+  // Word counts are a server-side computation — device mode shows a hint
+  // instead of a request that has no on-device equivalent.
+  const { mode } = useData()
 
   // Reset the fetch state whenever the dialog opens for a (new) chat.
   // Render-time state adjustment — same pattern GlobalSearch uses.
@@ -62,7 +66,7 @@ export function WordCloudDialog({
   }
 
   useEffect(() => {
-    if (!open || !chatId) return
+    if (!open || !chatId || mode !== 'server') return
     let alive = true
     fetch(`/api/chats/${chatId}/wordcloud`, { cache: 'no-store' })
       .then((r) => {
@@ -90,7 +94,7 @@ export function WordCloudDialog({
     return () => {
       alive = false
     }
-  }, [open, chatId])
+  }, [open, chatId, mode])
 
   const loading = words === undefined
   const last = (words?.length ?? 1) - 1
@@ -111,7 +115,18 @@ export function WordCloudDialog({
         </DialogHeader>
 
         <div className="wa-scroll min-h-[160px] flex-1 overflow-y-auto overscroll-contain px-4 py-4">
-          {loading ? (
+          {mode === 'device' ? (
+            <div className="flex flex-col items-center px-4 py-10 text-center">
+              <CloudOff className="mb-2 h-6 w-6 text-(--wa-text-2)" />
+              <p className="text-[13.5px] font-medium text-(--wa-text)">
+                Insights are computed on the server
+              </p>
+              <p className="mt-1 text-[12px] text-(--wa-text-2)">
+                Switch to Server storage in Settings → Data &amp; storage to
+                see stats for server-hosted chats.
+              </p>
+            </div>
+          ) : loading ? (
             /* Loading skeleton — pulse blobs + shimmer sweep (stats-extras.css) */
             <div role="status" aria-live="polite" className="px-2 py-4">
               <span className="sr-only">Loading word cloud…</span>

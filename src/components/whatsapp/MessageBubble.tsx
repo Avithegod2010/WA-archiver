@@ -59,6 +59,7 @@ import {
   MessageActionSheet,
   QUICK_REACTIONS,
 } from './MessageActionSheet'
+import { displayMediaSrc } from './media-src'
 import { colorForName, initialsForName, type ChatMessage } from './types'
 import { cn } from '@/lib/utils'
 
@@ -747,8 +748,7 @@ function BubbleMetaRow({
 }
 
 function mediaSrc(chatId: string, msg: ChatMessage): string | null {
-  if (!msg.mediaPath) return null
-  return `/api/media/${chatId}/${encodeURIComponent(msg.mediaPath)}`
+  return displayMediaSrc(chatId, msg.mediaPath)
 }
 
 /**

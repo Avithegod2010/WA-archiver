@@ -64,6 +64,12 @@ import { ScheduledDispatchPoller } from './ScheduledDispatchPoller'
 import { useShortcuts } from './useShortcuts'
 import { WhatsAppLogo } from './icons'
 import { SAVED_CHAT_ID, type ChatDetail, type ChatSummary } from './types'
+import { DataError, importFileToDevice } from '@/lib/data'
+import {
+  DataProvider,
+  useData,
+  useMessageNormalizer,
+} from './data-provider'
 import { cn } from '@/lib/utils'
 
 // ---- Offline caches (Task 7-e #6) --------------------------------------
@@ -111,8 +117,12 @@ function cacheGet<T>(key: string): T | null {
   }
 }
 
-export function WhatsAppApp() {
+function WhatsAppAppInner() {
   const { resolvedTheme, setTheme } = useTheme()
+  // Active transport (Phase 2): 'server' = REST /api/*, 'device' = on-device
+  // SQLite-WASM. Every data flow below goes through `data`.
+  const { mode, data } = useData()
+  const normalizeMessages = useMessageNormalizer()
   const [mounted, setMounted] = useState(false)
   const [chats, setChats] = useState<ChatSummary[]>([])
   const [chatsLoading, setChatsLoading] = useState(true)
@@ -161,14 +171,30 @@ export function WhatsAppApp() {
 
   useEffect(() => setMounted(true), [])
 
+  // Device transport owns its data locally — drop any server-shape localStorage
+  // caches written there historically (they can't be trusted across modes).
+  useEffect(() => {
+    if (mode !== 'device') return
+    try {
+      localStorage.removeItem(CHATS_CACHE_KEY)
+      localStorage.removeItem('wa-viewer:last-chat')
+      const stale: string[] = []
+      for (let i = 0; i < localStorage.length; i++) {
+        const k = localStorage.key(i)
+        if (k && k.startsWith(CHAT_CACHE_PREFIX)) stale.push(k)
+      }
+      stale.forEach((k) => localStorage.removeItem(k))
+    } catch {
+      /* storage unavailable — nothing to clean */
+    }
+  }, [mode])
+
   // App-level backup reminder (Task 14-j): when a backup is due per the saved
   // cadence, a once-per-session toast offers "Back up now" — reusing the same
   // download flow as Settings' backup button.
   const runAppBackup = useCallback(async () => {
     try {
-      const res = await fetch('/api/backup', { cache: 'no-store' })
-      if (!res.ok) throw new Error('backup failed')
-      const blob = await res.blob()
+      const blob = await data.exportBackup()
       const url = URL.createObjectURL(blob)
       const a = document.createElement('a')
       a.href = url
@@ -181,7 +207,7 @@ export function WhatsAppApp() {
     } catch {
       /* offline / failed — the reminder simply returns next session */
     }
-  }, [])
+  }, [data])
   useEffect(() => {
     if (!mounted) return
     const t = setTimeout(
@@ -241,12 +267,12 @@ export function WhatsAppApp() {
 
   const refreshChats = useCallback(async () => {
     try {
-      const res = await fetch('/api/chats', { cache: 'no-store' })
-      const data = await res.json()
-      const list: ChatSummary[] = data.chats ?? []
+      const list = await data.listChats()
       setChats(list)
-      // Keep the list available for offline reads (size-guarded)
-      cacheSet(CHATS_CACHE_KEY, list)
+      // Keep the list available for offline reads (size-guarded; server
+      // transport only — device data is already local, caching it here would
+      // let a stale cross-transport copy leak back in)
+      if (mode === 'server') cacheSet(CHATS_CACHE_KEY, list)
       // The open chat is on screen — anything that changed in it (e.g. the
       // user's own sends) must not show up as an unread badge.
       const openId = activeIdRef.current
@@ -288,7 +314,7 @@ export function WhatsAppApp() {
     } finally {
       setChatsLoading(false)
     }
-  }, [])
+  }, [data, mode])
 
   // Re-sync after app-lock transitions (Task 14-c): while the lock screen is
   // up, data fetches 401 — when the user unlocks (or disables the lock in
@@ -301,8 +327,9 @@ export function WhatsAppApp() {
 
   useEffect(() => {
     refreshChats()
-    // One-shot v1→v2 demo upgrade: swap the short v1 demo conversations for
-    // the richer v2 scripts. Idempotent — a no-op once chats are on @v2.
+    // One-shot v1→v2 demo upgrade (server transport only): swap the short v1
+    // demo conversations for the richer v2 scripts. Idempotent.
+    if (mode !== 'server') return
     fetch('/api/demo', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -318,7 +345,7 @@ export function WhatsAppApp() {
         }
       })
       .catch(() => {})
-  }, [refreshChats])
+  }, [refreshChats, mode])
 
   // ---- Web Share Target (Task 10-f #2) ------------------------------------
   // Resolve the Saved Messages chat id. GET /api/chats guarantees the chat
@@ -326,24 +353,19 @@ export function WhatsAppApp() {
   // SAVED_CHAT_ID constant.
   const resolveSavedChatId = useCallback(async (): Promise<string | null> => {
     try {
-      const res = await fetch('/api/chats', { cache: 'no-store' })
-      if (!res.ok) return null
-      const data = await res.json()
-      const list: ChatSummary[] = data.chats ?? []
+      const list = await data.listChats()
       return list.some((c) => c.id === SAVED_CHAT_ID) ? SAVED_CHAT_ID : null
     } catch {
       return null
     }
-  }, [])
+  }, [data])
 
-  const postTextToSaved = useCallback(async (body: string) => {
-    const res = await fetch(`/api/chats/${SAVED_CHAT_ID}/messages`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ type: 'text', body }),
-    })
-    if (!res.ok) throw new Error('failed to save shared text')
-  }, [])
+  const postTextToSaved = useCallback(
+    async (body: string) => {
+      await data.sendMessage(SAVED_CHAT_ID, { type: 'text', body })
+    },
+    [data]
+  )
 
   /**
    * Consume incoming shared content:
@@ -397,13 +419,11 @@ export function WhatsAppApp() {
                     const file = new File([blob], f.name || 'shared-file', {
                       type: f.type || blob.type || 'application/octet-stream',
                     })
-                    const form = new FormData()
-                    form.append('file', file)
-                    const res = await fetch(
-                      `/api/chats/${savedId}/messages`,
-                      { method: 'POST', body: form }
-                    )
-                    if (!res.ok) throw new Error('shared file upload failed')
+                    await data.sendMessage(savedId, {
+                      type: 'text',
+                      media: file,
+                      mediaName: file.name,
+                    })
                     ok++
                   } catch {
                     failed++
@@ -471,7 +491,7 @@ export function WhatsAppApp() {
     } catch {
       toast.error('Could not save the shared text to Saved Messages')
     }
-  }, [resolveSavedChatId, postTextToSaved, refreshChats])
+  }, [resolveSavedChatId, postTextToSaved, refreshChats, data])
 
   // Run once after mount (all URL/localStorage reads stay client-side)
   useEffect(() => {
@@ -506,10 +526,7 @@ export function WhatsAppApp() {
     if (!enabled) return
     void (async () => {
       try {
-        const res = await fetch('/api/chats', { cache: 'no-store' })
-        if (!res.ok) return
-        const data = await res.json()
-        const list: ChatSummary[] = data.chats ?? []
+        const list = await data.listChats()
         const cutoff = Date.now() - 30 * 24 * 60 * 60 * 1000
         const stale = list.filter((c) => {
           if (!c.archived || !c.lastAt) return false
@@ -519,8 +536,8 @@ export function WhatsAppApp() {
         let deleted = 0
         for (const chat of stale) {
           try {
-            const r = await fetch(`/api/chats/${chat.id}`, { method: 'DELETE' })
-            if (r.ok) deleted++
+            await data.deleteChat(chat.id)
+            deleted++
           } catch {
             /* leave this chat in place */
           }
@@ -535,7 +552,7 @@ export function WhatsAppApp() {
         /* offline etc. — silently skip */
       }
     })()
-  }, [mounted, refreshChats])
+  }, [mounted, refreshChats, data])
 
 
   /**
@@ -581,34 +598,50 @@ export function WhatsAppApp() {
     setDetailLoading(true)
     setDetail(null)
     setPendingJumpId(jumpMessageId ?? null)
+    // The offline localStorage cache is a SERVER-transport feature. In device
+    // mode the data is already local — caching there would mix transports
+    // (a device chat id restored in server mode would show stale junk).
+    const lsCache = mode === 'server'
+    const lastChatKey =
+      mode === 'server' ? 'wa-viewer:last-chat' : 'wa-viewer:last-chat:device'
     try {
-      const res = await fetch(`/api/chats/${id}/messages`, { cache: 'no-store' })
-      if (!res.ok) throw new Error('failed')
-      const data = await res.json()
+      const fresh = await data.getChatDetail(id)
       if (seq !== openChatSeqRef.current) return // a newer openChat superseded this one
-      setDetail(data)
+      // Device transport: resolve media blobs to object URLs before render.
+      const messages = await normalizeMessages(id, fresh.messages)
+      const loaded: ChatDetail = { ...fresh, messages }
+      setDetail(loaded)
       // Keep an offline copy of this chat (size-guarded)
-      cacheSet(CHAT_CACHE_PREFIX + id, data)
+      if (lsCache) cacheSet(CHAT_CACHE_PREFIX + id, loaded)
       markChatSeen(id)
       try {
-        localStorage.setItem('wa-viewer:last-chat', id)
+        localStorage.setItem(lastChatKey, id)
       } catch {
         /* storage unavailable */
       }
-    } catch {
+    } catch (err) {
       if (seq !== openChatSeqRef.current) return
-      // Offline / failed: fall back to the cached copy when present
-      const cached = cacheGet<ChatDetail>(CHAT_CACHE_PREFIX + id)
+      // The server ANSWERED with a DataError (e.g. the chat doesn't exist on
+      // this transport — a cross-transport id) → never show a cached copy.
+      // Only true network failures get the offline cache fallback.
+      const serverAnswered = err instanceof DataError
+      const cached = !serverAnswered && lsCache
+        ? cacheGet<ChatDetail>(CHAT_CACHE_PREFIX + id)
+        : null
       if (cached && cached.chat && Array.isArray(cached.messages)) {
         setDetail(cached)
         toast.info('Offline — showing cached messages')
         markChatSeen(id)
         // activeId intentionally kept — the cached chat stays open
       } else {
-        toast.error('Could not load this chat')
+        toast.error(
+          serverAnswered && mode === 'server'
+            ? 'This chat lives in the device storage — switch storage mode in Settings to open it'
+            : 'Could not load this chat'
+        )
         setActiveId(null)
         try {
-          localStorage.removeItem('wa-viewer:last-chat')
+          localStorage.removeItem(lastChatKey)
         } catch {
           /* ignore */
         }
@@ -618,7 +651,7 @@ export function WhatsAppApp() {
         setDetailLoading(false)
       }
     }
-  }, [markChatSeen])
+  }, [markChatSeen, data, normalizeMessages, mode])
 
   // AudioDock tap (Task 12-a): open — or re-focus — the chat the currently
   // playing voice note belongs to, optionally jumping to the message.
@@ -634,16 +667,19 @@ export function WhatsAppApp() {
     return () => window.removeEventListener('wa-audio-dock-open', onDockOpen)
   }, [openChat])
 
-  // Restore the last opened chat across reloads
+  // Restore the last opened chat across reloads (key is transport-scoped —
+  // a device-mode chat id must never be restored in server mode or vice versa)
   useEffect(() => {
     let last: string | null = null
     try {
-      last = localStorage.getItem('wa-viewer:last-chat')
+      last = localStorage.getItem(
+        mode === 'server' ? 'wa-viewer:last-chat' : 'wa-viewer:last-chat:device'
+      )
     } catch {
       return
     }
     if (last) openChat(last)
-  }, [openChat])
+  }, [openChat, mode])
 
   const importFiles = useCallback(
     async (files: File[]) => {
@@ -665,22 +701,42 @@ export function WhatsAppApp() {
           files.length > 1 ? undefined : toast.loading(`Importing ${file.name}...`)
         const progressId = batchToastId ?? singleToastId
         try {
-          const form = new FormData()
-          form.append('file', file)
-          const res = await fetch('/api/import', { method: 'POST', body: form })
-          const data = await res.json()
-          if (!res.ok) {
-            throw new Error(data.error ?? 'Import failed')
-          }
+          // Device transport: parse + store entirely in the browser.
+          // Server transport: multipart upload to /api/import.
+          const result =
+            mode === 'device'
+              ? await importFileToDevice(file)
+              : await (async () => {
+                  const form = new FormData()
+                  form.append('file', file)
+                  const res = await fetch('/api/import', {
+                    method: 'POST',
+                    body: form,
+                  })
+                  const json = (await res.json().catch(() => null)) as {
+                    error?: string
+                    messages?: number
+                    mediaFiles?: number
+                    chatId?: string
+                  } | null
+                  if (!res.ok) {
+                    throw new Error(json?.error ?? 'Import failed')
+                  }
+                  return {
+                    messages: json?.messages ?? 0,
+                    mediaFiles: json?.mediaFiles ?? 0,
+                    chatId: json?.chatId,
+                  }
+                })()
           ok++
-          totalMessages += data.messages ?? 0
-          totalMedia += data.mediaFiles ?? 0
-          if (data.chatId) lastChatId = data.chatId
+          totalMessages += result.messages ?? 0
+          totalMedia += result.mediaFiles ?? 0
+          if (result.chatId) lastChatId = result.chatId
           if (files.length === 1 && progressId) {
             toast.success(
-              `Imported ${data.messages.toLocaleString()} messages${
-                data.mediaFiles > 0
-                  ? ` and ${data.mediaFiles.toLocaleString()} media files`
+              `Imported ${(result.messages ?? 0).toLocaleString()} messages${
+                (result.mediaFiles ?? 0) > 0
+                  ? ` and ${(result.mediaFiles ?? 0).toLocaleString()} media files`
                   : ''
               }`,
               { id: progressId }
@@ -722,7 +778,7 @@ export function WhatsAppApp() {
       if (lastChatId) await openChat(lastChatId)
       setImporting(false)
     },
-    [refreshChats, openChat]
+    [refreshChats, openChat, mode]
   )
 
   const loadDemo = useCallback(() => {
@@ -750,8 +806,7 @@ export function WhatsAppApp() {
     async (id: string) => {
       setDeleting(true)
       try {
-        const res = await fetch(`/api/chats/${id}`, { method: 'DELETE' })
-        if (!res.ok) throw new Error('Failed to delete')
+        await data.deleteChat(id)
         toast.success('Chat deleted')
         if (activeId === id) {
           setActiveId(null)
@@ -769,7 +824,7 @@ export function WhatsAppApp() {
         setDeleting(false)
       }
     },
-    [activeId, refreshChats]
+    [activeId, refreshChats, data]
   )
 
   const togglePin = useCallback(
@@ -780,18 +835,13 @@ export function WhatsAppApp() {
         cs.map((c) => (c.id === id ? { ...c, pinned } : c))
       )
       try {
-        const res = await fetch(`/api/chats/${id}`, {
-          method: 'PATCH',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ pinned }),
-        })
-        if (!res.ok) throw new Error('failed')
+        await data.setChatFlags(id, { pinned })
       } catch {
         setChats(prev)
         toast.error('Could not update pin')
       }
     },
-    [chats]
+    [chats, data]
   )
 
   /** Archive / unarchive a chat (DB-backed, like pinning). */
@@ -802,19 +852,14 @@ export function WhatsAppApp() {
         cs.map((c) => (c.id === id ? { ...c, archived } : c))
       )
       try {
-        const res = await fetch(`/api/chats/${id}`, {
-          method: 'PATCH',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ archived }),
-        })
-        if (!res.ok) throw new Error('failed')
+        await data.setChatFlags(id, { archived })
         toast.success(archived ? 'Chat archived' : 'Chat unarchived')
       } catch {
         setChats(prev)
         toast.error('Could not update archive')
       }
     },
-    [chats]
+    [chats, data]
   )
 
   /** Star/unstar a message: optimistic DB-backed bookmark with revert. */
@@ -831,12 +876,7 @@ export function WhatsAppApp() {
           : d
       )
       try {
-        const res = await fetch(`/api/messages/${messageId}`, {
-          method: 'PATCH',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ starred }),
-        })
-        if (!res.ok) throw new Error('failed')
+        await data.toggleStar(messageId, starred)
       } catch {
         setDetail((d) =>
           d
@@ -851,7 +891,7 @@ export function WhatsAppApp() {
         toast.error('Could not update star')
       }
     },
-    []
+    [data]
   )
 
   const totalMessages = chats.reduce((s, c) => s + c.messageCount, 0)
@@ -1124,7 +1164,11 @@ export function WhatsAppApp() {
           className="wa-offline-banner flex items-center gap-2 bg-amber-400/90 px-4 py-1 text-[12.5px] text-black"
         >
           <WifiOff className="h-3.5 w-3.5 shrink-0" aria-hidden />
-          <span>You&apos;re offline — recently opened chats are still readable.</span>
+          <span>
+            {mode === 'device'
+              ? "You're offline — everything still works, data lives on this device."
+              : "You're offline — recently opened chats are still readable."}
+          </span>
         </div>
       )}
 
@@ -1263,5 +1307,14 @@ export function WhatsAppApp() {
       {/* App lock overlay — top-most (#15) */}
       <AppLock />
     </div>
+  )
+}
+
+/** Root: supplies the active DataClient to the whole app tree. */
+export function WhatsAppApp() {
+  return (
+    <DataProvider>
+      <WhatsAppAppInner />
+    </DataProvider>
   )
 }

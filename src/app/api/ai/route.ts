@@ -92,13 +92,32 @@ export async function POST(req: NextRequest) {
   } catch {
     return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 })
   }
-  const { mode, text, chatId, question, history } = (payload ?? {}) as {
+  const { mode, text, chatId, question, history, context, persona } = (payload ?? {}) as {
     mode?: unknown
     text?: unknown
     chatId?: unknown
     question?: unknown
     history?: unknown
+    /**
+     * Pre-built transcript lines ("Sender: text", oldest first) from the
+     * device transport — replaces the server-side DB context lookup.
+     */
+    context?: unknown
+    /** Explicit reply persona (device transport already picked one). */
+    persona?: unknown
   }
+
+  /** Sanitized context lines from the device transport (null when absent). */
+  const contextLines: string[] | null = Array.isArray(context)
+    ? context
+        .filter((l): l is string => typeof l === 'string')
+        .map((l) => l.slice(0, 400))
+        .slice(0, 400)
+    : null
+  const personaName: string | null =
+    typeof persona === 'string' && persona.trim()
+      ? persona.trim().slice(0, 80)
+      : null
 
   if (
     mode !== 'translate' &&
@@ -120,68 +139,93 @@ export async function POST(req: NextRequest) {
   let userText: string
 
   if (mode === 'reply') {
-    if (typeof chatId !== 'string' || !chatId.trim()) {
-      return NextResponse.json(
-        { error: 'Field "chatId" must be a non-empty string' },
-        { status: 400 }
-      )
+    if (contextLines) {
+      // Device transport: transcript provided inline, no DB access.
+      if (!personaName) {
+        return NextResponse.json(
+          { error: 'Field "persona" is required with "context"' },
+          { status: 400 }
+        )
+      }
+      const lastLine = contextLines.at(-1)?.trim() || '…'
+      systemPrompt = `You are ${personaName} in a casual WhatsApp chat. Reply naturally to the last message as ${personaName} would — match the chat's language, tone and energy. Keep it under 40 words. Output ONLY the reply text.`
+      userText = lastLine
+    } else {
+      if (typeof chatId !== 'string' || !chatId.trim()) {
+        return NextResponse.json(
+          { error: 'Field "chatId" must be a non-empty string' },
+          { status: 400 }
+        )
+      }
+      const chat = await db.chat.findUnique({
+        where: { id: chatId },
+        select: { id: true },
+      })
+      if (!chat) {
+        return NextResponse.json({ error: 'Chat not found' }, { status: 404 })
+      }
+      const recentDesc = await db.message.findMany({
+        where: { chatId },
+        orderBy: { idx: 'desc' },
+        take: REPLY_CONTEXT_MESSAGES,
+        select: { sender: true, body: true, type: true },
+      })
+      // Persona: a non-'You' sender from those messages, most recent preferred.
+      const persona = recentDesc.find(
+        (m) => m.sender && m.sender !== 'You' && m.sender.trim()
+      )?.sender
+      if (!persona) {
+        return NextResponse.json(
+          { error: 'No one to reply as' },
+          { status: 400 }
+        )
+      }
+      const last = recentDesc[0]
+      const lastText = messageText(last.body, last.type)
+      systemPrompt = `You are ${persona} in a casual WhatsApp chat. Reply naturally to the last message as ${persona} would — match the chat's language, tone and energy. Keep it under 40 words. Output ONLY the reply text.`
+      userText = last.sender ? `${last.sender}: ${lastText}` : lastText
     }
-    const chat = await db.chat.findUnique({
-      where: { id: chatId },
-      select: { id: true },
-    })
-    if (!chat) {
-      return NextResponse.json({ error: 'Chat not found' }, { status: 404 })
-    }
-    const recentDesc = await db.message.findMany({
-      where: { chatId },
-      orderBy: { idx: 'desc' },
-      take: REPLY_CONTEXT_MESSAGES,
-      select: { sender: true, body: true, type: true },
-    })
-    // Persona: a non-'You' sender from those messages, most recent preferred.
-    const persona = recentDesc.find(
-      (m) => m.sender && m.sender !== 'You' && m.sender.trim()
-    )?.sender
-    if (!persona) {
-      return NextResponse.json(
-        { error: 'No one to reply as' },
-        { status: 400 }
-      )
-    }
-    const last = recentDesc[0]
-    const lastText = messageText(last.body, last.type)
-    systemPrompt = `You are ${persona} in a casual WhatsApp chat. Reply naturally to the last message as ${persona} would — match the chat's language, tone and energy. Keep it under 40 words. Output ONLY the reply text.`
-    userText = last.sender ? `${last.sender}: ${lastText}` : lastText
   } else if (mode === 'summarize') {
-    if (typeof chatId !== 'string' || !chatId.trim()) {
-      return NextResponse.json(
-        { error: 'Field "chatId" must be a non-empty string' },
-        { status: 400 }
-      )
+    let lines: string[]
+    if (contextLines) {
+      // Device transport: transcript provided inline, no DB access.
+      if (contextLines.length === 0) {
+        return NextResponse.json(
+          { error: 'This chat has no messages to summarize yet' },
+          { status: 400 }
+        )
+      }
+      lines = [...contextLines]
+    } else {
+      if (typeof chatId !== 'string' || !chatId.trim()) {
+        return NextResponse.json(
+          { error: 'Field "chatId" must be a non-empty string' },
+          { status: 400 }
+        )
+      }
+      const chat = await db.chat.findUnique({
+        where: { id: chatId },
+        select: { id: true },
+      })
+      if (!chat) {
+        return NextResponse.json({ error: 'Chat not found' }, { status: 404 })
+      }
+      const recentDesc = await db.message.findMany({
+        where: { chatId },
+        orderBy: { idx: 'desc' },
+        take: SUMMARIZE_CONTEXT_MESSAGES,
+        select: { sender: true, body: true, type: true },
+      })
+      if (recentDesc.length === 0) {
+        return NextResponse.json(
+          { error: 'This chat has no messages to summarize yet' },
+          { status: 400 }
+        )
+      }
+      // Chronological transcript, newest at the bottom; cap the input size by
+      // dropping the oldest lines first.
+      lines = [...recentDesc].reverse().map(transcriptLine)
     }
-    const chat = await db.chat.findUnique({
-      where: { id: chatId },
-      select: { id: true },
-    })
-    if (!chat) {
-      return NextResponse.json({ error: 'Chat not found' }, { status: 404 })
-    }
-    const recentDesc = await db.message.findMany({
-      where: { chatId },
-      orderBy: { idx: 'desc' },
-      take: SUMMARIZE_CONTEXT_MESSAGES,
-      select: { sender: true, body: true, type: true },
-    })
-    if (recentDesc.length === 0) {
-      return NextResponse.json(
-        { error: 'This chat has no messages to summarize yet' },
-        { status: 400 }
-      )
-    }
-    // Chronological transcript, newest at the bottom; cap the input size by
-    // dropping the oldest lines first.
-    const lines = [...recentDesc].reverse().map(transcriptLine)
     let transcript = lines.join('\n')
     while (transcript.length > MAX_SUMMARY_INPUT_CHARS && lines.length > 1) {
       lines.shift()
@@ -190,19 +234,6 @@ export async function POST(req: NextRequest) {
     systemPrompt = SUMMARIZE_PROMPT
     userText = `Summarize this WhatsApp chat:\n\n${transcript}`
   } else if (mode === 'ask') {
-    if (typeof chatId !== 'string' || !chatId.trim()) {
-      return NextResponse.json(
-        { error: 'Field "chatId" must be a non-empty string' },
-        { status: 400 }
-      )
-    }
-    const chat = await db.chat.findUnique({
-      where: { id: chatId },
-      select: { id: true },
-    })
-    if (!chat) {
-      return NextResponse.json({ error: 'Chat not found' }, { status: 404 })
-    }
     if (typeof question !== 'string' || !question.trim()) {
       return NextResponse.json(
         { error: 'Field "question" must be a non-empty string' },
@@ -217,18 +248,37 @@ export async function POST(req: NextRequest) {
         { status: 400 }
       )
     }
-    const recentDesc = await db.message.findMany({
-      where: { chatId },
-      orderBy: { idx: 'desc' },
-      take: ASK_CONTEXT_MESSAGES,
-      select: { sender: true, body: true, type: true },
-    })
-    // Chronological transcript; system rows are skipped, media-only messages
-    // become short placeholders, each line capped at 400 chars.
-    const askLines = [...recentDesc]
-      .reverse()
-      .filter((m) => m.type !== 'system')
-      .map(transcriptLine)
+    let askLines: string[]
+    if (contextLines) {
+      // Device transport: transcript provided inline, no DB access.
+      askLines = [...contextLines]
+    } else {
+      if (typeof chatId !== 'string' || !chatId.trim()) {
+        return NextResponse.json(
+          { error: 'Field "chatId" must be a non-empty string' },
+          { status: 400 }
+        )
+      }
+      const chat = await db.chat.findUnique({
+        where: { id: chatId },
+        select: { id: true },
+      })
+      if (!chat) {
+        return NextResponse.json({ error: 'Chat not found' }, { status: 404 })
+      }
+      const recentDesc = await db.message.findMany({
+        where: { chatId },
+        orderBy: { idx: 'desc' },
+        take: ASK_CONTEXT_MESSAGES,
+        select: { sender: true, body: true, type: true },
+      })
+      // Chronological transcript; system rows are skipped, media-only messages
+      // become short placeholders, each line capped at 400 chars.
+      askLines = [...recentDesc]
+        .reverse()
+        .filter((m) => m.type !== 'system')
+        .map(transcriptLine)
+    }
     if (askLines.length === 0) {
       return NextResponse.json(
         { error: 'This chat has no messages to ask about yet' },

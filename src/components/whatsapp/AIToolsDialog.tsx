@@ -24,6 +24,7 @@ import {
 } from '@/components/ui/dialog'
 import { cn } from '@/lib/utils'
 import { aiHeaders, getGeminiKey } from '@/lib/ai-client'
+import { useData } from './data-provider'
 import type { ChatMessage } from './types'
 
 type AiMode = 'ask' | 'translate' | 'explain'
@@ -44,6 +45,10 @@ const SUGGESTED_QUESTIONS = [
  * AI message tools — ask AI questions about the whole chat transcript, or
  * translate/explain a single message.
  * Talks to `POST /api/ai` ({ mode, … } → { ok, mode, result | answer }).
+ * On the device transport the caller also passes `onBuildContext`, so the
+ * 'ask' body carries the on-device transcript lines (`context`) and the
+ * route never touches the server DB; the server transport sends nothing
+ * extra (the route reads its own DB, as before).
  * Media-only messages have no text to analyze, so Run is disabled.
  */
 export function AIToolsDialog({
@@ -51,18 +56,23 @@ export function AIToolsDialog({
   onOpenChange,
   message,
   chatId,
+  onBuildContext,
 }: {
   open: boolean
   onOpenChange: (v: boolean) => void
   message: ChatMessage | null
   /** Chat whose transcript the Ask tab answers from (wired by ChatView). */
   chatId?: string
+  /** Device transport only: builds "Sender: text" lines (oldest first). */
+  onBuildContext?: () => string[]
 }) {
   const [mode, setMode] = useState<AiMode>('ask')
   const [running, setRunning] = useState(false)
   const [result, setResult] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [hasKey, setHasKey] = useState(false)
+  // Active transport (Phase 2) — device mode ships the transcript inline.
+  const { mode: transportMode } = useData()
 
   // Ask-tab conversation state — kept across tab switches and dialog
   // close/reopen while this component stays mounted. (ChatView remounts it
@@ -153,15 +163,21 @@ export function AIToolsDialog({
       const history = turns
         .slice(-MAX_ASK_TURNS)
         .map((t) => ({ q: t.q, a: t.a }))
+      const payload: Record<string, unknown> = {
+        mode: 'ask',
+        chatId: sentChatId,
+        question: q,
+        history,
+      }
+      // Device transport: the transcript lives on-device — ship the context
+      // lines (oldest first) so the route never touches the server DB.
+      if (transportMode === 'device' && onBuildContext) {
+        payload.context = onBuildContext()
+      }
       const res = await fetch('/api/ai', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...aiHeaders() },
-        body: JSON.stringify({
-          mode: 'ask',
-          chatId: sentChatId,
-          question: q,
-          history,
-        }),
+        body: JSON.stringify(payload),
       })
       const data = (await res.json().catch(() => null)) as
         | { ok?: boolean; answer?: string; error?: string }

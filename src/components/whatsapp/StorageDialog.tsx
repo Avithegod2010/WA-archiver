@@ -15,11 +15,14 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react'
 import {
+  Clock,
   Database,
   Files,
   FolderX,
   HardDrive,
   Images,
+  Loader2,
+  MessageSquare,
   RefreshCw,
   type LucideIcon,
 } from 'lucide-react'
@@ -32,8 +35,10 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
+import type { DeviceStatus } from '@/lib/data'
 import { cn } from '@/lib/utils'
 import { Avatar } from './Avatar'
+import { useData } from './data-provider'
 import { DeviceStorageSection } from './DeviceStorageSection'
 
 interface ChatStorageRow {
@@ -179,9 +184,31 @@ export function StorageDialog({
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [data, setData] = useState<StorageResponse | null>(null)
+  // Device transport: the /api/storage walk has no on-device equivalent —
+  // the card below reports the on-device database instead (undefined =
+  // loading, null = failed).
+  const [deviceStatus, setDeviceStatus] = useState<
+    DeviceStatus | null | undefined
+  >(undefined)
   const abortRef = useRef<AbortController | null>(null)
+  const { mode, data: dataClient } = useData()
+
+  const loadDevice = useCallback(async () => {
+    setDeviceStatus(undefined)
+    try {
+      setDeviceStatus(await dataClient.deviceStatus())
+    } catch {
+      setDeviceStatus(null)
+    }
+  }, [dataClient])
+
+  useEffect(() => {
+    if (!open || mode !== 'device') return
+    void loadDevice()
+  }, [open, mode, loadDevice])
 
   const load = useCallback(async () => {
+    if (mode === 'device') return // device mode renders loadDevice's card
     abortRef.current?.abort()
     const ctrl = new AbortController()
     abortRef.current = ctrl
@@ -217,7 +244,7 @@ export function StorageDialog({
     } finally {
       if (!ctrl.signal.aborted) setLoading(false)
     }
-  }, [])
+  }, [mode])
 
   // Fresh fetch every time the dialog opens; abort the in-flight request on
   // close so a slow response can never land after the dialog reopens.
@@ -251,6 +278,87 @@ export function StorageDialog({
         {/* On-device database (Phase 1, local-first refactor) — independent
             of the server stats below, so it renders immediately. */}
         <DeviceStorageSection visible={open} />
+
+        {/* Device transport — the on-device database summary replaces the
+            server-side media walk, which has nothing to walk on-device. */}
+        {mode === 'device' && (
+          <section
+            aria-label="Device database summary"
+            className="flex flex-col gap-2.5"
+          >
+            {deviceStatus === undefined && (
+              <div
+                className="flex items-center gap-2 py-1 text-[13px] text-(--wa-text-2)"
+                role="status"
+                aria-live="polite"
+              >
+                <Loader2 />
+                Reading the device database…
+              </div>
+            )}
+            {deviceStatus === null && (
+              <div className="flex items-center justify-between gap-2">
+                <p className="text-[12.5px] leading-snug text-amber-700 dark:text-amber-400">
+                  Could not read the device database status.
+                </p>
+                <Button
+                  variant="secondary"
+                  className="shrink-0 rounded-full"
+                  onClick={() => void loadDevice()}
+                >
+                  Retry
+                </Button>
+              </div>
+            )}
+            {deviceStatus && (
+              <>
+                <div className="grid grid-cols-3 gap-2.5">
+                  <SummaryCard
+                    icon={Database}
+                    label="Chats"
+                    value={deviceStatus.chats.toLocaleString('en-US')}
+                  />
+                  <SummaryCard
+                    icon={MessageSquare}
+                    label="Messages"
+                    value={deviceStatus.messages.toLocaleString('en-US')}
+                  />
+                  <SummaryCard
+                    icon={Files}
+                    label="Media files"
+                    value={deviceStatus.mediaFiles.toLocaleString('en-US')}
+                  />
+                </div>
+                <div className="grid grid-cols-3 gap-2.5">
+                  <SummaryCard
+                    icon={HardDrive}
+                    label="Database"
+                    value={humanSize(deviceStatus.dbBytes)}
+                  />
+                  <SummaryCard
+                    icon={Images}
+                    label="Media size"
+                    value={humanSize(deviceStatus.mediaBytes)}
+                  />
+                  <SummaryCard
+                    icon={Clock}
+                    label="Scheduled"
+                    value={deviceStatus.scheduled.toLocaleString('en-US')}
+                  />
+                </div>
+                <p className="text-[11px] leading-snug text-(--wa-text-2)">
+                  SQLite (WASM) · saved to{' '}
+                  {deviceStatus.persistence === 'opfs'
+                    ? 'the browser file system (OPFS)'
+                    : 'IndexedDB'}
+                  {deviceStatus.lastSavedAt
+                    ? ` · last write ${new Date(deviceStatus.lastSavedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}`
+                    : ''}
+                </p>
+              </>
+            )}
+          </section>
+        )}
 
         {loading && !data && (
           <div className="flex flex-col gap-3" role="status" aria-live="polite">

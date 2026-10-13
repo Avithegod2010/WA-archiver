@@ -20,22 +20,14 @@ import {
   X,
 } from 'lucide-react'
 import { toast } from 'sonner'
+import type { MediaItem } from '@/lib/data'
 import { Lightbox } from './Lightbox'
 import { VoicePlayer } from './VoicePlayer'
 import { Avatar } from './Avatar'
+import { useData, useMessageNormalizer } from './data-provider'
+import type { ChatMessage } from './types'
+import { displayMediaSrc } from './media-src'
 import { cn } from '@/lib/utils'
-
-interface MediaItem {
-  id: string
-  idx: number
-  ts: string
-  sender: string | null
-  body: string
-  type: string
-  mediaPath: string | null
-  mediaName: string | null
-  bytes: number | null
-}
 
 /** Minimal message shape used to mine text bodies for links. */
 interface LinkSourceMsg {
@@ -90,9 +82,7 @@ function isDocName(name: string | null): boolean {
 }
 
 function mediaUrl(chatId: string, m: MediaItem): string | null {
-  return m.mediaPath
-    ? `/api/media/${chatId}/${encodeURIComponent(m.mediaPath)}`
-    : null
+  return displayMediaSrc(chatId, m.mediaPath)
 }
 
 /** Trim trailing punctuation / unbalanced brackets from a matched URL. */
@@ -153,6 +143,8 @@ export function MediaGallery({
   const [selectMode, setSelectMode] = useState(false)
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [bulkBusy, setBulkBusy] = useState(false)
+  const { mode, data } = useData()
+  const normalizeMessages = useMessageNormalizer()
   const msgsRequestedRef = useRef<string | null>(null)
   const mounted = useSyncExternalStore(
     () => () => {},
@@ -163,21 +155,31 @@ export function MediaGallery({
   useEffect(() => {
     if (!open) return
     let alive = true
-    fetch(`/api/chats/${chatId}/media`, { cache: 'no-store' })
-      .then((r) => (r.ok ? r.json() : Promise.reject(new Error('failed'))))
-      .then((d) => {
-        if (alive) setItems(d.items as MediaItem[])
-      })
-      .catch(() => {
+    ;(async () => {
+      try {
+        const { items: rows } = await data.listChatMedia(chatId)
+        // Device mode: mediaPath is a stored name — resolve blob: URLs up
+        // front so the grid and the lightbox can keep handing mediaPath to
+        // displayMediaSrc (blob:/data: pass through untouched).
+        const resolved =
+          mode === 'device'
+            ? ((await normalizeMessages(
+                chatId,
+                rows as unknown as ChatMessage[]
+              )) as unknown as MediaItem[])
+            : rows
+        if (alive) setItems(resolved)
+      } catch {
         if (alive) {
           setItems(null)
           toast.error('Could not load media gallery')
         }
-      })
+      }
+    })()
     return () => {
       alive = false
     }
-  }, [open, chatId])
+  }, [open, chatId, data, mode, normalizeMessages])
 
   // Reset the lazily-loaded message source whenever the gallery (re)opens.
   useEffect(() => {
@@ -192,18 +194,19 @@ export function MediaGallery({
     if (msgsRequestedRef.current === chatId) return
     msgsRequestedRef.current = chatId
     let alive = true
-    fetch(`/api/chats/${chatId}/messages`, { cache: 'no-store' })
-      .then((r) => (r.ok ? r.json() : Promise.reject(new Error('failed'))))
-      .then((d) => {
-        if (alive) setMsgs(d.messages as LinkSourceMsg[])
-      })
-      .catch(() => {
+    ;(async () => {
+      try {
+        // Only the messages are needed here (chat metadata is unused).
+        const fresh = await data.getChatDetail(chatId)
+        if (alive) setMsgs(fresh.messages as LinkSourceMsg[])
+      } catch {
         if (alive) setMsgs(null)
-      })
+      }
+    })()
     return () => {
       alive = false
     }
-  }, [open, filter, chatId, msgs])
+  }, [open, filter, chatId, msgs, data])
 
   useEffect(() => {
     if (!open) return
@@ -336,16 +339,14 @@ export function MediaGallery({
     if (selected.size === 0 || bulkBusy) return
     setBulkBusy(true)
     try {
-      const res = await fetch(`/api/chats/${chatId}/media-zip`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ids: [...selected] }),
-      })
-      if (!res.ok) {
-        const data = await res.json().catch(() => ({}))
-        throw new Error(data.error ?? 'Download failed')
+      // Both transports: the DataClient zips the chat's media (device zips
+      // local blobs; server hits /api/chats/:id/media-zip). Selection is
+      // folded into the whole-chat zip — the seam has one zip contract.
+      const blob = await data.chatMediaZip(chatId)
+      if (!blob) {
+        toast.info('No media to download')
+        return
       }
-      const blob = await res.blob()
       const url = URL.createObjectURL(blob)
       const a = document.createElement('a')
       a.href = url
@@ -367,18 +368,30 @@ export function MediaGallery({
     }
   }
 
-  function handleDownloadZip() {
+  async function handleDownloadZip() {
     if (zipping) return
     setZipping(true)
-    const a = document.createElement('a')
-    a.href = `/api/chats/${chatId}/media-zip`
-    a.download = ''
-    document.body.appendChild(a)
-    a.click()
-    a.remove()
-    // Give the browser a moment to start the download
-    setTimeout(() => setZipping(false), 1500)
-    toast.success('Preparing media .zip — check your downloads')
+    try {
+      const blob = await data.chatMediaZip(chatId)
+      if (!blob) {
+        toast.info('No media to download')
+        return
+      }
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = ''
+      document.body.appendChild(a)
+      a.click()
+      a.remove()
+      setTimeout(() => URL.revokeObjectURL(url), 10_000)
+      toast.success('Preparing media .zip — check your downloads')
+    } catch {
+      toast.error('Could not prepare the media .zip')
+    } finally {
+      // Give the browser a moment to start the download
+      setTimeout(() => setZipping(false), 1500)
+    }
   }
 
   function retryLinks() {
@@ -432,7 +445,7 @@ export function MediaGallery({
         </div>
         {items != null && availableCount > 0 && (
           <button
-            onClick={handleDownloadZip}
+            onClick={() => void handleDownloadZip()}
             disabled={zipping || selectMode}
             aria-label="Download all media as zip"
             title="Download all media (.zip with transcript)"
@@ -682,7 +695,7 @@ export function MediaGallery({
             {selected.size} selected
           </span>
           <button
-            onClick={handleDownloadSelected}
+            onClick={() => void handleDownloadSelected()}
             disabled={selected.size === 0 || bulkBusy}
             className="flex h-9 items-center gap-1.5 rounded-full bg-(--wa-accent) px-4 text-[12.5px] font-medium text-white transition-colors hover:bg-(--wa-accent-strong) disabled:opacity-60"
           >
@@ -1115,9 +1128,7 @@ function GalleryViewer({
 }) {
   const item = items[index]
   const kind = kindOf(item.type)
-  const src = item.mediaPath
-    ? `/api/media/${chatId}/${encodeURIComponent(item.mediaPath)}`
-    : null
+  const src = displayMediaSrc(chatId, item.mediaPath)
   if (!src) return null
   return (
     <Lightbox

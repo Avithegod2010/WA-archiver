@@ -16,8 +16,10 @@ import {
   UserRound,
 } from 'lucide-react'
 import { toast } from 'sonner'
+import type { SearchChatGroup, SearchHit, SearchResult } from '@/lib/data'
 import { Avatar } from './Avatar'
 import { colorForName } from './types'
+import { useData } from './data-provider'
 import {
   Dialog,
   DialogContent,
@@ -42,30 +44,8 @@ const HIT_TYPE_META: Record<string, { icon: React.ReactNode; label: string }> = 
   media: { icon: <Film className="h-3 w-3" />, label: 'Media' },
 }
 
-interface SearchHit {
-  id: string
-  idx: number
-  ts: string
-  sender: string | null
-  body: string
-  type: string
-}
-
-interface ChatGroup {
-  id: string
-  title: string
-  isGroup: boolean
-  count: number
-  hits: SearchHit[]
-}
-
-interface SearchResponse {
-  query: string
-  totalChats: number
-  totalHits: number
-  truncated?: boolean
-  chats: ChatGroup[]
-}
+/** Per-chat result bucket (mirrors the /api/search + data.searchAll shape). */
+type ChatGroup = SearchChatGroup
 
 function formatHitTime(iso: string): string {
   const d = new Date(iso)
@@ -139,10 +119,11 @@ export function GlobalSearch({
   onOpenMessage: (chatId: string, messageId: string) => void
 }) {
   const [query, setQuery] = useState(initialQuery)
-  const [data, setData] = useState<SearchResponse | null>(null)
+  const [data, setData] = useState<SearchResult | null>(null)
   const [loading, setLoading] = useState(false)
   // Keyboard selection across the flattened result list
   const [selIdx, setSelIdx] = useState(0)
+  const { data: dataClient } = useData()
   const inputRef = useRef<HTMLInputElement>(null)
   const listRef = useRef<HTMLDivElement>(null)
   const seqRef = useRef(0)
@@ -173,7 +154,7 @@ export function GlobalSearch({
     }
     return { list, indexOf }
   }, [data])
-  const lastResultsRef = useRef<SearchResponse | null>(null)
+  const lastResultsRef = useRef<SearchResult | null>(null)
   if (data !== lastResultsRef.current) {
     lastResultsRef.current = data
     setSelIdx(0)
@@ -193,11 +174,7 @@ export function GlobalSearch({
     const seq = ++seqRef.current
     const t = setTimeout(async () => {
       try {
-        const res = await fetch(`/api/search?q=${encodeURIComponent(trimmed)}`, {
-          cache: 'no-store',
-        })
-        if (!res.ok) throw new Error('failed')
-        const json = (await res.json()) as SearchResponse
+        const json = await dataClient.searchAll(trimmed)
         if (seqRef.current === seq) setData(json)
       } catch {
         if (seqRef.current === seq) {
@@ -209,7 +186,7 @@ export function GlobalSearch({
       }
     }, 220)
     return () => clearTimeout(t)
-  }, [trimmed, open])
+  }, [trimmed, open, dataClient])
 
   // Autofocus + select the input when opened
   useEffect(() => {

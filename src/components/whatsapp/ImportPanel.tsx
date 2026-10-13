@@ -12,6 +12,12 @@ import {
   XCircle,
 } from 'lucide-react'
 import {
+  importFileToDevice,
+  LocalImportError,
+  type LocalImportProgress,
+} from '@/lib/data'
+import { useData } from './data-provider'
+import {
   Dialog,
   DialogContent,
   DialogDescription,
@@ -72,6 +78,15 @@ const KIND_LABEL: Record<string, string> = {
 }
 
 const MAX_PREVIEW_ROWS = 60
+
+/** LocalImportProgress phase → human label (device import status line). */
+const PHASE_LABEL: Record<LocalImportProgress['phase'], string> = {
+  reading: 'Reading archive…',
+  parsing: 'Parsing transcript…',
+  media: 'Storing media on this device…',
+  inserting: 'Writing to the device database…',
+  done: 'Finishing…',
+}
 
 /** NDJSON stream consumer for /api/import/stream. */
 async function consumeImportStream(
@@ -154,6 +169,9 @@ export function ImportPanel({
   onOpenChange,
   onImported,
 }: ImportPanelProps) {
+  // Device transport imports run fully in this tab (importFileToDevice);
+  // server transport keeps the streaming /api/import/stream NDJSON flow.
+  const { mode } = useData()
   const [phase, setPhase] = useState<Phase>('idle')
   const [fileName, setFileName] = useState('')
   const [chatTitle, setChatTitle] = useState('')
@@ -164,6 +182,8 @@ export function ImportPanel({
   const [importedCount, setImportedCount] = useState(0)
   const [errorMsg, setErrorMsg] = useState('')
   const [dragOver, setDragOver] = useState(false)
+  // Device import phase (null while using the server NDJSON stream).
+  const [stage, setStage] = useState<LocalImportProgress['phase'] | null>(null)
   // "Include audio files" — sent as the `includeAudio` form field ('0' skips
   // voice-note files on the server; '1'/absent keeps the default behavior).
   // Deliberately NOT reset between imports so a retry keeps the choice.
@@ -174,6 +194,9 @@ export function ImportPanel({
   const keyRef = useRef(0)
   const listRef = useRef<HTMLDivElement>(null)
   const stickRef = useRef(true)
+  // Bumped by reset() — device-import callbacks capture the value at start
+  // and drop their results when it changed (cancel/close mid-import).
+  const runIdRef = useRef(0)
 
   const reset = useCallback(() => {
     setPhase('idle')
@@ -186,7 +209,9 @@ export function ImportPanel({
     setImportedCount(0)
     setErrorMsg('')
     setDragOver(false)
+    setStage(null)
     stickRef.current = true
+    runIdRef.current += 1
   }, [])
 
   const handleOpenChange = useCallback(
@@ -219,6 +244,49 @@ export function ImportPanel({
       reset()
       setPhase('running')
       setFileName(file.name)
+
+      if (mode === 'device') {
+        // ---- device transport: parse + insert entirely in this tab ------
+        const runId = runIdRef.current
+        void (async () => {
+          try {
+            const result = await importFileToDevice(file, {
+              includeAudio,
+              onProgress: (p) => {
+                if (runIdRef.current !== runId) return
+                setStage(p.phase)
+                if (p.phase === 'media') {
+                  setTotal(p.total)
+                  setParsed(p.processed)
+                } else {
+                  setTotal(null)
+                  setParsed(0)
+                }
+              },
+            })
+            if (runIdRef.current !== runId) return
+            setChatIds([result.chatId])
+            setImportedCount(result.messages)
+            setChatTitle(result.title)
+            setStage('done')
+            setPhase('success')
+            toast.success(
+              `Imported ${result.messages.toLocaleString()} messages`
+            )
+          } catch (err) {
+            if (runIdRef.current !== runId) return
+            setErrorMsg(
+              err instanceof LocalImportError
+                ? err.message
+                : err instanceof Error
+                  ? err.message
+                  : 'Import to this device failed. Please check the file and try again.'
+            )
+            setPhase('error')
+          }
+        })()
+        return
+      }
 
       const controller = new AbortController()
       abortRef.current = controller
@@ -278,7 +346,7 @@ export function ImportPanel({
         }
       })()
     },
-    [reset, includeAudio]
+    [reset, includeAudio, mode]
   )
 
   const onPickFile = () => {
@@ -442,7 +510,8 @@ export function ImportPanel({
               </span>
               <span aria-live="polite" className="shrink-0 text-xs text-(--wa-text-2)">
                 {parsed.toLocaleString()}
-                {total ? ` / ${total.toLocaleString()}` : ''} messages…
+                {total ? ` / ${total.toLocaleString()}` : ''}{' '}
+                {stage === 'media' ? 'media files…' : 'messages…'}
               </span>
             </div>
             <Progress
@@ -460,8 +529,8 @@ export function ImportPanel({
               aria-label="Live message preview"
             >
               {rows.length === 0 ? (
-                <div className="flex h-20 items-center justify-center text-xs text-(--wa-text-2)">
-                  Waiting for the first messages…
+                <div className="flex h-20 items-center justify-center px-3 text-center text-xs text-(--wa-text-2)">
+                  {stage ? PHASE_LABEL[stage] : 'Waiting for the first messages…'}
                 </div>
               ) : (
                 <div className="divide-y divide-(--wa-line)">

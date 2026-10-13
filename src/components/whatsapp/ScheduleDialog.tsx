@@ -12,6 +12,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog'
 import { cn } from '@/lib/utils'
+import { useData } from './data-provider'
 import { fireScheduledCheck } from './ScheduledDispatchPoller'
 
 const MAX_BODY = 4000
@@ -84,6 +85,8 @@ function ScheduleForm({
   const [when, setWhen] = useState(defaultWhen)
   const [error, setError] = useState<string | null>(null)
   const [sending, setSending] = useState(false)
+  // Active transport (Phase 2) — scheduling goes through `data`.
+  const { data } = useData()
 
   const chips = (() => {
     const in1h = new Date(now.getTime() + 60 * 60 * 1000)
@@ -131,27 +134,20 @@ function ScheduleForm({
     setSending(true)
     setError(null)
     try {
-      const res = await fetch('/api/scheduled', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          chatId,
-          body: text,
-          deliverAt: at.toISOString(),
-        }),
+      await data.createScheduled({
+        chatId,
+        body: text,
+        deliverAt: at.toISOString(),
       })
-      const data = (await res.json().catch(() => null)) as
-        | { item?: unknown; error?: string }
-        | null
-      if (!res.ok || !data?.item) {
-        setError(data?.error ?? 'Could not schedule the message — try again')
-        return
-      }
       toast.success(`Message scheduled for ${niceDate(at)}`)
       onOpenChange(false)
       fireScheduledCheck()
-    } catch {
-      setError('Could not schedule the message — check your connection')
+    } catch (err) {
+      setError(
+        err instanceof Error && err.message
+          ? err.message
+          : 'Could not schedule the message — check your connection'
+      )
     } finally {
       setSending(false)
     }

@@ -3,14 +3,19 @@
 /**
  * MemoriesDialog — "On this day" memories (task 14-a).
  *
- * Self-fetching dialog: GET /api/memories (defaults to today in UTC) returns
- * messages sent on this calendar date in earlier years, grouped by year.
- * Card click → onOpenMessage(chatId, messageId) and close, so the host can
- * open the chat and jump straight to the message (WhatsAppApp.openChat
- * supports the jumpMessageId argument).
+ * Self-fetching dialog: data.memories() (server route or on-device engine,
+ * Phase 2) returns messages sent on this calendar date in earlier years,
+ * grouped by year. Card click → onOpenMessage(chatId, messageId) and close,
+ * so the host can open the chat and jump straight to the message
+ * (WhatsAppApp.openChat supports the jumpMessageId argument).
  */
 
 import { useCallback, useEffect, useRef, useState } from 'react'
+import type {
+  MemoriesResult,
+  MemoryGroup,
+  MemoryItem,
+} from '@/lib/data'
 import {
   Ban,
   BarChart3,
@@ -36,30 +41,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog'
 import { Avatar } from './Avatar'
-
-interface MemoryItem {
-  id: string
-  chatId: string
-  chatTitle: string
-  isGroup: boolean
-  sender: string | null
-  ts: string
-  type: string
-  preview: string
-  hasMedia: boolean
-  mediaName?: string
-}
-
-interface MemoryGroup {
-  key: string
-  label: string
-  items: MemoryItem[]
-}
-
-interface MemoriesResponse {
-  date: string
-  groups: MemoryGroup[]
-}
+import { useData } from './data-provider'
 
 /** Friendly chip vocabulary — mirrors the chat-list TYPE_META labels. */
 const MEDIA_META: Record<string, { label: string; icon: LucideIcon }> = {
@@ -168,48 +150,37 @@ export function MemoriesDialog({
   onOpenChange: (v: boolean) => void
   onOpenMessage?: (chatId: string, messageId: string) => void
 }) {
+  const { data: dataClient } = useData()
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [data, setData] = useState<MemoriesResponse | null>(null)
-  const abortRef = useRef<AbortController | null>(null)
+  const [data, setData] = useState<MemoriesResult | null>(null)
+  // Latest-load-wins guard: a slow device query must never land after a
+  // newer load (the old transport aborted the request; the DataClient seam
+  // has no signal, so we drop superseded results instead).
+  const seqRef = useRef(0)
 
   const load = useCallback(async () => {
-    abortRef.current?.abort()
-    const ctrl = new AbortController()
-    abortRef.current = ctrl
+    const seq = ++seqRef.current
     setLoading(true)
     setError(null)
     try {
-      const res = await fetch('/api/memories', {
-        cache: 'no-store',
-        signal: ctrl.signal,
-      })
-      const payload = (await res.json().catch(() => null)) as
-        | (MemoriesResponse & { error?: string })
-        | null
-      if (!res.ok) {
-        throw new Error(payload?.error ?? 'Could not load memories')
-      }
-      if (!payload || !Array.isArray(payload.groups)) {
-        throw new Error('Unexpected response from the server')
-      }
-      setData({ date: payload.date, groups: payload.groups })
+      const payload = await dataClient.memories()
+      if (seqRef.current !== seq) return
+      setData(payload)
     } catch (err) {
-      if (ctrl.signal.aborted) return
+      if (seqRef.current !== seq) return
       setError(
         err instanceof Error ? err.message : 'Something went wrong — try again',
       )
     } finally {
-      if (!ctrl.signal.aborted) setLoading(false)
+      if (seqRef.current === seq) setLoading(false)
     }
-  }, [])
+  }, [dataClient])
 
-  // Fresh fetch every time the dialog opens; abort the in-flight request on
-  // close so a slow response can never land after the dialog reopens.
+  // Fresh fetch every time the dialog opens.
   useEffect(() => {
     if (!open) return
     void load()
-    return () => abortRef.current?.abort()
   }, [open, load])
 
   function handleOpen(item: MemoryItem) {

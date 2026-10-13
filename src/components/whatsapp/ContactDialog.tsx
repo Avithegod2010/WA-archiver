@@ -14,6 +14,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog'
 import { initialsForName, type ChatMessage } from './types'
+import { useData, useMessageNormalizer } from './data-provider'
 import { cn } from '@/lib/utils'
 
 /** Loose phone check: digits, spaces and + ( ) - only (per WhatsApp-ish UX). */
@@ -26,7 +27,7 @@ const PHONE_RE = /^[0-9()+\-\s]+$/
  * Name (required, ≤80) + Phone (required, ≤32, loose validation). Shows a
  * live preview with an accent-gradient initials avatar.
  *
- * Sends POST /api/chats/:id/messages with:
+ * Sends a message through the DataClient with:
  *   { type: 'contact', body: JSON.stringify({ name, phone }) }
  * The created message is handed to onSent(msg) so the caller can append it
  * (same prop style Composer uses).
@@ -46,6 +47,11 @@ export function ContactDialog({
   const [phone, setPhone] = useState('')
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
+  // Active transport (Phase 2) — the send goes through `data`, and a
+  // freshly created device-mode message gets its media resolved before
+  // onSent (server mode is a passthrough).
+  const { data } = useData()
+  const normalizeMessages = useMessageNormalizer()
 
   useEffect(() => {
     if (open) {
@@ -81,17 +87,12 @@ export function ContactDialog({
     setBusy(true)
     setError('')
     try {
-      const res = await fetch(`/api/chats/${chatId}/messages`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          type: 'contact',
-          body: JSON.stringify({ name: cleanName, phone: cleanPhone }),
-        }),
+      const msg = await data.sendMessage(chatId, {
+        type: 'contact',
+        body: JSON.stringify({ name: cleanName, phone: cleanPhone }),
       })
-      const data = await res.json()
-      if (!res.ok) throw new Error(data.error ?? 'Could not send contact')
-      onSent(data.message as ChatMessage)
+      const [resolved] = await normalizeMessages(chatId, [msg])
+      onSent(resolved)
       toast.success('Contact card sent')
       onOpenChange(false)
     } catch (err) {

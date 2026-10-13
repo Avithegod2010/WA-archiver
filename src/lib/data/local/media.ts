@@ -210,3 +210,36 @@ export async function mediaBytesForChat(chatId: string): Promise<MediaStats> {
     db.close()
   }
 }
+
+/**
+ * Per-file byte sizes for one chat, keyed by the blob's base name (the
+ * message row's mediaPath). Media gallery rows use this to show sizes the
+ * same way the server route (statSync) does.
+ */
+export async function mediaBytesByName(
+  chatId: string
+): Promise<Map<string, number>> {
+  const db = await openDb()
+  try {
+    const tx = db.transaction(STORE, 'readonly')
+    const index = tx.objectStore(STORE).index(CHAT_INDEX)
+    const records = (await requestToPromise(
+      index.getAll(chatId)
+    )) as (MediaRecord & { chatId: string })[]
+    const keys = (await requestToPromise(
+      index.getAllKeys(chatId)
+    )) as IDBValidKey[]
+    const map = new Map<string, number>()
+    const prefix = `${chatId}/`
+    keys.forEach((key, i) => {
+      const raw = String(key)
+      if (!raw.startsWith(prefix)) return
+      const name = raw.slice(prefix.length)
+      const r = records[i]
+      if (name && r) map.set(name, r.size ?? r.blob?.size ?? 0)
+    })
+    return map
+  } finally {
+    db.close()
+  }
+}

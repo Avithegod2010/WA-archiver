@@ -14,6 +14,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog'
 import type { ChatMessage } from './types'
+import { useData, useMessageNormalizer } from './data-provider'
 import { cn } from '@/lib/utils'
 
 /**
@@ -96,7 +97,7 @@ type Phase = 'locating' | 'ready' | 'manual'
  * unsupported → a manual form (place label + optional lat/lng, validated
  * lat -90..90, lng -180..180).
  *
- * Sends POST /api/chats/:id/messages with:
+ * Sends a message through the DataClient with:
  *   { type: 'location', body: JSON.stringify({ lat?, lng?, label, url }) }
  * where url is the OpenStreetMap link when coords exist, else ''. The created
  * message is handed to onSent(msg) so the caller can append it (same prop
@@ -121,6 +122,11 @@ export function LocationDialog({
   const [geoNote, setGeoNote] = useState('')
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
+  // Active transport (Phase 2) — the send goes through `data`, and a
+  // freshly created device-mode message gets its media resolved before
+  // onSent (server mode is a passthrough).
+  const { data } = useData()
+  const normalizeMessages = useMessageNormalizer()
   const labelTouched = useRef(false)
 
   // On every open: reset and (re)try geolocation once.
@@ -270,17 +276,12 @@ export function LocationDialog({
     setBusy(true)
     setError('')
     try {
-      const res = await fetch(`/api/chats/${chatId}/messages`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          type: 'location',
-          body: JSON.stringify(payloadBody),
-        }),
+      const msg = await data.sendMessage(chatId, {
+        type: 'location',
+        body: JSON.stringify(payloadBody),
       })
-      const data = await res.json()
-      if (!res.ok) throw new Error(data.error ?? 'Could not send location')
-      onSent(data.message as ChatMessage)
+      const [resolved] = await normalizeMessages(chatId, [msg])
+      onSent(resolved)
       toast.success('Location sent')
       onOpenChange(false)
     } catch (err) {

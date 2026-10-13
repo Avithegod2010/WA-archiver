@@ -23,6 +23,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog'
 import { Avatar } from './Avatar'
+import { useData, useMessageNormalizer } from './data-provider'
 import type { ChatMessage } from './types'
 import { cn } from '@/lib/utils'
 
@@ -128,6 +129,8 @@ export function StarredMessages({
   onJumpToMessage: (id: string) => void
   onUnstar: (id: string) => void
 }) {
+  const { data } = useData()
+  const normalizeMessages = useMessageNormalizer()
   const [items, setItems] = useState<ChatMessage[] | null | undefined>(undefined)
   const mounted = useSyncExternalStore(
     () => () => {},
@@ -138,21 +141,28 @@ export function StarredMessages({
   useEffect(() => {
     if (!open) return
     let alive = true
-    fetch(`/api/chats/${chatId}/starred`, { cache: 'no-store' })
-      .then((r) => (r.ok ? r.json() : Promise.reject(new Error('failed'))))
-      .then((d) => {
-        if (alive) setItems(d.items as ChatMessage[])
-      })
-      .catch(() => {
+    ;(async () => {
+      try {
+        // StarredItem[] is a subset of ChatMessage — the preview renderer only
+        // reads body/type/mediaName, and the normalizer resolves mediaPath to
+        // a blob: URL in device mode (server mode is a passthrough).
+        const { items: rows } = await data.listStarred(chatId)
+        const normalized = await normalizeMessages(
+          chatId,
+          rows as unknown as ChatMessage[]
+        )
+        if (alive) setItems(normalized)
+      } catch {
         if (alive) {
           setItems(null)
           toast.error('Could not load starred messages')
         }
-      })
+      }
+    })()
     return () => {
       alive = false
     }
-  }, [open, chatId])
+  }, [open, chatId, data, normalizeMessages])
 
   function handleUnstar(id: string) {
     setItems((list) => (list ? list.filter((m) => m.id !== id) : list))

@@ -12,6 +12,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog'
 import { aiHeaders } from '@/lib/ai-client'
+import { useData } from './data-provider'
 
 interface TldrSummary {
   overview: string
@@ -50,22 +51,30 @@ function parseTldr(text: string): TldrSummary {
 
 /**
  * Controlled dialog: AI-generated TL;DR of a chat's recent messages.
- * Props: { chatId, open, onOpenChange }
+ * Props: { chatId, open, onOpenChange, onBuildContext? }
  * Talks to POST /api/ai { mode: 'summarize', chatId } → { ok, result }.
+ * On the device transport the caller also passes `onBuildContext`, so the
+ * body carries the on-device transcript lines (`context`) and the route
+ * never touches the server DB; the server transport sends nothing extra.
  */
 export function TldrDialog({
   chatId,
   open,
   onOpenChange,
+  onBuildContext,
 }: {
   chatId: string
   open: boolean
   onOpenChange: (v: boolean) => void
+  /** Device transport only: builds "Sender: text" lines (oldest first). */
+  onBuildContext?: () => string[]
 }) {
   const [loading, setLoading] = useState(false)
   const [summary, setSummary] = useState<TldrSummary | null>(null)
   const [raw, setRaw] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
+  // Active transport (Phase 2) — device mode ships the transcript inline.
+  const { mode: transportMode } = useData()
 
   async function run(id: string) {
     setLoading(true)
@@ -73,10 +82,19 @@ export function TldrDialog({
     setSummary(null)
     setRaw(null)
     try {
+      const payload: Record<string, unknown> = {
+        mode: 'summarize',
+        chatId: id,
+      }
+      // Device transport: the transcript lives on-device — ship the context
+      // lines (oldest first) so the route never touches the server DB.
+      if (transportMode === 'device' && onBuildContext) {
+        payload.context = onBuildContext()
+      }
       const res = await fetch('/api/ai', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...aiHeaders() },
-        body: JSON.stringify({ mode: 'summarize', chatId: id }),
+        body: JSON.stringify(payload),
       })
       const data = (await res.json().catch(() => null)) as
         | { ok?: boolean; result?: string; error?: string }

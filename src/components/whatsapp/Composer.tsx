@@ -35,7 +35,9 @@ import {
 import { LocationDialog } from './LocationDialog'
 import { ContactDialog } from './ContactDialog'
 import { ScheduleDialog } from './ScheduleDialog'
+import { useData, useMessageNormalizer } from './data-provider'
 import type { ChatMessage } from './types'
+import type { SendMessageInput } from '@/lib/data/types'
 import { cn } from '@/lib/utils'
 import './composer-extras.css'
 
@@ -47,8 +49,6 @@ const QUICK_EMOJIS = [
   '☀️', '🌙', '🌈', '⚽', '🚗', '✈️', '📱', '💡',
   '✅', '❌', '❓', '❗', '💬', '📌', '🔗', '📝',
 ]
-
-type ApiMessageLike = ChatMessage
 
 /** One-line preview for the reply strip when the quoted message has no text. */
 const REPLY_PLACEHOLDERS: Record<string, string> = {
@@ -75,7 +75,8 @@ function replyPreviewText(m: ChatMessage): string {
 /**
  * WhatsApp-style composer for local editing: text input with emoji picker,
  * attachment menu (photos/videos/documents) and a poll button. All sends go
- * through /api/chats/:id/messages and are attributed to "You".
+ * through the DataClient (server REST or the on-device engine) and are
+ * attributed to "You".
  *
  * Task 10-b: the composer is ACTIVE by default in every chat. When a reply
  * is pending it shows a WhatsApp-style quote strip; the send payload carries
@@ -83,7 +84,7 @@ function replyPreviewText(m: ChatMessage): string {
  *
  * Task 11: the + attach menu gains an **Audio** item (send audio files), and
  * when the input is empty the send button becomes a **mic** that records a
- * real voice note via MediaRecorder — sent through the same upload pipeline
+ * real voice note via MediaRecorder — sent through the same send pipeline
  * so it renders as a normal waveform VoicePlayer bubble.
  */
 export function Composer({
@@ -106,6 +107,11 @@ export function Composer({
 }) {
   const [text, setText] = useState('')
   const [busy, setBusy] = useState(false)
+  // Active transport (Phase 2) — sends go through `data`, and freshly
+  // created device-mode messages get their media resolved to a blob URL
+  // before being handed to onSent (server mode is a passthrough).
+  const { data } = useData()
+  const normalizeMessages = useMessageNormalizer()
   const [emojiOpen, setEmojiOpen] = useState(false)
   const [locOpen, setLocOpen] = useState(false)
   const [contactOpen, setContactOpen] = useState(false)
@@ -131,29 +137,20 @@ export function Composer({
     if (replyTo) inputRef.current?.focus()
   }, [replyTo])
 
-  async function postJson(payload: Record<string, unknown>) {
-    const res = await fetch(`/api/chats/${chatId}/messages`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload),
-    })
-    const data = await res.json()
-    if (!res.ok) throw new Error(data.error ?? 'Send failed')
-    return data.message as ApiMessageLike
+  async function postJson(payload: SendMessageInput) {
+    return data.sendMessage(chatId, payload)
   }
 
   async function postFile(file: File, caption: string, replyToId?: string) {
-    const form = new FormData()
-    form.append('file', file)
-    if (caption) form.append('caption', caption)
-    if (replyToId) form.append('replyToId', replyToId)
-    const res = await fetch(`/api/chats/${chatId}/messages`, {
-      method: 'POST',
-      body: form,
+    // Both transports infer the message type from the file; the caption
+    // maps onto `body`.
+    return data.sendMessage(chatId, {
+      type: 'text',
+      body: caption || undefined,
+      media: file,
+      mediaName: file.name,
+      replyToId,
     })
-    const data = await res.json()
-    if (!res.ok) throw new Error(data.error ?? 'Upload failed')
-    return data.message as ApiMessageLike
   }
 
   async function sendText() {
@@ -166,8 +163,9 @@ export function Composer({
         body,
         ...(replyTo ? { replyToId: replyTo.id } : {}),
       })
+      const [resolved] = await normalizeMessages(chatId, [msg])
       setText('')
-      onSent(msg)
+      onSent(resolved)
       if (replyTo) onCancelReply?.()
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Could not send message')
@@ -194,7 +192,8 @@ export function Composer({
           files.length === 1 ? caption : i === 0 && caption ? caption : '',
           i === 0 && replyTo ? replyTo.id : undefined
         )
-        onSent(msg)
+        const [resolved] = await normalizeMessages(chatId, [msg])
+        onSent(resolved)
         ok++
         if (files.length > 1 && i < files.length - 1) {
           toast.loading(`Sending ${i + 2} of ${files.length}…`, {
@@ -206,7 +205,8 @@ export function Composer({
       // (the reply, if any, was already consumed by the first attachment).
       if (files.length > 1 && caption) {
         const msg = await postJson({ type: 'text', body: caption })
-        onSent(msg)
+        const [resolved] = await normalizeMessages(chatId, [msg])
+        onSent(resolved)
       }
       setText('')
       if (replyTo) onCancelReply?.()
@@ -276,7 +276,8 @@ export function Composer({
     const t = toast.loading('Sending voice note…')
     try {
       const msg = await postFile(file, '', replyTo?.id)
-      onSent(msg)
+      const [resolved] = await normalizeMessages(chatId, [msg])
+      onSent(resolved)
       if (replyTo) onCancelReply?.()
       toast.success(`Voice note sent · ${fmtDur(seconds)}`, { id: t })
     } catch (err) {

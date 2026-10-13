@@ -21,6 +21,7 @@ import {
   markPlayed,
   subscribePlayed,
 } from './unplayed-voice'
+import { useData } from './data-provider'
 
 const BAR_COUNT = 26
 
@@ -78,6 +79,10 @@ export function VoicePlayer({
   const draggingRef = useRef(false)
   /** Seek requested before the engine knows the duration (load-then-seek). */
   const pendingSeekRef = useRef<number | null>(null)
+
+  // Active transport (Phase 2): transcribing needs the server (ffmpeg + the
+  // server-side media file), so the button is hidden on-device.
+  const { mode: transportMode } = useData()
 
   // Shared engine state — every VoicePlayer re-renders on engine changes.
   const engine = useSyncExternalStore(subscribeEngine, getEngineState, getEngineState)
@@ -326,30 +331,32 @@ export function VoicePlayer({
         {rate}×
       </button>
 
-      <button
-        type="button"
-        onClick={transcribe}
-        disabled={transcribing}
-        aria-busy={transcribing}
-        aria-label={transcribing ? 'Transcribing voice message' : 'Transcribe voice message'}
-        title="Transcribe voice message"
-        className="flex h-8 shrink-0 items-center gap-1 rounded-full bg-black/5 px-2.5 text-[11px] font-semibold text-(--wa-text-2) transition-colors hover:bg-black/10 disabled:cursor-default disabled:opacity-70 dark:bg-white/10 dark:text-(--wa-text-2) dark:hover:bg-white/15"
-      >
-        {transcribing ? (
-          <span aria-hidden="true" className="flex items-center gap-[3px] py-2">
-            {[0, 150, 300].map((delay) => (
-              <span
-                key={delay}
-                style={{ animationDelay: `${delay}ms` }}
-                className="h-1 w-1 animate-pulse rounded-full bg-current motion-reduce:animate-none"
-              />
-            ))}
-          </span>
-        ) : (
-          <AudioLines aria-hidden="true" className="h-3.5 w-3.5" />
-        )}
-        <span className="hidden min-[420px]:inline">Transcribe</span>
-      </button>
+      {transportMode !== 'device' && (
+        <button
+          type="button"
+          onClick={transcribe}
+          disabled={transcribing}
+          aria-busy={transcribing}
+          aria-label={transcribing ? 'Transcribing voice message' : 'Transcribe voice message'}
+          title="Transcribe voice message"
+          className="flex h-8 shrink-0 items-center gap-1 rounded-full bg-black/5 px-2.5 text-[11px] font-semibold text-(--wa-text-2) transition-colors hover:bg-black/10 disabled:cursor-default disabled:opacity-70 dark:bg-white/10 dark:text-(--wa-text-2) dark:hover:bg-white/15"
+        >
+          {transcribing ? (
+            <span aria-hidden="true" className="flex items-center gap-[3px] py-2">
+              {[0, 150, 300].map((delay) => (
+                <span
+                  key={delay}
+                  style={{ animationDelay: `${delay}ms` }}
+                  className="h-1 w-1 animate-pulse rounded-full bg-current motion-reduce:animate-none"
+                />
+              ))}
+            </span>
+          ) : (
+            <AudioLines aria-hidden="true" className="h-3.5 w-3.5" />
+          )}
+          <span className="hidden min-[420px]:inline">Transcribe</span>
+        </button>
+      )}
 
       {/* Metadata-only element: duration preview for tracks not yet played
           through the shared engine (this element never plays). */}
