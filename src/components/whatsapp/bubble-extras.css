@@ -1,0 +1,366 @@
+/* bubble-extras.css — MessageBubble extras (tasks 7-c / 8 / 10-a).
+   Reaction chips, double-click heart burst, long-press squish,
+   reply quotes, swipe-to-reply, inline edit, link previews,
+   chromeless stickers, GIF badge, quote-jump flash.
+   Uses theme vars / currentColor only; motion-reduce safe. */
+
+/* Reaction pills: springy pop-in — fills BACKWARDS so hover/active
+   transforms on the pill still work after the entrance settles */
+@keyframes wa-chip-pop {
+  0% {
+    transform: scale(0.3) translateY(5px);
+    opacity: 0;
+  }
+  62% {
+    transform: scale(1.14) translateY(0);
+    opacity: 1;
+  }
+  100% {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+
+.wa-chip-pop {
+  animation: wa-chip-pop 0.28s cubic-bezier(0.34, 1.56, 0.64, 1) backwards;
+  will-change: transform, opacity;
+}
+
+/* Telegram-style floor row: pills sit inside the bubble above the seam */
+@keyframes wa-pill-land {
+  0% {
+    transform: translateY(6px);
+    opacity: 0;
+  }
+  100% {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+.wa-pill-land {
+  animation: wa-pill-land 0.24s cubic-bezier(0.22, 1, 0.36, 1) backwards;
+}
+
+/* Double-click heart: floats up from the cursor and fades (700ms) */
+@keyframes wa-heart-float {
+  0% {
+    transform: translate(-50%, -40%) scale(0.4);
+    opacity: 0;
+  }
+  18% {
+    transform: translate(-50%, -75%) scale(1.25);
+    opacity: 1;
+  }
+  100% {
+    transform: translate(-50%, -230%) scale(1.5);
+    opacity: 0;
+  }
+}
+
+.wa-heart-float {
+  position: fixed;
+  z-index: 80;
+  pointer-events: none;
+  font-size: 30px;
+  line-height: 1;
+  filter: drop-shadow(0 2px 6px rgb(0 0 0 / 0.25));
+  animation: wa-heart-float 0.7s ease-out forwards;
+  will-change: transform, opacity;
+}
+
+/* Gentle squish while long-pressing on coarse pointers (150ms) */
+.wa-pressing-bubble {
+  transform: scale(0.97);
+  transition: transform 150ms ease;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .wa-chip-pop {
+    animation: none;
+    transform: none;
+    opacity: 1;
+  }
+  .wa-pill-land {
+    animation: none;
+    transform: none;
+    opacity: 1;
+  }
+  .wa-heart-float {
+    animation: none;
+    opacity: 0;
+  }
+  .wa-pressing-bubble {
+    transition: none;
+  }
+}
+
+/* ------------------------------------------------------------------ */
+/* Task 10-a: reply quotes, swipe-to-reply, inline edit, link preview, */
+/* chromeless stickers, GIF badge                                      */
+/* ------------------------------------------------------------------ */
+
+/* Quoted block inside a bubble (accent bar + sender + 2-line body) */
+.wa-quote {
+  display: flex;
+  gap: 8px;
+  width: 100%;
+  max-width: 340px;
+  margin-bottom: 3px;
+  padding: 4px 8px 4px 6px;
+  border-radius: 5px;
+  overflow: hidden;
+  text-align: left;
+  cursor: pointer;
+  background: rgb(0 0 0 / 0.055);
+  transition:
+    background-color 140ms ease,
+    transform 140ms ease;
+}
+.wa-quote:hover {
+  background: rgb(0 0 0 / 0.09);
+}
+.wa-quote:active {
+  transform: scale(0.99);
+}
+.wa-quote:focus-visible {
+  outline: 2px solid var(--wa-accent);
+  outline-offset: 1px;
+}
+.dark .wa-quote {
+  background: rgb(255 255 255 / 0.07);
+}
+.dark .wa-quote:hover {
+  background: rgb(255 255 255 / 0.11);
+}
+/* Non-interactive variant (selection mode): no pointer affordance */
+.wa-quote-static,
+.wa-quote-static:hover {
+  cursor: default;
+  transform: none;
+}
+.wa-quote-bar {
+  flex: none;
+  width: 3.5px;
+  align-self: stretch;
+  border-radius: 999px;
+}
+.wa-quote-name {
+  display: block;
+  font-size: 12.5px;
+  font-weight: 600;
+  line-height: 1.25;
+}
+.wa-quote-body {
+  display: -webkit-box;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  font-size: 13px;
+  line-height: 1.3;
+  color: var(--wa-text-2);
+  word-break: break-word;
+}
+
+/* Flash on the jumped-to message wrapper (matches ChatView jump highlight) */
+@keyframes wa-quote-flash-bg {
+  0%,
+  100% {
+    background-color: transparent;
+    box-shadow: none;
+  }
+  18% {
+    background-color: rgb(254 243 199 / 0.55);
+    box-shadow: 0 0 0 1px rgb(251 191 36 / 0.6);
+  }
+  70% {
+    background-color: rgb(254 243 199 / 0.45);
+    box-shadow: 0 0 0 1px rgb(251 191 36 / 0.5);
+  }
+}
+.wa-quote-flash {
+  animation: wa-quote-flash-bg 1.6s ease-out;
+  border-radius: 0.5rem;
+}
+
+/* Swipe-to-reply affordance */
+.wa-swipe-hint {
+  color: var(--wa-accent);
+  transition: opacity 140ms ease;
+}
+/* Chromeless stickers still need a host for the overlay timestamp */
+.wa-sticker-host {
+  position: relative;
+  background: transparent;
+}
+.wa-sticker-img {
+  filter: drop-shadow(0 1px 2px rgb(0 0 0 / 0.16));
+}
+.wa-sticker-time {
+  position: absolute;
+  right: 6px;
+  bottom: 5px;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: rgb(0 0 0 / 0.5);
+  color: rgb(255 255 255 / 0.92);
+  font-size: 10.5px;
+  line-height: 1.5;
+  backdrop-filter: blur(2px);
+}
+.wa-gif-badge {
+  position: absolute;
+  top: 6px;
+  left: 6px;
+  padding: 0 5px;
+  border-radius: 4px;
+  background: rgb(0 0 0 / 0.55);
+  color: #fff;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  line-height: 1.5;
+  pointer-events: none;
+  backdrop-filter: blur(2px);
+}
+
+/* Inline edit composer */
+.wa-edit-area {
+  display: block;
+  width: 100%;
+  min-height: 2.1em;
+  max-height: 160px;
+  resize: none;
+  border: 0;
+  outline: 0;
+  background: rgb(255 255 255 / 0.55);
+  border-radius: 6px;
+  padding: 5px 8px;
+  font: inherit;
+  line-height: 1.34;
+  color: var(--wa-text);
+}
+.dark .wa-edit-area {
+  background: rgb(255 255 255 / 0.1);
+}
+.wa-edit-area:focus-visible {
+  box-shadow: 0 0 0 2px var(--wa-accent);
+}
+.wa-edit-btn {
+  display: inline-flex;
+  height: 44px;
+  width: 44px;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  color: var(--wa-text-2);
+  transition:
+    background-color 120ms ease,
+    transform 120ms ease;
+}
+.wa-edit-btn:hover {
+  background: rgb(0 0 0 / 0.07);
+}
+.wa-edit-btn:active {
+  transform: scale(0.92);
+}
+.wa-edit-btn:disabled {
+  opacity: 0.45;
+  pointer-events: none;
+}
+.wa-edit-btn-save {
+  color: var(--wa-accent-strong);
+}
+.dark .wa-edit-btn-save {
+  color: var(--wa-accent);
+}
+.dark .wa-edit-btn:hover {
+  background: rgb(255 255 255 / 0.09);
+}
+
+/* Link preview card (text messages) */
+.wa-linkprev {
+  display: block;
+  overflow: hidden;
+  margin-bottom: 4px;
+  border-radius: 6px;
+  background: rgb(0 0 0 / 0.05);
+  transition: background-color 140ms ease;
+}
+.wa-linkprev:hover {
+  background: rgb(0 0 0 / 0.085);
+}
+.wa-linkprev:focus-visible {
+  outline: 2px solid var(--wa-accent);
+  outline-offset: 1px;
+}
+.dark .wa-linkprev {
+  background: rgb(255 255 255 / 0.06);
+}
+.dark .wa-linkprev:hover {
+  background: rgb(255 255 255 / 0.1);
+}
+.wa-linkprev-img {
+  display: block;
+  height: 10rem;
+  width: 100%;
+  object-fit: cover;
+}
+.wa-linkprev-body {
+  display: block;
+  padding: 6px 9px 7px;
+}
+.wa-linkprev-host {
+  display: block;
+  font-size: 11.5px;
+  font-weight: 500;
+  color: var(--wa-text-2);
+}
+.wa-linkprev-title {
+  display: -webkit-box;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  font-size: 13.5px;
+  font-weight: 500;
+  line-height: 1.3;
+  color: var(--wa-text);
+}
+.wa-linkprev-desc {
+  display: -webkit-box;
+  overflow: hidden;
+  margin-top: 2px;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  font-size: 12.5px;
+  line-height: 1.35;
+  color: var(--wa-text-2);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .wa-quote {
+    transition: none;
+  }
+  .wa-quote:active {
+    transform: none;
+  }
+  .wa-quote-flash {
+    animation: none;
+    background-color: rgb(254 243 199 / 0.4);
+    box-shadow: 0 0 0 1px rgb(251 191 36 / 0.5);
+  }
+  .wa-swipe-hint {
+    transition: none;
+  }
+  .wa-edit-btn,
+  .wa-linkprev {
+    transition: none;
+  }
+  .wa-edit-btn:active {
+    transform: none;
+  }
+}

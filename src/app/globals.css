@@ -1,0 +1,814 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+
+@custom-variant dark (&:is(.dark *));
+
+/* WhatsApp-style slim scrollbars for chat panes */
+.wa-scroll {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(0, 0, 0, 0.2) transparent;
+}
+.wa-scroll::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+.wa-scroll::-webkit-scrollbar-track {
+  background: transparent;
+}
+.wa-scroll::-webkit-scrollbar-thumb {
+  background: rgba(0, 0, 0, 0.18);
+  border-radius: 3px;
+}
+.wa-scroll::-webkit-scrollbar-thumb:hover {
+  background: rgba(0, 0, 0, 0.32);
+}
+.dark .wa-scroll {
+  scrollbar-color: rgba(255, 255, 255, 0.2) transparent;
+}
+.dark .wa-scroll::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.18);
+}
+.dark .wa-scroll::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.32);
+}
+
+/* ---------------------------------------------------------------------------
+   Motion system — reusable entrance/feedback animations used across the app
+--------------------------------------------------------------------------- */
+@keyframes wa-fade-up {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+@keyframes wa-pop {
+  0% {
+    opacity: 0;
+    transform: scale(0.82);
+  }
+  60% {
+    opacity: 1;
+    transform: scale(1.04);
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+@keyframes wa-slide-right {
+  from {
+    opacity: 0;
+    transform: translateX(18px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+@keyframes wa-ring-pulse {
+  0% {
+    box-shadow: 0 0 0 0 rgba(0, 168, 132, 0.55);
+  }
+  70% {
+    box-shadow: 0 0 0 12px rgba(0, 168, 132, 0);
+  }
+  100% {
+    box-shadow: 0 0 0 0 rgba(0, 168, 132, 0);
+  }
+}
+@keyframes wa-heartbeat {
+  0%,
+  100% {
+    transform: scale(1);
+  }
+  25% {
+    transform: scale(1.18);
+  }
+  45% {
+    transform: scale(0.94);
+  }
+  65% {
+    transform: scale(1.1);
+  }
+}
+
+.anim-fade-up {
+  animation: wa-fade-up 0.34s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+.anim-pop {
+  animation: wa-pop 0.28s cubic-bezier(0.34, 1.56, 0.64, 1) both;
+}
+.anim-slide-right {
+  animation: wa-slide-right 0.3s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+/* Fired on the Saved Messages row when a message flies into it */
+.wa-pulse-ring {
+  animation:
+    wa-ring-pulse 0.9s ease-out both,
+    wa-heartbeat 0.9s ease-in-out both;
+  border-radius: 9999px;
+}
+
+/* Press + hover feedback for icon buttons across headers/toolbars:
+   hover → the icon springs bigger; click → squish + a soft ripple ring */
+.wa-iconbtn {
+  position: relative;
+  transition:
+    transform 0.18s cubic-bezier(0.34, 1.56, 0.64, 1),
+    background-color 0.15s ease,
+    color 0.15s ease;
+}
+.wa-iconbtn svg {
+  transition: transform 0.22s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+.wa-iconbtn:active {
+  transform: scale(0.86);
+}
+.wa-iconbtn:active svg {
+  transform: scale(0.9);
+}
+@media (hover: hover) {
+  .wa-iconbtn:hover svg {
+    transform: scale(1.18);
+  }
+}
+.wa-iconbtn::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: currentColor;
+  opacity: 0;
+  pointer-events: none;
+}
+.wa-iconbtn:active::after {
+  animation: wa-click-ring 0.42s ease-out;
+}
+@keyframes wa-click-ring {
+  0% {
+    opacity: 0.2;
+    transform: scale(0.55);
+  }
+  100% {
+    opacity: 0;
+    transform: scale(1.3);
+  }
+}
+
+/* Chat/group info dialog — sections cascade in, bars and fills grow */
+.wa-info-sec {
+  animation: wa-fade-up 0.42s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+.wa-info-sec:nth-child(1) { animation-delay: 0.05s; }
+.wa-info-sec:nth-child(2) { animation-delay: 0.1s; }
+.wa-info-sec:nth-child(3) { animation-delay: 0.15s; }
+.wa-info-sec:nth-child(4) { animation-delay: 0.2s; }
+.wa-info-sec:nth-child(5) { animation-delay: 0.25s; }
+.wa-info-sec:nth-child(6) { animation-delay: 0.3s; }
+.wa-info-sec:nth-child(7) { animation-delay: 0.35s; }
+.wa-info-sec:nth-child(8) { animation-delay: 0.4s; }
+.wa-info-sec:nth-child(n + 9) { animation-delay: 0.45s; }
+.wa-bar {
+  transform-origin: bottom;
+  animation: wa-bar-up 0.6s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+@keyframes wa-bar-up {
+  from {
+    transform: scaleY(0);
+  }
+}
+.wa-fill {
+  transform-origin: left center;
+  animation: wa-fill-x 0.65s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+@keyframes wa-fill-x {
+  from {
+    transform: scaleX(0);
+  }
+}
+
+/* Respect users who prefer minimal motion everywhere */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* ---------------------------------------------------------------------------
+   WhatsApp Viewer themes — CSS variables that drive the ENTIRE app surface:
+   top bar, side panel, chat header, conversation wallpaper, incoming &
+   outgoing bubbles, text tones, dividers, row states and link colors.
+   The active theme is set as `data-wa-theme` on <html>; dark variants
+   activate via `.dark`. Components use Tailwind 4 var shorthand:
+   bg-(--wa-accent), text-(--wa-text-2)…
+--------------------------------------------------------------------------- */
+
+:root {
+  --wa-doodle: rgba(0, 0, 0, 0.05);
+}
+.dark {
+  --wa-doodle: rgba(255, 255, 255, 0.05);
+}
+
+:root,
+[data-wa-theme='classic'] {
+  --wa-appbar: #008069;
+  --wa-accent: #00a884;
+  --wa-accent-strong: #008069;
+  --wa-out: #d9fdd3;
+  --wa-panel: #ffffff;
+  --wa-panel-2: #f0f2f5;
+  --wa-chat-bg: #efeae2;
+  --wa-in: #ffffff;
+  --wa-deep: #222e35;
+  --wa-text: #111b21;
+  --wa-text-2: #667781;
+  --wa-line: rgba(11, 20, 26, 0.1);
+  --wa-row-hover: #f5f6f6;
+  --wa-row-active: #f0f2f5;
+  --wa-link: #027eb5;
+}
+.dark:not([data-wa-theme]),
+.dark[data-wa-theme='classic'] {
+  --wa-appbar: #1f2c33;
+  --wa-accent: #00a884;
+  --wa-accent-strong: #6fd3b6;
+  --wa-out: #005c4b;
+  --wa-panel: #111b21;
+  --wa-panel-2: #202c33;
+  --wa-chat-bg: #0b141a;
+  --wa-in: #202c33;
+  --wa-deep: #0b141a;
+  --wa-text: #e9edef;
+  --wa-text-2: #8696a0;
+  --wa-line: rgba(255, 255, 255, 0.08);
+  --wa-row-hover: #202c33;
+  --wa-row-active: #2a3942;
+  --wa-link: #53bdeb;
+}
+
+[data-wa-theme='telegram'] {
+  --wa-appbar: #3390ec;
+  --wa-accent: #3390ec;
+  --wa-accent-strong: #1c7cd6;
+  --wa-out: #effdde;
+  --wa-panel: #ffffff;
+  --wa-panel-2: #f1f4f8;
+  --wa-chat-bg: #dfe6ec;
+  --wa-in: #ffffff;
+  --wa-deep: #17212b;
+  --wa-text: #1c1e21;
+  --wa-text-2: #707a86;
+  --wa-line: rgba(20, 40, 60, 0.1);
+  --wa-row-hover: #f0f4f8;
+  --wa-row-active: #e4eef8;
+  --wa-link: #1c7cd6;
+}
+.dark[data-wa-theme='telegram'] {
+  --wa-appbar: #17212b;
+  --wa-accent: #6ab3f3;
+  --wa-accent-strong: #7ab8f5;
+  --wa-out: #2b5278;
+  --wa-panel: #17212b;
+  --wa-panel-2: #1e2b37;
+  --wa-chat-bg: #0e1621;
+  --wa-in: #182533;
+  --wa-deep: #0e1621;
+  --wa-text: #eef4f9;
+  --wa-text-2: #8a99a8;
+  --wa-line: rgba(255, 255, 255, 0.08);
+  --wa-row-hover: #202b36;
+  --wa-row-active: #24354a;
+  --wa-link: #6ab3f3;
+}
+
+[data-wa-theme='sunset'] {
+  --wa-appbar: #c2410c;
+  --wa-accent: #ea580c;
+  --wa-accent-strong: #9a3412;
+  --wa-out: #ffe8d6;
+  --wa-panel: #fffbf8;
+  --wa-panel-2: #fdf0e6;
+  --wa-chat-bg: #f7ead9;
+  --wa-in: #fff8f2;
+  --wa-deep: #341a0d;
+  --wa-text: #2b1a10;
+  --wa-text-2: #8d6e5c;
+  --wa-line: rgba(120, 60, 20, 0.14);
+  --wa-row-hover: #fbeee3;
+  --wa-row-active: #fae3d2;
+  --wa-link: #c2570c;
+}
+.dark[data-wa-theme='sunset'] {
+  --wa-appbar: #431f14;
+  --wa-accent: #fb923c;
+  --wa-accent-strong: #fdba74;
+  --wa-out: #7c2d12;
+  --wa-panel: #241109;
+  --wa-panel-2: #362014;
+  --wa-chat-bg: #1a0e06;
+  --wa-in: #362014;
+  --wa-deep: #1a0e06;
+  --wa-text: #f5ece5;
+  --wa-text-2: #c2a190;
+  --wa-line: rgba(255, 255, 255, 0.08);
+  --wa-row-hover: #3a2315;
+  --wa-row-active: #43281a;
+  --wa-link: #fdba74;
+}
+
+[data-wa-theme='violet'] {
+  --wa-appbar: #6d28d9;
+  --wa-accent: #8b5cf6;
+  --wa-accent-strong: #5b21b6;
+  --wa-out: #ece4fe;
+  --wa-panel: #fdfcff;
+  --wa-panel-2: #f3effc;
+  --wa-chat-bg: #ede8f5;
+  --wa-in: #ffffff;
+  --wa-deep: #241838;
+  --wa-text: #251c3f;
+  --wa-text-2: #6f6489;
+  --wa-line: rgba(90, 50, 160, 0.13);
+  --wa-row-hover: #f2edfb;
+  --wa-row-active: #eae2f9;
+  --wa-link: #7c3aed;
+}
+.dark[data-wa-theme='violet'] {
+  --wa-appbar: #221536;
+  --wa-accent: #a78bfa;
+  --wa-accent-strong: #c4b5fd;
+  --wa-out: #4c3a80;
+  --wa-panel: #170f26;
+  --wa-panel-2: #241a3a;
+  --wa-chat-bg: #0f0a19;
+  --wa-in: #241a3a;
+  --wa-deep: #0f0a19;
+  --wa-text: #ece7f6;
+  --wa-text-2: #a497c4;
+  --wa-line: rgba(255, 255, 255, 0.08);
+  --wa-row-hover: #2a1f44;
+  --wa-row-active: #322554;
+  --wa-link: #a78bfa;
+}
+
+[data-wa-theme='rose'] {
+  --wa-appbar: #be185d;
+  --wa-accent: #e11d48;
+  --wa-accent-strong: #9f1239;
+  --wa-out: #ffe4e9;
+  --wa-panel: #fffbfc;
+  --wa-panel-2: #fdecf0;
+  --wa-chat-bg: #f6e6ea;
+  --wa-in: #ffffff;
+  --wa-deep: #330d1f;
+  --wa-text: #331021;
+  --wa-text-2: #996075;
+  --wa-line: rgba(180, 30, 80, 0.13);
+  --wa-row-hover: #fdeef2;
+  --wa-row-active: #fce2ea;
+  --wa-link: #be123c;
+}
+.dark[data-wa-theme='rose'] {
+  --wa-appbar: #3d0c24;
+  --wa-accent: #fb7185;
+  --wa-accent-strong: #fda4af;
+  --wa-out: #7a1f33;
+  --wa-panel: #260a17;
+  --wa-panel-2: #38121f;
+  --wa-chat-bg: #170509;
+  --wa-in: #38121f;
+  --wa-deep: #170509;
+  --wa-text: #f8e9ee;
+  --wa-text-2: #c99dab;
+  --wa-line: rgba(255, 255, 255, 0.08);
+  --wa-row-hover: #3d1622;
+  --wa-row-active: #4a1c2b;
+  --wa-link: #fb7185;
+}
+
+[data-wa-theme='ocean'] {
+  --wa-appbar: #0f766e;
+  --wa-accent: #14b8a6;
+  --wa-accent-strong: #115e59;
+  --wa-out: #d7f5ef;
+  --wa-panel: #fbfefd;
+  --wa-panel-2: #ecf5f3;
+  --wa-chat-bg: #e2efec;
+  --wa-in: #ffffff;
+  --wa-deep: #0c2724;
+  --wa-text: #0c201d;
+  --wa-text-2: #5d7a75;
+  --wa-line: rgba(10, 80, 70, 0.13);
+  --wa-row-hover: #ebf4f2;
+  --wa-row-active: #dcefeb;
+  --wa-link: #0f766e;
+}
+.dark[data-wa-theme='ocean'] {
+  --wa-appbar: #0a1f1d;
+  --wa-accent: #2dd4bf;
+  --wa-accent-strong: #5eead4;
+  --wa-out: #0f3d38;
+  --wa-panel: #071716;
+  --wa-panel-2: #0e2724;
+  --wa-chat-bg: #04100f;
+  --wa-in: #0e2724;
+  --wa-deep: #04100f;
+  --wa-text: #e4f1ef;
+  --wa-text-2: #8fb0aa;
+  --wa-line: rgba(255, 255, 255, 0.08);
+  --wa-row-hover: #123230;
+  --wa-row-active: #173d3a;
+  --wa-link: #2dd4bf;
+}
+
+[data-wa-theme='graphite'] {
+  --wa-appbar: #37474f;
+  --wa-accent: #607d8b;
+  --wa-accent-strong: #37474f;
+  --wa-out: #e2e5e9;
+  --wa-panel: #ffffff;
+  --wa-panel-2: #eceff1;
+  --wa-chat-bg: #e3e7ea;
+  --wa-in: #ffffff;
+  --wa-deep: #232e34;
+  --wa-text: #1c262b;
+  --wa-text-2: #607080;
+  --wa-line: rgba(30, 45, 55, 0.13);
+  --wa-row-hover: #f0f2f4;
+  --wa-row-active: #e5e9ec;
+  --wa-link: #46616e;
+}
+.dark[data-wa-theme='graphite'] {
+  --wa-appbar: #1a2327;
+  --wa-accent: #90a4ae;
+  --wa-accent-strong: #b0bec5;
+  --wa-out: #3a4a52;
+  --wa-panel: #151d21;
+  --wa-panel-2: #222d33;
+  --wa-chat-bg: #0e1518;
+  --wa-in: #222d33;
+  --wa-deep: #0e1518;
+  --wa-text: #e8edef;
+  --wa-text-2: #93a4ad;
+  --wa-line: rgba(255, 255, 255, 0.08);
+  --wa-row-hover: #263339;
+  --wa-row-active: #2d3b42;
+  --wa-link: #90a4ae;
+}
+
+[data-wa-theme='midnight'] {
+  --wa-appbar: #1e293b;
+  --wa-accent: #0ea5e9;
+  --wa-accent-strong: #0369a1;
+  --wa-out: #d8ecfa;
+  --wa-panel: #ffffff;
+  --wa-panel-2: #eef2f7;
+  --wa-chat-bg: #e4eaf2;
+  --wa-in: #ffffff;
+  --wa-deep: #16213a;
+  --wa-text: #172033;
+  --wa-text-2: #64748b;
+  --wa-line: rgba(30, 50, 80, 0.13);
+  --wa-row-hover: #f0f4f9;
+  --wa-row-active: #e5edf7;
+  --wa-link: #0284c7;
+}
+.dark[data-wa-theme='midnight'] {
+  --wa-appbar: #0b1220;
+  --wa-accent: #38bdf8;
+  --wa-accent-strong: #7dd3fc;
+  --wa-out: #1e3a5f;
+  --wa-panel: #0c1424;
+  --wa-panel-2: #16213a;
+  --wa-chat-bg: #060b16;
+  --wa-in: #16213a;
+  --wa-deep: #060b16;
+  --wa-text: #e5edf7;
+  --wa-text-2: #8ea3c0;
+  --wa-line: rgba(255, 255, 255, 0.08);
+  --wa-row-hover: #1b2946;
+  --wa-row-active: #223158;
+  --wa-link: #38bdf8;
+}
+
+/* ---------------------------------------------------------------------------
+   Wallpaper building blocks
+   1) .wp-base   — user-chosen base color (light + optional dark variant via
+                   --wp-base / --wp-base-dark; falls back to the default bg)
+   2) .wpat-*    — color-agnostic pattern overlays rendered as MASKS so any
+                   pattern can sit on top of ANY color. The visible ink is a
+                   single adaptive tint (--wpat-tint) for light/dark modes.
+   3) .wp-aurora / .wp-dunes — kept as complete pre-built scenes
+--------------------------------------------------------------------------- */
+.wp-base {
+  background-color: var(--wp-base, var(--wa-chat-bg));
+}
+.dark .wp-base {
+  background-color: var(--wp-base-dark, var(--wp-base, var(--wa-chat-bg)));
+}
+
+:root {
+  --wpat-tint: rgba(0, 0, 0, 0.075);
+}
+.dark {
+  --wpat-tint: rgba(255, 255, 255, 0.075);
+}
+.wpat-bg {
+  background-color: var(--wpat-tint);
+  -webkit-mask-repeat: repeat;
+  mask-repeat: repeat;
+}
+.wpat-dots {
+  -webkit-mask-image: radial-gradient(circle, #000 2.2px, transparent 2.7px);
+  mask-image: radial-gradient(circle, #000 2.2px, transparent 2.7px);
+  -webkit-mask-size: 26px 26px;
+  mask-size: 26px 26px;
+}
+.wpat-confetti {
+  -webkit-mask-image:
+    radial-gradient(circle at 12px 14px, #000 3px, transparent 3.5px),
+    radial-gradient(circle at 58px 30px, #000 2.5px, transparent 3px),
+    radial-gradient(circle at 34px 66px, #000 3px, transparent 3.5px),
+    radial-gradient(circle at 76px 78px, #000 2px, transparent 2.5px);
+  mask-image:
+    radial-gradient(circle at 12px 14px, #000 3px, transparent 3.5px),
+    radial-gradient(circle at 58px 30px, #000 2.5px, transparent 3px),
+    radial-gradient(circle at 34px 66px, #000 3px, transparent 3.5px),
+    radial-gradient(circle at 76px 78px, #000 2px, transparent 2.5px);
+  -webkit-mask-size: 92px 92px;
+  mask-size: 92px 92px;
+}
+.wpat-stripes {
+  -webkit-mask-image: repeating-linear-gradient(45deg, #000 0 10px, transparent 10px 24px);
+  mask-image: repeating-linear-gradient(45deg, #000 0 10px, transparent 10px 24px);
+}
+.wpat-grid {
+  -webkit-mask-image:
+    linear-gradient(#000 1px, transparent 1px),
+    linear-gradient(90deg, #000 1px, transparent 1px),
+    linear-gradient(#000 1px, transparent 1px),
+    linear-gradient(90deg, #000 1px, transparent 1px);
+  mask-image:
+    linear-gradient(#000 1px, transparent 1px),
+    linear-gradient(90deg, #000 1px, transparent 1px),
+    linear-gradient(#000 1px, transparent 1px),
+    linear-gradient(90deg, #000 1px, transparent 1px);
+  -webkit-mask-size: 96px 96px, 96px 96px, 24px 24px, 24px 24px;
+  mask-size: 96px 96px, 96px 96px, 24px 24px, 24px 24px;
+}
+.wpat-plaid {
+  -webkit-mask-image:
+    repeating-linear-gradient(0deg, #000 0 14px, transparent 14px 44px),
+    repeating-linear-gradient(90deg, #000 0 14px, transparent 14px 44px),
+    repeating-linear-gradient(0deg, #000 0 2px, transparent 2px 44px),
+    repeating-linear-gradient(90deg, #000 0 2px, transparent 2px 44px);
+  mask-image:
+    repeating-linear-gradient(0deg, #000 0 14px, transparent 14px 44px),
+    repeating-linear-gradient(90deg, #000 0 14px, transparent 14px 44px),
+    repeating-linear-gradient(0deg, #000 0 2px, transparent 2px 44px),
+    repeating-linear-gradient(90deg, #000 0 2px, transparent 2px 44px);
+}
+.wpat-chevron {
+  -webkit-mask-image:
+    linear-gradient(135deg, #000 25%, transparent 25%),
+    linear-gradient(225deg, #000 25%, transparent 25%),
+    linear-gradient(315deg, #000 25%, transparent 25%),
+    linear-gradient(45deg, #000 25%, transparent 25%);
+  mask-image:
+    linear-gradient(135deg, #000 25%, transparent 25%),
+    linear-gradient(225deg, #000 25%, transparent 25%),
+    linear-gradient(315deg, #000 25%, transparent 25%),
+    linear-gradient(45deg, #000 25%, transparent 25%);
+  -webkit-mask-size: 36px 36px;
+  mask-size: 36px 36px;
+}
+.wpat-waves {
+  -webkit-mask-image:
+    radial-gradient(circle at 50% 110%, #000 14px, transparent 15px),
+    radial-gradient(circle at 0 110%, #000 14px, transparent 15px),
+    radial-gradient(circle at 100% 110%, #000 14px, transparent 15px);
+  mask-image:
+    radial-gradient(circle at 50% 110%, #000 14px, transparent 15px),
+    radial-gradient(circle at 0 110%, #000 14px, transparent 15px),
+    radial-gradient(circle at 100% 110%, #000 14px, transparent 15px);
+  -webkit-mask-size: 52px 30px;
+  mask-size: 52px 30px;
+}
+.wpat-rings {
+  -webkit-mask-image:
+    repeating-radial-gradient(circle at 28% 18%, #000 0 10px, transparent 10px 36px),
+    repeating-radial-gradient(circle at 88% 92%, #000 0 12px, transparent 12px 46px);
+  mask-image:
+    repeating-radial-gradient(circle at 28% 18%, #000 0 10px, transparent 10px 36px),
+    repeating-radial-gradient(circle at 88% 92%, #000 0 12px, transparent 12px 46px);
+}
+.wpat-bubbles {
+  -webkit-mask-image:
+    radial-gradient(circle at 25% 30%, #000 14px, transparent 15px),
+    radial-gradient(circle at 75% 70%, #000 22px, transparent 23px),
+    radial-gradient(circle at 18% 84%, #000 9px, transparent 10px),
+    radial-gradient(circle at 86% 14%, #000 7px, transparent 8px);
+  mask-image:
+    radial-gradient(circle at 25% 30%, #000 14px, transparent 15px),
+    radial-gradient(circle at 75% 70%, #000 22px, transparent 23px),
+    radial-gradient(circle at 18% 84%, #000 9px, transparent 10px),
+    radial-gradient(circle at 86% 14%, #000 7px, transparent 8px);
+  -webkit-mask-size: 130px 130px;
+  mask-size: 130px 130px;
+}
+.wpat-sparkle {
+  -webkit-mask-image:
+    radial-gradient(circle, #000 1.5px, transparent 2.1px),
+    radial-gradient(circle, #000 1px, transparent 1.6px);
+  mask-image:
+    radial-gradient(circle, #000 1.5px, transparent 2.1px),
+    radial-gradient(circle, #000 1px, transparent 1.6px);
+  -webkit-mask-size: 34px 34px;
+  mask-size: 34px 34px;
+  -webkit-mask-position: 0 0, 17px 17px;
+  mask-position: 0 0, 17px 17px;
+}
+.wpat-hearts {
+  -webkit-mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='40' height='40' viewBox='0 0 24 24'%3E%3Cpath fill='%23000' d='M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z'/%3E%3C/svg%3E");
+  mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='40' height='40' viewBox='0 0 24 24'%3E%3Cpath fill='%23000' d='M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z'/%3E%3C/svg%3E");
+  -webkit-mask-size: 40px 40px;
+  mask-size: 40px 40px;
+}
+.wpat-stars {
+  -webkit-mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='46' height='46' viewBox='0 0 24 24'%3E%3Cpath fill='%23000' d='M12 6.2l1.35 4.45L17.8 12l-4.45 1.35L12 17.8l-1.35-4.45L6.2 12l4.45-1.35z'/%3E%3C/svg%3E");
+  mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='46' height='46' viewBox='0 0 24 24'%3E%3Cpath fill='%23000' d='M12 6.2l1.35 4.45L17.8 12l-4.45 1.35L12 17.8l-1.35-4.45L6.2 12l4.45-1.35z'/%3E%3C/svg%3E");
+  -webkit-mask-size: 46px 46px;
+  mask-size: 46px 46px;
+}
+.wp-aurora {
+  background-color: #eef0fa;
+  background-image:
+    radial-gradient(ellipse 60% 50% at 15% 20%, rgba(120, 150, 240, 0.22), transparent 70%),
+    radial-gradient(ellipse 50% 40% at 85% 30%, rgba(160, 120, 230, 0.18), transparent 70%),
+    radial-gradient(ellipse 55% 45% at 70% 85%, rgba(90, 190, 200, 0.2), transparent 70%),
+    radial-gradient(ellipse 45% 40% at 25% 90%, rgba(240, 150, 180, 0.14), transparent 70%);
+}
+.dark .wp-aurora {
+  background-color: #0d0f1d;
+  background-image:
+    radial-gradient(ellipse 60% 50% at 15% 20%, rgba(90, 110, 220, 0.18), transparent 70%),
+    radial-gradient(ellipse 50% 40% at 85% 30%, rgba(130, 90, 210, 0.14), transparent 70%),
+    radial-gradient(ellipse 55% 45% at 70% 85%, rgba(50, 150, 160, 0.14), transparent 70%),
+    radial-gradient(ellipse 45% 40% at 25% 90%, rgba(200, 100, 140, 0.09), transparent 70%);
+}
+.wp-dunes {
+  background-color: #f9edd8;
+  background-image:
+    radial-gradient(ellipse 90% 60% at 80% 112%, rgba(222, 160, 90, 0.32), transparent 62%),
+    radial-gradient(ellipse 80% 50% at 12% 116%, rgba(230, 180, 120, 0.28), transparent 62%),
+    radial-gradient(circle at 78% 10%, rgba(242, 194, 112, 0.5) 26px, transparent 27px);
+}
+.dark .wp-dunes {
+  background-color: #171006;
+  background-image:
+    radial-gradient(ellipse 90% 60% at 80% 112%, rgba(180, 120, 60, 0.24), transparent 62%),
+    radial-gradient(ellipse 80% 50% at 12% 116%, rgba(150, 110, 60, 0.2), transparent 62%),
+    radial-gradient(circle at 78% 10%, rgba(220, 170, 90, 0.32) 26px, transparent 27px);
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+  --color-sidebar-ring: var(--sidebar-ring);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar: var(--sidebar);
+  --color-chart-5: var(--chart-5);
+  --color-chart-4: var(--chart-4);
+  --color-chart-3: var(--chart-3);
+  --color-chart-2: var(--chart-2);
+  --color-chart-1: var(--chart-1);
+  --color-ring: var(--ring);
+  --color-input: var(--input);
+  --color-border: var(--border);
+  --color-destructive: var(--destructive);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-accent: var(--accent);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-muted: var(--muted);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-secondary: var(--secondary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-primary: var(--primary);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-popover: var(--popover);
+  --color-card-foreground: var(--card-foreground);
+  --color-card: var(--card);
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+}
+
+:root {
+  --radius: 0.625rem;
+  --background: oklch(1 0 0);
+  --foreground: oklch(0.145 0 0);
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.145 0 0);
+  --popover: oklch(1 0 0);
+  --popover-foreground: oklch(0.145 0 0);
+  --primary: oklch(0.205 0 0);
+  --primary-foreground: oklch(0.985 0 0);
+  --secondary: oklch(0.97 0 0);
+  --secondary-foreground: oklch(0.205 0 0);
+  --muted: oklch(0.97 0 0);
+  --muted-foreground: oklch(0.556 0 0);
+  --accent: oklch(0.97 0 0);
+  --accent-foreground: oklch(0.205 0 0);
+  --destructive: oklch(0.577 0.245 27.325);
+  --border: oklch(0.922 0 0);
+  --input: oklch(0.922 0 0);
+  --ring: oklch(0.708 0 0);
+  --chart-1: oklch(0.646 0.222 41.116);
+  --chart-2: oklch(0.6 0.118 184.704);
+  --chart-3: oklch(0.398 0.07 227.392);
+  --chart-4: oklch(0.828 0.189 84.429);
+  --chart-5: oklch(0.769 0.188 70.08);
+  --sidebar: oklch(0.985 0 0);
+  --sidebar-foreground: oklch(0.145 0 0);
+  --sidebar-primary: oklch(0.205 0 0);
+  --sidebar-primary-foreground: oklch(0.985 0 0);
+  --sidebar-accent: oklch(0.97 0 0);
+  --sidebar-accent-foreground: oklch(0.205 0 0);
+  --sidebar-border: oklch(0.922 0 0);
+  --sidebar-ring: oklch(0.708 0 0);
+}
+
+.dark {
+  --background: oklch(0.145 0 0);
+  --foreground: oklch(0.985 0 0);
+  --card: oklch(0.205 0 0);
+  --card-foreground: oklch(0.985 0 0);
+  --popover: oklch(0.205 0 0);
+  --popover-foreground: oklch(0.985 0 0);
+  --primary: oklch(0.922 0 0);
+  --primary-foreground: oklch(0.205 0 0);
+  --secondary: oklch(0.269 0 0);
+  --secondary-foreground: oklch(0.985 0 0);
+  --muted: oklch(0.269 0 0);
+  --muted-foreground: oklch(0.708 0 0);
+  --accent: oklch(0.269 0 0);
+  --accent-foreground: oklch(0.985 0 0);
+  --destructive: oklch(0.704 0.191 22.216);
+  --border: oklch(1 0 0 / 10%);
+  --input: oklch(1 0 0 / 15%);
+  --ring: oklch(0.556 0 0);
+  --chart-1: oklch(0.488 0.243 264.376);
+  --chart-2: oklch(0.696 0.17 162.48);
+  --chart-3: oklch(0.769 0.188 70.08);
+  --chart-4: oklch(0.627 0.265 303.9);
+  --chart-5: oklch(0.645 0.246 16.439);
+  --sidebar: oklch(0.205 0 0);
+  --sidebar-foreground: oklch(0.985 0 0);
+  --sidebar-primary: oklch(0.488 0.243 264.376);
+  --sidebar-primary-foreground: oklch(0.985 0 0);
+  --sidebar-accent: oklch(0.269 0 0);
+  --sidebar-accent-foreground: oklch(0.985 0 0);
+  --sidebar-border: oklch(1 0 0 / 10%);
+  --sidebar-ring: oklch(0.556 0 0);
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  body {
+    @apply bg-background text-foreground;
+  }
+  /* Theme-aware app surfaces: every shadcn dialog/popover/card that reads
+     bg-background / text-foreground follows the active wa-theme panel tone */
+  [data-wa-theme] {
+    --background: var(--wa-panel);
+    --foreground: var(--wa-text);
+  }
+  /* Smooth repaint when switching themes from the settings popover */
+  html.theme-switching *,
+  html.theme-switching {
+    transition:
+      background-color 260ms ease,
+      border-color 260ms ease,
+      color 260ms ease !important;
+  }
+}

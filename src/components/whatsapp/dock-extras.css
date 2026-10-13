@@ -1,0 +1,73 @@
+/*
+ * Task 12-a — AudioDock motion styles (imported by AudioDock.tsx).
+ * Everything here is progressive polish; the dock is fully usable without it.
+ */
+
+/* Dock entrance: subtle rise + fade (Telegram-style mini player pop-in). */
+.wa-dock-in {
+  animation: wa-dock-in 200ms cubic-bezier(0.2, 0.9, 0.3, 1) both;
+}
+@keyframes wa-dock-in {
+  from {
+    opacity: 0;
+    transform: translateY(10px) scale(0.97);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+/* Seek progress ring around the avatar + bottom progress bar. */
+.wa-dock-ring {
+  transition: stroke-dashoffset 160ms linear;
+}
+.wa-dock-bar {
+  transition: transform 160ms linear;
+}
+
+/* Soft breathing glow on the avatar while a voice note is playing. */
+.wa-dock-avatar-pulse {
+  animation: wa-dock-pulse 2.4s ease-in-out infinite;
+}
+@keyframes wa-dock-pulse {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 color-mix(in srgb, var(--wa-accent) 35%, transparent);
+  }
+  50% {
+    box-shadow: 0 0 0 5px color-mix(in srgb, var(--wa-accent) 0%, transparent);
+  }
+}
+
+/*
+ * Flash on the target message when the dock is tapped: a one-shot accent
+ * halo. Applied to the element matching [data-msg-id="<messageId>"].
+ */
+.wa-dock-flash {
+  animation: wa-dock-flash-kf 1.15s ease-out 1;
+}
+@keyframes wa-dock-flash-kf {
+  0% {
+    box-shadow: 0 0 0 0 color-mix(in srgb, var(--wa-accent) 55%, transparent);
+  }
+  70% {
+    box-shadow: 0 0 0 10px color-mix(in srgb, var(--wa-accent) 0%, transparent);
+  }
+  100% {
+    box-shadow: 0 0 0 0 color-mix(in srgb, var(--wa-accent) 0%, transparent);
+  }
+}
+
+/* Reduced motion: ring/bar jump without transition, no pulses/flashes. */
+@media (prefers-reduced-motion: reduce) {
+  .wa-dock-in,
+  .wa-dock-flash,
+  .wa-dock-avatar-pulse {
+    animation: none;
+  }
+  .wa-dock-ring,
+  .wa-dock-bar {
+    transition: none;
+  }
+}

@@ -1,0 +1,3511 @@
+'use client'
+
+import './chat-extras.css'
+
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  useSyncExternalStore,
+} from 'react'
+import { toast } from 'sonner'
+import {
+  ArrowDown,
+  ArrowDownToLine,
+  ArrowLeft,
+  ArrowUpToLine,
+  Bot,
+  Braces,
+  CalendarClock,
+  CalendarDays,
+  ChevronDown,
+  ChevronUp,
+  Copy,
+  Download,
+  Eye,
+  FileArchive,
+  FileCode2,
+  FileText,
+  Forward,
+  Hash,
+  Images,
+  Languages,
+  ListChecks,
+  Loader2,
+  Lock,
+  MoreVertical,
+  Palette,
+  Pencil,
+  Pin,
+  PinOff,
+  Printer,
+  Regex,
+  Search,
+  Sheet,
+  SlidersHorizontal,
+  Sparkles,
+  Star,
+  Trash2,
+  TriangleAlert,
+  Wand2,
+  X,
+  Info,
+} from 'lucide-react'
+import { Avatar, SavedAvatar } from './Avatar'
+import { MessageBubble } from './MessageBubble'
+import { ChatInfo } from './ChatInfo'
+import { MediaGallery } from './MediaGallery'
+import { StarredMessages } from './StarredMessages'
+import { Composer } from './Composer'
+import { ForwardDialog } from './ForwardDialog'
+import { PollDialog } from './PollDialog'
+import { WallpaperPicker } from './WallpaperPicker'
+import { AIToolsDialog } from './AIToolsDialog'
+import { MovieMode } from './MovieMode'
+import { TimelineScrubber, type ScrubMonth } from './TimelineScrubber'
+import { WordCloudDialog } from './WordCloudDialog'
+import { TldrDialog } from './TldrDialog'
+import { CHAT_THEME_EVENT, readChatAccent } from './chat-theme'
+import { DoodleBackground } from './icons'
+import {
+  GLOBAL_WALLPAPER_KEY,
+  presetByKey,
+  readWallpaper,
+  subscribeWallpaper,
+  type WallpaperConfig,
+} from './wallpaper'
+import { SAVED_CHAT_ID, type ChatDetail, type ChatMessage } from './types'
+import {
+  derivePersona,
+  fetchAiReply,
+  isDemoSource,
+  pickPersonaReply,
+  readAutoReplyEnabled,
+  writeAutoReplyEnabled,
+} from '@/lib/persona-engine'
+
+type SchedItem = {
+  id: string
+  body: string
+  sender: string
+  deliverAt: string
+}
+import { cn } from '@/lib/utils'
+import { Button } from '@/components/ui/button'
+import { Switch } from '@/components/ui/switch'
+import { Input } from '@/components/ui/input'
+import { Textarea } from '@/components/ui/textarea'
+import { Calendar, CalendarDayButton } from '@/components/ui/calendar'
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu'
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog'
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from '@/components/ui/popover'
+import {
+  TEXT_SIZES,
+  getTextSize,
+  subscribeTextSize,
+  type TextSizeKey,
+} from './text-size'
+
+const PAGE_SIZE = 300
+
+/* ---------- 14-f: unread boundary (pre-open seen capture) ---------- */
+
+/**
+ * `wa-viewer:seen-chats` = Record<chatId, { lastAt: string; count: number }>
+ * (chat-folders.ts contract): lastAt is the chat summary's lastAt — a FULL
+ * ISO datetime (the ts of the newest message known to the chat list when the
+ * chat was marked seen), count is chat.messageCount at that moment. Full
+ * timestamp granularity, so the unread test is a millisecond comparison; no
+ * date-only fallback is needed.
+ */
+const SEEN_STORAGE_KEY = 'wa-viewer:seen-chats'
+
+/**
+ * Raw snapshot of the seen map taken BEFORE the current chat-open write.
+ *
+ * WhatsAppApp.openChat() marks the chat seen (markChatSeen) in the same
+ * synchronous block as the setDetail() that first renders the transcript.
+ * React commits that render before ChatView's capture effect gets a chance
+ * to read localStorage, so a naive read at capture time would already see
+ * the POST-write value. To recover the pre-open watermark we snapshot the
+ * raw string on every pointerdown/keydown in the CAPTURE phase (fires
+ * before the click/keyboard handler that triggers openChat, while
+ * markChatSeen itself only writes after the open fetch resolves), plus once
+ * at module evaluation, which covers the restore-last-chat auto-open that
+ * happens with no user input at all.
+ */
+let preOpenSeenRaw: string | null = null
+if (typeof window !== 'undefined') {
+  const snapshotSeen = () => {
+    try {
+      preOpenSeenRaw = window.localStorage.getItem(SEEN_STORAGE_KEY)
+    } catch {
+      /* storage unavailable — keep the previous snapshot */
+    }
+  }
+  snapshotSeen()
+  window.addEventListener('pointerdown', snapshotSeen, true)
+  window.addEventListener('keydown', snapshotSeen, true)
+}
+
+type SeenEntryLike = { lastAt: string; count: number } | null
+
+/** Parse the pre-open seen entry for one chat (never throws). */
+function readPreOpenSeenEntry(chatId: string): SeenEntryLike {
+  let raw = preOpenSeenRaw
+  if (raw == null && typeof window !== 'undefined') {
+    try {
+      raw = window.localStorage.getItem(SEEN_STORAGE_KEY)
+    } catch {
+      raw = null
+    }
+  }
+  if (!raw) return null
+  try {
+    const map = JSON.parse(raw) as Record<string, unknown> | null
+    const e = map ? map[chatId] : null
+    if (!e || typeof e !== 'object') return null
+    const o = e as Record<string, unknown>
+    const lastAt = typeof o.lastAt === 'string' ? o.lastAt : ''
+    const count =
+      typeof o.count === 'number' && Number.isFinite(o.count)
+        ? Math.floor(o.count)
+        : -1
+    if (!lastAt && count < 0) return null
+    return { lastAt, count }
+  } catch {
+    return null
+  }
+}
+
+/**
+ * First unread incoming message for a chat, given its PRE-OPEN seen entry.
+ * A message is unread when its sender is not "You" (outgoing never counts),
+ * it is not a system row, and it sits after the seen watermark:
+ *  - primary rule: ts > entry.lastAt (both ISO datetimes from the same
+ *    server clock — messages equal to or older than the watermark were seen);
+ *  - when lastAt is ''/unparseable (chat was marked seen while empty) fall
+ *    back to the ordinal rule: index >= entry.count (rows beyond the count
+ *    that existed when it was last seen).
+ * No seen entry at all (first-ever open of an imported chat) → no unread.
+ */
+function computeUnreadBoundary(
+  entry: SeenEntryLike,
+  messages: { id: string; ts: string; sender: string | null; type: string }[]
+): { id: string } | null {
+  if (!entry) return null
+  const lastAtMs = Date.parse(entry.lastAt)
+  const useTs = !Number.isNaN(lastAtMs)
+  if (!useTs && entry.count < 0) return null
+  for (let i = 0; i < messages.length; i++) {
+    const m = messages[i]
+    if (!m.sender || m.sender === 'You' || m.type === 'system') continue
+    if (useTs) {
+      const tsMs = Date.parse(m.ts)
+      if (Number.isNaN(tsMs) || tsMs <= lastAtMs) continue
+    } else if (i < entry.count) {
+      continue
+    }
+    return { id: m.id }
+  }
+  return null
+}
+
+/**
+ * Per-session record of how many messages each chat's transcript had when it
+ * was last on screen. This is what makes RE-opens work: markChatSeen() writes
+ * the chat LIST's lastAt, which stays stale until the next list refresh — so
+ * on a second open within the same session the persisted seen entry cannot
+ * distinguish "already displayed" from "arrived since". Anything beyond the
+ * recorded count is new-to-me; the first incoming one anchors the divider.
+ * (First open of a session falls back to the persisted seen entry instead.)
+ */
+const sessionDisplayedCount = new Map<string, number>()
+
+/* ---------------- 10-i: link preview orchestration ---------------- */
+
+type LinkPreviewData = NonNullable<ChatMessage['linkPreview']>
+
+/** Robust URL finder for message bodies (same shape as the gallery extractor). */
+const MESSAGE_URL_RE = /https?:\/\/[^\s<>"'`{}|\\^\[\]]+/i
+
+/** First http(s) URL in a text body, with trailing punctuation trimmed. */
+function firstUrlIn(text: string): string | null {
+  const m = MESSAGE_URL_RE.exec(text)
+  if (!m) return null
+  let url = m[0].replace(/[.,;:!?'"”’)\]»>]+$/, '')
+  // Balance trailing parentheses: keep them only when they open inside
+  const opens = (url.match(/\(/g) ?? []).length
+  const closes = (url.match(/\)/g) ?? []).length
+  if (closes > opens) {
+    const cut = url.lastIndexOf('(')
+    if (cut > 0) url = url.slice(0, cut)
+  }
+  return url || null
+}
+
+/** Module-level per-URL cache so chat switches render previews instantly. */
+const linkPreviewCache = new Map<string, LinkPreviewData | null>()
+/** Cap on the module cache (evict oldest — Map keeps insertion order). */
+const LINK_PREVIEW_CACHE_MAX = 300
+/** In-flight fetches per URL (dedupes concurrent workers). */
+const linkPreviewInflight = new Map<string, Promise<LinkPreviewData | null>>()
+/** Max messages per chat that get a link preview lookup (document order). */
+const LINK_PREVIEW_CAP = 24
+
+function cachePreview(url: string, preview: LinkPreviewData | null) {
+  linkPreviewCache.set(url, preview)
+  if (linkPreviewCache.size > LINK_PREVIEW_CACHE_MAX) {
+    const oldest = linkPreviewCache.keys().next().value
+    if (oldest !== undefined) linkPreviewCache.delete(oldest)
+  }
+}
+
+/** Defensive parse of the /api/link-preview payload (never throws). */
+function parsePreviewPayload(data: unknown): LinkPreviewData | null {
+  const preview = (data as { ok?: unknown; preview?: unknown } | null)?.preview
+  if (!preview || typeof preview !== 'object') return null
+  const p = preview as Record<string, unknown>
+  if (typeof p.url !== 'string' || typeof p.title !== 'string' || !p.title) {
+    return null
+  }
+  return {
+    url: p.url,
+    title: p.title,
+    description: typeof p.description === 'string' ? p.description : undefined,
+    siteName: typeof p.siteName === 'string' ? p.siteName : undefined,
+    image: typeof p.image === 'string' ? p.image : undefined,
+  }
+}
+
+/* ------------------------- Chat wallpaper (v2) ------------------------- */
+
+/** Reactive wallpaper config: per-chat override → app default → classic. */
+function useWallpaperConfig(chatId: string): WallpaperConfig {
+  const getSnapshot = useCallback(() => {
+    try {
+      return (
+        localStorage.getItem(`wa-viewer:wallpaper:${chatId}`) ??
+        localStorage.getItem(GLOBAL_WALLPAPER_KEY) ??
+        ''
+      )
+    } catch {
+      return ''
+    }
+  }, [chatId])
+  const raw = useSyncExternalStore(subscribeWallpaper, getSnapshot, () => '')
+  return useMemo(() => readWallpaper(chatId), [chatId, raw])
+}
+
+function prefersReducedMotion(): boolean {
+  return (
+    typeof window !== 'undefined' &&
+    window.matchMedia('(prefers-reduced-motion: reduce)').matches
+  )
+}
+
+/**
+ * Telegram-style save animation: clone the bubble in place and fly it into
+ * the Saved Messages row (or the app logo on mobile), shrinking + fading,
+ * then pulse the destination avatar.
+ */
+function flyBubbleToSaved(msgId: string, staggerIdx: number) {
+  if (typeof document === 'undefined' || prefersReducedMotion()) return
+  const bubble = document.querySelector(
+    `[data-mid="${msgId}"] [data-bubble]`
+  ) as HTMLElement | null
+  if (!bubble) return
+  const target =
+    (document.querySelector('[data-saved-avatar]') as HTMLElement | null) ??
+    (document.querySelector('[data-app-logo]') as HTMLElement | null)
+  if (!target) return
+
+  const from = bubble.getBoundingClientRect()
+  const to = target.getBoundingClientRect()
+  if (!from.width || !to.width) return
+
+  const ghost = bubble.cloneNode(true) as HTMLElement
+  ghost.setAttribute('aria-hidden', 'true')
+  ghost.style.cssText = `position:fixed;left:${from.left}px;top:${from.top}px;width:${from.width}px;min-height:${from.height}px;margin:0;max-width:none;z-index:80;pointer-events:none;border-radius:7.5px;box-shadow:0 12px 32px rgba(0,0,0,0.28);will-change:transform,opacity;`
+  document.body.appendChild(ghost)
+
+  const dx = to.left + to.width / 2 - (from.left + from.width / 2)
+  const dy = to.top + to.height / 2 - (from.top + from.height / 2)
+  const anim = ghost.animate(
+    [
+      { transform: 'translate(0,0) scale(1)', opacity: 1 },
+      {
+        transform: `translate(${dx * 0.35}px, ${dy * 0.35 - 36}px) scale(0.72)`,
+        opacity: 0.96,
+        offset: 0.42,
+      },
+      { transform: `translate(${dx}px, ${dy}px) scale(0.06)`, opacity: 0 },
+    ],
+    {
+      duration: 640,
+      delay: staggerIdx * 85,
+      easing: 'cubic-bezier(0.3, 0.72, 0.4, 1)',
+      fill: 'forwards',
+    }
+  )
+  anim.onfinish = () => {
+    ghost.remove()
+    // Heartbeat pulse on the destination avatar (retriggerable)
+    target.classList.remove('wa-pulse-ring')
+    void target.offsetWidth
+    target.classList.add('wa-pulse-ring')
+    window.setTimeout(() => target.classList.remove('wa-pulse-ring'), 950)
+  }
+}
+
+function formatDayLabel(d: Date): string {
+  const now = new Date()
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate())
+  const target = new Date(d.getFullYear(), d.getMonth(), d.getDate())
+  const diffDays = Math.round((today.getTime() - target.getTime()) / 86400000)
+  if (diffDays === 0) return 'TODAY'
+  if (diffDays === 1) return 'YESTERDAY'
+  return target
+    .toLocaleDateString('en-GB', {
+      day: 'numeric',
+      month: 'long',
+      year: 'numeric',
+    })
+    .toUpperCase()
+}
+
+function dayKey(iso: string): string {
+  const d = new Date(iso)
+  return `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`
+}
+
+/* ------------------- 7-d helpers (pins / print / AI) ------------------- */
+
+/** Deterministic string hash (same recipe as colorForName in types.ts). */
+function hashStr(s: string): number {
+  let hash = 0
+  for (let i = 0; i < s.length; i++) {
+    hash = (hash * 31 + s.charCodeAt(i)) >>> 0
+  }
+  return hash
+}
+
+/** Reactions map shape on ChatMessage (7-a). */
+type ReactionMap = Record<string, string[]>
+
+const MEDIA_LABELS: Record<string, string> = {
+  image: 'Photo',
+  video: 'Video',
+  gif: 'GIF',
+  audio: 'Voice message',
+  sticker: 'Sticker',
+  document: 'Document',
+  contact: 'Contact card',
+  location: 'Location',
+  poll: 'Poll',
+  media: 'Media omitted',
+}
+
+/** Short one-line preview for the pinned-messages bar. */
+function msgPreviewText(m: ChatMessage): string {
+  const body = (m.body ?? '').trim()
+  if (body) return body
+  if (m.type === 'deleted') return 'This message was deleted'
+  const label = MEDIA_LABELS[m.type]
+  return label ? `[${label}]` : '[Message]'
+}
+
+/** Transcript body for the print overlay — media types become [Label] tags. */
+function printBody(m: ChatMessage): string {
+  if (m.type === 'poll') return `[Poll] ${m.body || 'Poll'}`
+  if (m.type === 'deleted') return m.body || 'This message was deleted'
+  const label = MEDIA_LABELS[m.type]
+  if (label) {
+    const parts = [`[${label}]`]
+    if (m.mediaName) parts.push(m.mediaName)
+    const caption = (m.body ?? '').trim()
+    if (caption) parts.push(caption)
+    return parts.join(' ')
+  }
+  return m.body || '[Message]'
+}
+
+function hhmm(iso: string): string {
+  const d = new Date(iso)
+  if (Number.isNaN(d.getTime())) return '--:--'
+  return d.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', hour12: false })
+}
+
+function dmy(iso: string): string {
+  const d = new Date(iso)
+  if (Number.isNaN(d.getTime())) return ''
+  return d.toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric' })
+}
+
+function labelFromDayKey(key: string): string {
+  const [y, m, d] = key.split('-').map(Number)
+  if (!y || m === undefined || d === undefined) return key
+  return new Date(y, m, d).toLocaleDateString('en-GB', {
+    day: 'numeric',
+    month: 'short',
+    year: 'numeric',
+  })
+}
+
+/** Day-cell factory: shows "N messages" as the native tooltip per day. */
+function makeDayButton(counts: Map<string, number>) {
+  return function CountedDayButton(props: React.ComponentProps<typeof CalendarDayButton>) {
+    const d = props.day.date
+    const key = `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`
+    const count = counts.get(key)
+    return (
+      <CalendarDayButton
+        {...props}
+        title={count ? `${count} message${count === 1 ? '' : 's'}` : undefined}
+      />
+    )
+  }
+}
+
+export function ChatView({
+  detail,
+  setDetail,
+  loading,
+  onBack,
+  onDelete,
+  deleting,
+  onStarMessage,
+  initialJumpMessageId,
+  onChatChanged,
+}: {
+  detail: ChatDetail | null
+  setDetail: React.Dispatch<React.SetStateAction<ChatDetail | null>>
+  loading: boolean
+  onBack: () => void
+  onDelete: (id: string) => void
+  deleting: boolean
+  onStarMessage?: (messageId: string, starred: boolean) => void
+  initialJumpMessageId?: string | null
+  onChatChanged?: () => void
+}) {
+  const scrollRef = useRef<HTMLDivElement>(null)
+  const visibleCountRef = useRef(PAGE_SIZE)
+  const pendingJumpRef = useRef<string | null>(null)
+  const [visibleCount, setVisibleCount] = useState(PAGE_SIZE)
+  const [searchOpen, setSearchOpen] = useState(false)
+  const [query, setQuery] = useState('')
+  const [fromDate, setFromDate] = useState('')
+  const [toDate, setToDate] = useState('')
+  const [dateFilterOpen, setDateFilterOpen] = useState(false)
+  const [galleryOpen, setGalleryOpen] = useState(false)
+  const [infoOpen, setInfoOpen] = useState(false)
+  const [starredOpen, setStarredOpen] = useState(false)
+  const [showFab, setShowFab] = useState(false)
+  const [jumpedId, setJumpedId] = useState<string | null>(null)
+  const [jumpDate, setJumpDate] = useState<Date | undefined>(undefined)
+  const [jumpOpen, setJumpOpen] = useState(false)
+  const [wallpaperOpen, setWallpaperOpen] = useState(false)
+  const [starredOnly, setStarredOnly] = useState(false)
+  const [regexMode, setRegexMode] = useState(false)
+  const [matchIdx, setMatchIdx] = useState(0)
+  const [filterKey, setFilterKey] = useState('')
+  const [isNarrow, setIsNarrow] = useState(false)
+
+  /* ---- 7-d: pins bar, presence tick, print preview, AI dialog ---- */
+  const [pinsCollapsed, setPinsCollapsed] = useState(false)
+  const [pinIdx, setPinIdx] = useState(0)
+  const [printReady, setPrintReady] = useState(false)
+  const [aiMsg, setAiMsg] = useState<ChatMessage | null>(null)
+  /** null until mounted — keeps the presence subtitle hydration-safe. */
+  const [nowMs, setNowMs] = useState<number | null>(null)
+
+  /* ---- 10-b: simulated "other participant is typing" ---- */
+  const [typingName, setTypingName] = useState<string | null>(null)
+  const typingTimersRef = useRef<number[]>([])
+
+  /* ---- 14-b: simulated persona replies (demo chats only) ----
+     One pending reply at a time; timers + in-flight fetch are aborted on
+     chat switch/unmount via personaAbortRef + the cleanup effect below. */
+  const [autoReplyOn, setAutoReplyOn] = useState(true)
+  const personaTimersRef = useRef<number[]>([])
+  const personaPendingRef = useRef(false)
+  const personaAbortRef = useRef<AbortController | null>(null)
+
+  /* ----- Interaction model (Task 10-b): editing is the DEFAULT in every
+         chat (incl. Saved Messages); the pencil toggles a read-only VIEWING
+         mode. Multi-select is a separate transient mode. ----- */
+  const [readOnly, setReadOnly] = useState(false)
+  const [selecting, setSelecting] = useState(false)
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
+  const [replyTo, setReplyTo] = useState<ChatMessage | null>(null)
+  const [forwardState, setForwardState] = useState<{
+    messages: ChatMessage[]
+  } | null>(null)
+  const [pollOpen, setPollOpen] = useState(false)
+  const [pollCreating, setPollCreating] = useState(false)
+  const [editing, setEditing] = useState<ChatMessage | null>(null)
+  const [editBody, setEditBody] = useState('')
+  const [editSaving, setEditSaving] = useState(false)
+  const [deleteConfirm, setDeleteConfirm] = useState(false)
+  const [deleteBusy, setDeleteBusy] = useState(false)
+
+  /* ---- 10-i: word cloud / movie mode / accent theme / link previews ---- */
+  const [wordCloudOpen, setWordCloudOpen] = useState(false)
+  const [movieMode, setMovieMode] = useState(false)
+  /** Per-chat accent override — null = app default (vars cascade everywhere). */
+  const [accentVars, setAccentVars] = useState<React.CSSProperties | null>(null)
+  /** messageId → fetched preview (null = fetched, none found). */
+  const [linkPreviews, setLinkPreviews] = useState<
+    Map<string, LinkPreviewData | null>
+  >(new Map())
+  const linkPreviewsRef = useRef<Map<string, LinkPreviewData | null>>(
+    linkPreviews
+  )
+
+  const chatId = detail?.chat.id ?? ''
+  const [tldrOpen, setTldrOpen] = useState(false)
+  const [schedItems, setSchedItems] = useState<SchedItem[]>([])
+  const [schedExpanded, setSchedExpanded] = useState(false)
+
+  // --- Scheduled messages (Task 12-c): pending chip + refresh on delivery ---
+  const loadSched = useCallback(async () => {
+    if (!chatId) return
+    try {
+      const res = await fetch(`/api/scheduled?chatId=${chatId}`, {
+        cache: 'no-store',
+      })
+      if (!res.ok) return
+      const data = await res.json()
+      setSchedItems(Array.isArray(data?.items) ? data.items : [])
+    } catch {
+      /* offline — keep the last known list */
+    }
+  }, [chatId])
+  useEffect(() => {
+    loadSched()
+  }, [loadSched])
+  useEffect(() => {
+    const onChange = () => loadSched()
+    window.addEventListener('wa-scheduled-check', onChange)
+    window.addEventListener('wa-scheduled-delivered', onChange)
+    return () => {
+      window.removeEventListener('wa-scheduled-check', onChange)
+      window.removeEventListener('wa-scheduled-delivered', onChange)
+    }
+  }, [loadSched])
+  // A delivery touched this chat → pull the fresh transcript from the server.
+  useEffect(() => {
+    const onDelivered = (e: Event) => {
+      const ids = (e as CustomEvent<{ chatIds?: string[] }>).detail?.chatIds
+      if (!Array.isArray(ids) || !ids.includes(chatId)) return
+      fetch(`/api/chats/${chatId}/messages`, { cache: 'no-store' })
+        .then((r) => (r.ok ? r.json() : null))
+        .then((data) => {
+          if (!data?.messages) return
+          setDetail((d) =>
+            d && d.chat.id === chatId ? { ...d, messages: data.messages } : d
+          )
+        })
+        .catch(() => {
+          /* offline — the poller fires again later */
+        })
+    }
+    window.addEventListener('wa-scheduled-delivered', onDelivered)
+    return () => window.removeEventListener('wa-scheduled-delivered', onDelivered)
+  }, [chatId, setDetail])
+  async function cancelScheduled(id: string) {
+    setSchedItems((s) => s.filter((x) => x.id !== id))
+    try {
+      const res = await fetch(`/api/scheduled/${id}`, { method: 'DELETE' })
+      if (!res.ok) throw new Error('failed')
+    } catch {
+      toast.error('Could not cancel the scheduled message')
+      loadSched()
+    }
+  }
+  function schedTime(iso: string): string {
+    const d = new Date(iso)
+    if (isNaN(d.getTime())) return ''
+    return d.toLocaleString([], {
+      weekday: 'short',
+      hour: '2-digit',
+      minute: '2-digit',
+    })
+  }
+  const schedBar =
+    schedItems.length > 0 ? (
+      <div className="relative z-10 mx-2 mb-1.5 rounded-lg border border-black/5 bg-(--wa-panel-2) px-3 py-2 text-[13px] shadow-sm dark:border-white/10 dark:bg-(--wa-panel-2)">
+        <button
+          type="button"
+          className="flex w-full items-center gap-2 text-left"
+          onClick={() => setSchedExpanded((v) => !v)}
+          aria-expanded={schedExpanded}
+        >
+          <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-(--wa-accent)/15 text-(--wa-accent)">
+            <CalendarClock className="h-4 w-4" />
+          </span>
+          <span className="min-w-0 flex-1 truncate text-(--wa-text)">
+            {schedItems.length} scheduled message
+            {schedItems.length > 1 ? 's' : ''}
+            {schedItems[0]?.deliverAt &&
+              ` · next ${schedTime(schedItems[0].deliverAt)}`}
+          </span>
+          <ChevronDown
+            className={cn(
+              'h-4 w-4 shrink-0 text-(--wa-text-2) transition-transform',
+              schedExpanded && 'rotate-180'
+            )}
+          />
+        </button>
+        {schedExpanded && (
+          <ul className="mt-2 space-y-1" aria-label="Scheduled messages">
+            {schedItems.map((s) => (
+              <li
+                key={s.id}
+                className="flex items-center gap-2 rounded-md bg-black/[0.03] px-2 py-1.5 dark:bg-white/[0.05]"
+              >
+                <span className="min-w-0 flex-1 truncate text-(--wa-text)">
+                  {s.body}
+                </span>
+                <span className="shrink-0 text-[11px] tabular-nums text-(--wa-text-2)">
+                  {schedTime(s.deliverAt)}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => cancelScheduled(s.id)}
+                  className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-(--wa-text-2) transition-colors hover:bg-black/10 hover:text-rose-600 dark:hover:bg-white/10"
+                  aria-label="Cancel scheduled message"
+                  title="Cancel"
+                >
+                  <X className="h-3.5 w-3.5" />
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+    ) : null
+  const wallpaperCfg = useWallpaperConfig(chatId)
+  const wpIsPreset = wallpaperCfg.k === 'preset'
+  const wallpaperPreset = presetByKey(wpIsPreset ? wallpaperCfg.preset : 'doodle')
+  const wallpaperIsPhoto = wallpaperCfg.k === 'custom' && !!wallpaperCfg.photo
+  /** Inline vars for the user-chosen base color (light + optional dark). */
+  const wallpaperBaseStyle = {
+    '--wp-base': wallpaperCfg.color ?? undefined,
+    '--wp-base-dark': wallpaperCfg.colorDark ?? undefined,
+  } as React.CSSProperties
+  /** CSS filter for the wallpaper stack — contrast/brightness/saturation tuning. */
+  const wallpaperFilter = useMemo(() => {
+    const parts: string[] = []
+    if (Math.abs(wallpaperCfg.contrast - 1) > 0.001)
+      parts.push(`contrast(${wallpaperCfg.contrast})`)
+    if (Math.abs(wallpaperCfg.brightness - 1) > 0.001)
+      parts.push(`brightness(${wallpaperCfg.brightness})`)
+    if (Math.abs(wallpaperCfg.saturation - 1) > 0.001)
+      parts.push(`saturate(${wallpaperCfg.saturation})`)
+    return parts.length > 0 ? parts.join(' ') : undefined
+  }, [wallpaperCfg.contrast, wallpaperCfg.brightness, wallpaperCfg.saturation])
+  const textSizeKey: TextSizeKey = useSyncExternalStore(
+    subscribeTextSize,
+    getTextSize,
+    () => 'md'
+  )
+  const msgFontPx = TEXT_SIZES[textSizeKey]?.px ?? 14.2
+
+  const messages = detail?.messages ?? []
+
+  /* ---- 14-f: unread divider + jump-to-first-unread state ----
+     unreadFirstId anchors the divider (id-based so deletes shift safely);
+     unreadAnchorRef mirrors it synchronously for the scroll-to-bottom guard
+     below (state updates from effects land one commit too late for it). */
+  const [unreadFirstId, setUnreadFirstId] = useState<string | null>(null)
+  const [showUnreadPill, setShowUnreadPill] = useState(false)
+  const unreadAnchorRef = useRef<string | null>(null)
+  const unreadFirstIdRef = useRef<string | null>(null)
+  /** Auto-scroll to the divider runs exactly once per open. */
+  const unreadAutoDoneRef = useRef(false)
+  /** Set on pill click — the pill stays hidden for the rest of the open. */
+  const unreadDismissedRef = useRef(false)
+  /** The open auto-scroll could not reach the 25% placement (clamped). */
+  const unreadClampedRef = useRef(false)
+  /** True once the user scrolls on their own (not our auto-scroll settle). */
+  const userScrolledRef = useRef(false)
+  const autoScrollTargetRef = useRef<number | null>(null)
+  const autoScrollSettlingRef = useRef(false)
+
+  // Track the md breakpoint so only ONE jump-to-date popover is ever mounted
+  // (desktop header trigger vs the mobile one inside the search panel)
+  useEffect(() => {
+    const mq = window.matchMedia('(max-width: 767px)')
+    const update = () => setIsNarrow(mq.matches)
+    update()
+    mq.addEventListener('change', update)
+    return () => mq.removeEventListener('change', update)
+  }, [])
+
+  // Simulated presence tick — recompute the online window every 60s.
+  // nowMs stays null during SSR + first paint (hydration-safe), then flips.
+  useEffect(() => {
+    setNowMs(Date.now())
+    const t = window.setInterval(() => setNowMs(Date.now()), 60000)
+    return () => window.clearInterval(t)
+  }, [])
+
+  // Pinned-bar state is per chat — reset when switching conversations
+  useEffect(() => {
+    setPinsCollapsed(false)
+    setPinIdx(0)
+  }, [chatId])
+
+  // Read-only preference persists per app ('1' = read-only). Editing is the
+  // default, so the flag is only ever written when the user switches to
+  // read-only viewing. Applied after mount (hydration-safe).
+  useEffect(() => {
+    try {
+      setReadOnly(localStorage.getItem('wa-viewer:read-only') === '1')
+    } catch {
+      /* private mode — stay on the editing default */
+    }
+  }, [])
+
+  /* ---- 10-i: per-chat accent theme (chat-theme.ts) ----
+     Read on chat open + re-read when 'wa-theme-changed' fires for this chat.
+     Default accent → no override; otherwise the CSS vars are set on the chat
+     root wrapper so header, bubbles, pills and bars all inherit them. */
+  useEffect(() => {
+    if (!chatId) return
+    const apply = () => {
+      const pair = readChatAccent(chatId)
+      setAccentVars(
+        pair.name === 'Default'
+          ? null
+          : ({
+              '--wa-accent': pair.accent,
+              '--wa-accent-strong': pair.accentStrong,
+            } as React.CSSProperties)
+      )
+    }
+    apply()
+    const onThemeChanged = (e: Event) => {
+      const detail = (e as CustomEvent).detail as { chatId?: string } | undefined
+      if (!detail || detail.chatId === chatId) apply()
+    }
+    window.addEventListener(CHAT_THEME_EVENT, onThemeChanged)
+    return () => window.removeEventListener(CHAT_THEME_EVENT, onThemeChanged)
+  }, [chatId])
+
+  /* ---- 10-i: link preview orchestration ----
+     After messages load/refresh: scan text messages in document order for
+     their first http(s) URL, cap 24 per chat, fetch /api/link-preview with
+     concurrency 3 (failures → null). Results are stored per message id; URLs
+     are cached module-level so switching chats back is instant. Only messages
+     missing from the map are (re)processed. */
+  useEffect(() => {
+    if (!chatId) return
+    const candidates: { id: string; url: string }[] = []
+    for (const m of messages) {
+      if (candidates.length >= LINK_PREVIEW_CAP) break
+      if (m.type !== 'text' || !m.body) continue
+      if (linkPreviewsRef.current.has(m.id)) continue
+      const url = firstUrlIn(m.body)
+      if (!url) continue
+      candidates.push({ id: m.id, url })
+    }
+    if (candidates.length === 0) return
+    let alive = true
+    let next = 0
+    const worker = async () => {
+      while (alive && next < candidates.length) {
+        const c = candidates[next++]
+        let preview = linkPreviewCache.get(c.url)
+        if (preview === undefined) {
+          const inflight = linkPreviewInflight.get(c.url)
+          if (inflight) {
+            preview = await inflight
+          } else {
+            const job: Promise<LinkPreviewData | null> = fetch(
+              `/api/link-preview?url=${encodeURIComponent(c.url)}`
+            )
+              .then((r) => r.json())
+              .then((d: unknown) => parsePreviewPayload(d))
+              .catch(() => null)
+            linkPreviewInflight.set(c.url, job)
+            preview = await job
+            linkPreviewInflight.delete(c.url)
+            cachePreview(c.url, preview)
+          }
+        }
+        if (!alive) return
+        const nextMap = new Map(linkPreviewsRef.current)
+        nextMap.set(c.id, preview)
+        linkPreviewsRef.current = nextMap
+        setLinkPreviews(nextMap)
+      }
+    }
+    for (let i = 0; i < 3; i++) void worker()
+    return () => {
+      alive = false
+    }
+  }, [messages, chatId])
+
+  /** Pencil toggle: flip between the editing default and read-only viewing. */
+  function toggleReadOnly() {
+    setReadOnly((v) => {
+      const next = !v
+      try {
+        if (next) localStorage.setItem('wa-viewer:read-only', '1')
+        else localStorage.removeItem('wa-viewer:read-only')
+      } catch {
+        /* ignore storage failures */
+      }
+      return next
+    })
+  }
+
+  /* -------------- 10-b: simulated "participant is typing" -------------- */
+
+  const clearTypingTimers = useCallback(() => {
+    for (const t of typingTimersRef.current) window.clearTimeout(t)
+    typingTimersRef.current = []
+  }, [])
+
+  // Stop any running simulation when switching chats or unmounting.
+  useEffect(() => {
+    setTypingName(null)
+    return clearTypingTimers
+  }, [chatId, clearTypingTimers])
+
+  /* ---- 14-b: persona-reply scheduling cleanup ---- chat switch/unmount
+     clears the pending timers + aborts the in-flight AI/POST fetch (typing
+     off is owned by the 10-b cleanup above, same triggers). */
+  useEffect(() => {
+    return () => {
+      for (const t of personaTimersRef.current) window.clearTimeout(t)
+      personaTimersRef.current = []
+      personaPendingRef.current = false
+      personaAbortRef.current?.abort()
+      personaAbortRef.current = null
+    }
+  }, [chatId])
+
+  // 14-b: hydrate the auto-reply toggle from localStorage (default ON for
+  // demo chats when the key is absent; re-read per chat — the write path
+  // keeps the stored value in sync, so this never fights the user).
+  useEffect(() => {
+    setAutoReplyOn(readAutoReplyEnabled())
+  }, [chatId])
+
+  // When the dots appear, scroll the typing bubble into view — but only when
+  // the user is already near the bottom (never yank them out of history).
+  useEffect(() => {
+    if (!typingName) return
+    const raf = requestAnimationFrame(() => {
+      const wrap = scrollRef.current
+      const el = wrap?.querySelector('[data-typing-bubble]')
+      if (!wrap || !el) return
+      const distance = wrap.scrollHeight - wrap.scrollTop - wrap.clientHeight
+      if (distance < 400) {
+        el.scrollIntoView({
+          block: 'end',
+          behavior: prefersReducedMotion() ? 'auto' : 'smooth',
+        })
+      }
+    })
+    return () => cancelAnimationFrame(raf)
+  }, [typingName])
+
+  const compiledRegex = useMemo<{ re: RegExp } | 'invalid' | null>(() => {
+    const q = query.trim()
+    if (!q || !regexMode) return null
+    try {
+      return { re: new RegExp(q, 'i') }
+    } catch {
+      return 'invalid'
+    }
+  }, [query, regexMode])
+  const regexInvalid = compiledRegex === 'invalid'
+
+  const filtered = useMemo(() => {
+    const q = query.trim()
+    const from = fromDate ? new Date(fromDate + 'T00:00:00').getTime() : null
+    const to = toDate ? new Date(toDate + 'T23:59:59.999').getTime() : null
+    if (!q && from == null && to == null && !starredOnly) return null
+    return messages.filter((m) => {
+      if (starredOnly && !m.starred) return false
+      if (q) {
+        const hay = `${m.body ?? ''}\n${m.sender ?? ''}`
+        if (compiledRegex === 'invalid') return false
+        if (compiledRegex) {
+          if (!compiledRegex.re.test(hay)) return false
+        } else if (!hay.toLowerCase().includes(q.toLowerCase())) {
+          return false
+        }
+      }
+      const t = new Date(m.ts).getTime()
+      if (from != null && t < from) return false
+      if (to != null && t > to) return false
+      return true
+    })
+  }, [messages, query, fromDate, toDate, starredOnly, compiledRegex])
+
+  const hasDateFilter = !!(fromDate || toDate)
+
+  // Reset the match cursor whenever the active filters change
+  // (adjust-state-during-render, no effect needed)
+  const matchCount = filtered?.length ?? 0
+  const safeMatchIdx = matchCount > 0 ? Math.min(matchIdx, matchCount - 1) : 0
+  const activeFilterKey = `${query}|${fromDate}|${toDate}|${starredOnly}|${regexMode}`
+  if (activeFilterKey !== filterKey) {
+    setFilterKey(activeFilterKey)
+    setMatchIdx(0)
+  }
+
+  /* ---- 14-f: capture the PRE-OPEN seen state and derive the unread
+     boundary — once per mount (ChatView is remounted per chat via
+     key={activeId}, so one capture per open). Declared BEFORE the scroll-to-
+     bottom effect so the synchronous unreadAnchorRef write lands first and
+     open-with-unread skips the default bottom scroll; the displayed-count
+     tracker below is declared AFTER so an open first reads the previous
+     session count and only then records the fresh length.
+
+     Re-arming: openChat() also re-fetches WITHOUT changing activeId when the
+     clicked chat is already the open one (list-row re-click, AudioDock
+     re-focus). detail is dropped to null first, so on the loading commit we
+     reset the capture guard + per-open scroll refs — the fresh transcript
+     recaptures the boundary (the session count tracker skips empty arrays,
+     so the previous length survives the gap and anchors the re-open). ---- */
+  const capturedUnreadRef = useRef(false)
+  /** The pre-open seen entry the current anchor was derived from — reused
+      to re-derive the boundary if the anchor message itself gets deleted. */
+  const capturedSeenEntryRef = useRef<SeenEntryLike>(null)
+  useEffect(() => {
+    if (!chatId) {
+      capturedUnreadRef.current = false
+      unreadAutoDoneRef.current = false
+      unreadDismissedRef.current = false
+      unreadClampedRef.current = false
+      userScrolledRef.current = false
+      autoScrollTargetRef.current = null
+      autoScrollSettlingRef.current = false
+      return
+    }
+    if (capturedUnreadRef.current) return
+    capturedUnreadRef.current = true
+    let id: string | null = null
+    const prevCount = sessionDisplayedCount.get(chatId)
+    if (prevCount === undefined) {
+      // First open of this chat in this browser session — use the pre-open
+      // seen entry (no entry at all = first-ever open = nothing is unread).
+      const entry = readPreOpenSeenEntry(chatId)
+      capturedSeenEntryRef.current = entry
+      id = computeUnreadBoundary(entry, messages)?.id ?? null
+    } else {
+      // Re-open within this session: rows beyond what was already displayed
+      // are new-to-me; the first incoming one anchors the divider.
+      capturedSeenEntryRef.current = null
+      for (let i = Math.max(0, prevCount); i < messages.length; i++) {
+        const m = messages[i]
+        if (m.sender && m.sender !== 'You' && m.type !== 'system') {
+          id = m.id
+          break
+        }
+      }
+    }
+    unreadAnchorRef.current = id
+    unreadFirstIdRef.current = id
+    setUnreadFirstId(id)
+  }, [chatId, messages])
+
+  // 14-f: remember how much of this transcript has been displayed, so a
+  // later re-open can tell arrived messages apart from displayed ones.
+  useEffect(() => {
+    if (!chatId || messages.length === 0) return
+    sessionDisplayedCount.set(chatId, messages.length)
+  }, [chatId, messages])
+
+  // 14-f: if the anchor message itself is deleted while the divider is up,
+  // re-derive the boundary from the SAME pre-open seen watermark (monotonic:
+  // the next incoming message after it becomes the anchor). The ordinal
+  // session rule can't survive index shifts, so it simply drops the divider.
+  useEffect(() => {
+    if (!unreadFirstId) return
+    // An empty transcript is the openChat loading gap, not a mass deletion —
+    // keep the anchor until the fresh messages arrive.
+    if (messages.length === 0) return
+    if (messages.some((m) => m.id === unreadFirstId)) return
+    const next =
+      computeUnreadBoundary(capturedSeenEntryRef.current, messages)?.id ?? null
+    unreadAnchorRef.current = next
+    unreadFirstIdRef.current = next
+    setUnreadFirstId(next)
+  }, [messages, unreadFirstId])
+
+  // Scroll to bottom on open / chat change — unless a jump is queued
+  // (e.g. arriving from a global-search hit), which wins instead, or the
+  // chat opened with unread messages (the unread auto-scroll below positions
+  // the list at the divider instead).
+  useEffect(() => {
+    if (pendingJumpRef.current) return
+    if (unreadAnchorRef.current) return
+    const el = scrollRef.current
+    if (el) el.scrollTop = el.scrollHeight
+  }, [chatId, loading])
+
+  // Queue an incoming jump target (e.g. arriving from a global-search hit).
+  // Ref-only effect — the executor below performs the scroll when rendered.
+  useEffect(() => {
+    if (initialJumpMessageId) pendingJumpRef.current = initialJumpMessageId
+  }, [initialJumpMessageId])
+
+  // Execute pending jumps (jump-to-date, search hits, starred dialog, and the
+  // queued initial jump from global search) once the target has rendered.
+  useEffect(() => {
+    const id = pendingJumpRef.current
+    if (!id) return
+    const el = scrollRef.current?.querySelector(`[data-mid="${id}"]`)
+    if (el) {
+      el.scrollIntoView({
+        block: 'center',
+        behavior: prefersReducedMotion() ? 'auto' : 'smooth',
+      })
+      setJumpedId(id)
+      const t = setTimeout(() => setJumpedId(null), 2000)
+      pendingJumpRef.current = null
+      // 14-f: a completed jump (esp. the queued initial one from a global-
+      // search hit) wins over the unread auto-scroll — without this, the
+      // visibleCount expansion such a jump may trigger would re-run the
+      // auto-scroll effect after pendingJumpRef cleared and yank the view
+      // to the divider.
+      unreadAutoDoneRef.current = true
+      return () => clearTimeout(t)
+    }
+    // Not rendered yet — if it exists further up, expand the window and this
+    // effect re-runs (visibleCount changed) to perform the actual scroll.
+    const idx = messages.findIndex((m) => m.id === id)
+    if (idx === -1) return
+    const needed = messages.length - idx
+    if (needed > visibleCountRef.current) {
+      const raf = requestAnimationFrame(() => {
+        visibleCountRef.current = needed
+        setVisibleCount(needed)
+      })
+      return () => cancelAnimationFrame(raf)
+    }
+  }, [visibleCount, messages.length, initialJumpMessageId, messages])
+
+  /* ---- 14-f: auto-scroll once so the unread divider sits ~25% from the top
+     of the viewport (clamped to the bottom when too few messages sit below
+     the boundary — e.g. a single new message at the end of the chat), with
+     the existing flash treatment on the first unread message. A queued
+     initial jump (initialJumpMessageId) always wins; the divider stays. ---- */
+  useEffect(() => {
+    const firstId = unreadFirstId
+    if (!firstId || unreadAutoDoneRef.current) return
+    // Skip renders whose state still carries the PREVIOUS open's anchor —
+    // the capture effect has already derived the fresh one (mirrored in
+    // unreadFirstIdRef synchronously); waiting for the next commit keeps the
+    // auto-scroll from fighting the re-derivation on a same-chat re-open.
+    if (unreadFirstIdRef.current !== firstId) return
+    if (pendingJumpRef.current) return
+    const idx = messages.findIndex((m) => m.id === firstId)
+    if (idx === -1) return
+    const needed = messages.length - idx
+    if (needed > visibleCountRef.current) {
+      const raf = requestAnimationFrame(() => {
+        visibleCountRef.current = needed
+        setVisibleCount(needed)
+      })
+      return () => cancelAnimationFrame(raf)
+    }
+    const wrap = scrollRef.current
+    const el = wrap?.querySelector('[data-unread-divider]') as HTMLElement | null
+    if (!wrap || !el) return
+    const target = Math.max(0, el.offsetTop - wrap.clientHeight * 0.25)
+    const max = wrap.scrollHeight - wrap.clientHeight
+    const clamped = target > max + 1
+    unreadClampedRef.current = clamped
+    const raf = requestAnimationFrame(() => {
+      const w = scrollRef.current
+      if (!w) return
+      unreadAutoDoneRef.current = true
+      const t = Math.min(target, w.scrollHeight - w.clientHeight)
+      autoScrollTargetRef.current = t
+      autoScrollSettlingRef.current = true
+      w.scrollTop = t
+      if (clamped) setShowUnreadPill(true)
+      setJumpedId(firstId)
+      window.setTimeout(() => setJumpedId(null), 2000)
+    })
+    return () => cancelAnimationFrame(raf)
+  }, [unreadFirstId, visibleCount, messages])
+
+  const shown = useMemo(() => {
+    if (filtered) return filtered
+    return messages.slice(Math.max(0, messages.length - visibleCount))
+  }, [messages, visibleCount, filtered])
+
+  const grouped = useMemo(() => {
+    const out: Array<
+      | { kind: 'date'; key: string; label: string }
+      | { kind: 'system'; key: string; id: string; body: string; ts: string }
+      | { kind: 'unread-divider'; key: string }
+      | { kind: 'msg'; key: string; msg: ChatMessage; showTail: boolean; showAvatar: boolean }
+    > = []
+    let prev: ChatMessage | null = null
+    let prevDay = ''
+    let dividerPlaced = false
+    for (const m of shown) {
+      const dk = dayKey(m.ts)
+      if (dk !== prevDay) {
+        // Append the row count: with non-monotonic imports the same day can
+        // legitimately appear twice, and React keys must stay unique.
+        out.push({ kind: 'date', key: `d-${dk}-${out.length}`, label: formatDayLabel(new Date(m.ts)) })
+        prevDay = dk
+        prev = null
+      }
+      if (m.type === 'system' || !m.sender) {
+        out.push({ kind: 'system', key: `s-${m.id}`, id: m.id, body: m.body, ts: m.ts })
+        prev = null
+        continue
+      }
+      // 14-f: WhatsApp-style unread divider — a normal list row rendered
+      // right before the first unread message (transcript view only; search/
+      // filter results are a different lens and never show it).
+      if (!filtered && !dividerPlaced && m.id === unreadFirstId) {
+        out.push({ kind: 'unread-divider', key: 'unread-divider' })
+        dividerPlaced = true
+      }
+      const showTail =
+        !prev ||
+        prev.sender !== m.sender ||
+        prev.type === 'system' ||
+        new Date(m.ts).getTime() - new Date(prev.ts).getTime() > 5 * 60 * 1000
+      out.push({ kind: 'msg', key: m.id, msg: m, showTail, showAvatar: showTail })
+      prev = m
+    }
+    return out
+  }, [shown, filtered, unreadFirstId])
+
+  function handleLoadEarlier() {
+    const el = scrollRef.current
+    if (!el) return
+    const oldHeight = el.scrollHeight
+    visibleCountRef.current += PAGE_SIZE
+    setVisibleCount(visibleCountRef.current)
+    requestAnimationFrame(() => {
+      const newHeight = el.scrollHeight
+      el.scrollTop = newHeight - oldHeight + el.scrollTop
+    })
+  }
+
+  // Escape: exit selection -> cancel reply -> clear filters -> close search -> back
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      if (e.key !== 'Escape') return
+      // Never intercept Escape while a dialog/alert/context menu is open
+      // (Radix handles those Escapes itself)
+      if (document.querySelector('[role="dialog"],[role="alertdialog"],[role="menu"]')) return
+      if (jumpOpen) return
+      if (selecting) {
+        exitSelection()
+      } else if (replyTo) {
+        setReplyTo(null)
+      } else if (query) {
+        setQuery('')
+      } else if (hasDateFilter) {
+        setFromDate('')
+        setToDate('')
+      } else if (starredOnly) {
+        setStarredOnly(false)
+      } else if (searchOpen) {
+        setSearchOpen(false)
+      } else {
+        onBack()
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [jumpOpen, selecting, replyTo, query, hasDateFilter, starredOnly, searchOpen, onBack])
+
+  function handleScrollToBottom() {
+    const el = scrollRef.current
+    if (el) el.scrollTo({ top: el.scrollHeight, behavior: 'smooth' })
+  }
+
+  function handleExport() {
+    if (!detail) return
+    const a = document.createElement('a')
+    a.href = `/api/chats/${detail.chat.id}/export`
+    a.download = ''
+    document.body.appendChild(a)
+    a.click()
+    a.remove()
+    toast.success('Chat exported as .txt — check your downloads')
+  }
+
+  function handleToggleStar(id: string, starred: boolean) {
+    onStarMessage?.(id, starred)
+    toast.success(starred ? 'Message starred' : 'Message unstarred')
+  }
+
+  /* ----------------- Reactions / pin / translate (7-d) ----------------- */
+
+  /** Optimistically toggle 'You' on an emoji, then persist; revert on failure. */
+  async function handleReact(msgId: string, emoji: string) {
+    const target = messages.find((m) => m.id === msgId)
+    if (!target) return
+    const prev = target.reactions ?? null
+    const next: ReactionMap = { ...(prev ?? {}) }
+    const list = next[emoji] ?? []
+    const hasYou = list.includes('You')
+    const nextList = hasYou ? list.filter((u) => u !== 'You') : [...list, 'You']
+    if (nextList.length > 0) next[emoji] = nextList
+    else delete next[emoji]
+    const nextIsEmpty = Object.keys(next).length === 0
+    setDetail((d) =>
+      d
+        ? {
+            ...d,
+            messages: d.messages.map((m) =>
+              m.id === msgId ? { ...m, reactions: nextIsEmpty ? null : next } : m
+            ),
+          }
+        : d
+    )
+    try {
+      const res = await fetch(`/api/messages/${msgId}/reactions`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ emoji }),
+      })
+      const data = (await res.json().catch(() => null)) as {
+        reactions?: ReactionMap | null
+        error?: string
+      } | null
+      if (!res.ok) throw new Error(data?.error ?? 'Reaction failed')
+      // Sync the server's authoritative map when it provides one
+      if (data && data.reactions && typeof data.reactions === 'object') {
+        const server = data.reactions
+        setDetail((d) =>
+          d
+            ? {
+                ...d,
+                messages: d.messages.map((m) =>
+                  m.id === msgId ? { ...m, reactions: server } : m
+                ),
+              }
+            : d
+        )
+      }
+    } catch {
+      setDetail((d) =>
+        d
+          ? {
+              ...d,
+              messages: d.messages.map((m) =>
+                m.id === msgId ? { ...m, reactions: prev } : m
+              ),
+            }
+          : d
+      )
+      toast.error('Could not save reaction')
+    }
+  }
+
+  /** Optimistically toggle the pin flag, then PATCH; revert on failure. */
+  async function handlePinMessage(msg: ChatMessage) {
+    const current = msg.pinned ?? false
+    const next = !current
+    setDetail((d) =>
+      d
+        ? {
+            ...d,
+            messages: d.messages.map((m) =>
+              m.id === msg.id ? { ...m, pinned: next } : m
+            ),
+          }
+        : d
+    )
+    try {
+      const res = await fetch(`/api/messages/${msg.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ pinned: next }),
+      })
+      if (!res.ok) throw new Error('Pin failed')
+      toast.success(next ? 'Message pinned' : 'Message unpinned')
+    } catch {
+      setDetail((d) =>
+        d
+          ? {
+              ...d,
+              messages: d.messages.map((m) =>
+                m.id === msg.id ? { ...m, pinned: current } : m
+              ),
+            }
+          : d
+      )
+      toast.error('Could not update pin')
+    }
+  }
+
+  /** Open the AI tools dialog prefilled with this message. */
+  function handleTranslate(msg: ChatMessage) {
+    setAiMsg(msg)
+  }
+
+  /* --------------------- Export / print (7-d) --------------------- */
+
+  function handleExportZip() {
+    if (!detail) return
+    const a = document.createElement('a')
+    a.href = `/api/chats/${detail.chat.id}/export?format=zip`
+    a.download = ''
+    document.body.appendChild(a)
+    a.click()
+    a.remove()
+    toast.success('Exporting .zip with text + media — check your downloads')
+  }
+
+  function handleExportHtml() {
+    if (!detail) return
+    const a = document.createElement('a')
+    a.href = `/api/chats/${detail.chat.id}/export?format=html`
+    a.download = ''
+    document.body.appendChild(a)
+    a.click()
+    a.remove()
+    toast.success('Exporting .html — a standalone page of this chat')
+  }
+
+  /** JSON (raw data) / CSV (spreadsheet) exports — mirrors handleExportZip. */
+  function handleExportFormat(format: 'json' | 'csv') {
+    if (!detail) return
+    const a = document.createElement('a')
+    a.href = `/api/chats/${detail.chat.id}/export?format=${format}`
+    a.download = ''
+    document.body.appendChild(a)
+    a.click()
+    a.remove()
+    toast.success(
+      format === 'json'
+        ? 'Exporting .json (raw data) — check your downloads'
+        : 'Exporting .csv (spreadsheet) — check your downloads'
+    )
+  }
+
+  function openPrint() {
+    setPrintReady(true)
+  }
+
+  // Print flow: render the transcript overlay → give it a frame → window.print()
+  // → close the preview on afterprint (or a fallback timeout).
+  useEffect(() => {
+    if (!printReady) return
+    const onAfterPrint = () => setPrintReady(false)
+    window.addEventListener('afterprint', onAfterPrint)
+    let fallback = 0
+    let raf2 = 0
+    const raf1 = requestAnimationFrame(() => {
+      raf2 = requestAnimationFrame(() => {
+        try {
+          window.print()
+        } catch {
+          /* print unavailable — the on-screen preview stays usable */
+        }
+        fallback = window.setTimeout(() => setPrintReady(false), 500)
+      })
+    })
+    return () => {
+      cancelAnimationFrame(raf1)
+      cancelAnimationFrame(raf2)
+      window.clearTimeout(fallback)
+      window.removeEventListener('afterprint', onAfterPrint)
+    }
+  }, [printReady])
+
+  /* ------------ Multi-select + reply + forward dialog (10-b) ------------ */
+
+  const isSavedChat = detail?.chat.id === SAVED_CHAT_ID
+  /* ---- 14-b: demo-chat marker — persona auto-replies only ever run here
+     (sourceFile is `demo://<id>@v2` for demo chats; imports keep their file
+     name and Saved Messages is `local`). */
+  const isDemoChat = isDemoSource(detail?.chat.sourceFile)
+  const selectedCount = selectedIds.size
+  const selectedMessages = useMemo(
+    () => messages.filter((m) => selectedIds.has(m.id)),
+    [messages, selectedIds]
+  )
+
+  /** Reset transient modes whenever the chat changes. */
+  useEffect(() => {
+    setSelecting(false)
+    setSelectedIds(new Set())
+    setReplyTo(null)
+    setForwardState(null)
+    setMovieMode(false)
+    // Link previews are per chat — clear the state map (module URL cache stays)
+    const empty = new Map<string, LinkPreviewData | null>()
+    linkPreviewsRef.current = empty
+    setLinkPreviews(empty)
+  }, [chatId])
+
+  function enterSelection() {
+    setSelecting(true)
+  }
+
+  function exitSelection() {
+    setSelecting(false)
+    setSelectedIds(new Set())
+  }
+
+  function toggleSelect(id: string) {
+    setSelectedIds((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }
+
+  /** Select every selectable message in the chat. */
+  function selectAll() {
+    setSelectedIds(
+      new Set(messages.filter((m) => m.sender || m.type === 'poll').map((m) => m.id))
+    )
+  }
+
+  /**
+   * The action sheet's "Select message" enters selection mode with that
+   * message preselected; while selecting, rows toggle instead.
+   */
+  function handleToggleSelect(id: string) {
+    if (!selecting) {
+      setSelecting(true)
+      setSelectedIds(new Set([id]))
+      return
+    }
+    toggleSelect(id)
+  }
+
+  /** Quote a message in the composer (reply flow). */
+  function handleReplyTo(msg: ChatMessage) {
+    setReplyTo(msg)
+  }
+
+  /** Tap the reply quote preview — jump to + briefly highlight the original. */
+  function handleJumpToReply() {
+    if (replyTo) jumpToMessageId(replyTo.id)
+  }
+
+  /** Open the multi-target forward dialog for the given messages. */
+  function openForwardDialog(msgs: ChatMessage[]) {
+    if (msgs.length === 0) return
+    setForwardState({ messages: msgs })
+  }
+
+  /** Forward one or many messages into Saved Messages. */
+  async function forwardToSaved(targets: ChatMessage[]) {
+    // Telegram-style fly animation (skipped inside Saved itself)
+    if (!isSavedChat) {
+      targets.forEach((t, i) => flyBubbleToSaved(t.id, i))
+    }
+    let ok = 0
+    const toastId = toast.loading(
+      targets.length > 1 ? `Saving 1 of ${targets.length}…` : 'Saving to Saved Messages…'
+    )
+    for (const t of targets) {
+      try {
+        const res = await fetch(`/api/messages/${t.id}/forward`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ targetChatId: SAVED_CHAT_ID }),
+        })
+        if (!res.ok) throw new Error('failed')
+        ok++
+      } catch {
+        /* keep going */
+      }
+    }
+    if (ok > 0) {
+      toast.success(
+        ok === 1
+          ? `Saved to Saved Messages${isSavedChat ? '' : ''}`
+          : `Saved ${ok} messages`,
+        { id: toastId }
+      )
+      onChatChanged?.()
+    } else {
+      toast.error('Could not save to Saved Messages', { id: toastId })
+    }
+  }
+
+  function forwardOne(msg: ChatMessage) {
+    void forwardToSaved([msg])
+  }
+
+  async function starSelected() {
+    const unstarred = selectedMessages.filter((m) => !m.starred)
+    if (unstarred.length === 0) {
+      toast.info('Selected messages are already starred')
+      return
+    }
+    for (const m of unstarred) {
+      onStarMessage?.(m.id, true)
+    }
+    toast.success(`Starred ${unstarred.length} message${unstarred.length === 1 ? '' : 's'}`)
+    exitSelection()
+  }
+
+  async function copySelected() {
+    const texts = selectedMessages.map((m) => {
+      const prefix = m.sender && m.sender !== 'You' ? `${m.sender}: ` : ''
+      return prefix + (m.body || '')
+    })
+    try {
+      await navigator.clipboard.writeText(texts.join('\n'))
+      toast.success(`${selectedMessages.length} messages copied`)
+    } catch {
+      toast.error('Could not copy')
+    }
+  }
+
+  /** Batch delete: sequential DELETE per message (await all), then refresh. */
+  async function executeDelete() {
+    if (selectedCount === 0) return
+    setDeleteBusy(true)
+    const ids = [...selectedIds]
+    const okIds: string[] = []
+    try {
+      for (const id of ids) {
+        try {
+          const res = await fetch(`/api/messages/${id}`, { method: 'DELETE' })
+          if (res.ok) okIds.push(id)
+        } catch {
+          /* keep going — report the partial result at the end */
+        }
+      }
+      if (okIds.length > 0) {
+        const okSet = new Set(okIds)
+        setDetail((d) =>
+          d
+            ? { ...d, messages: d.messages.filter((m) => !okSet.has(m.id)) }
+            : d
+        )
+        if (replyTo && okSet.has(replyTo.id)) setReplyTo(null)
+        toast.success(
+          okIds.length === 1
+            ? 'Deleted 1 message'
+            : `Deleted ${okIds.length} messages`
+        )
+        onChatChanged?.()
+      } else {
+        toast.error('Could not delete messages')
+      }
+      exitSelection()
+    } finally {
+      setDeleteBusy(false)
+      setDeleteConfirm(false)
+    }
+  }
+
+  function openEdit(msg: ChatMessage) {
+    setEditing(msg)
+    setEditBody(msg.body)
+  }
+
+  async function saveEdit() {
+    if (!editing || !editBody.trim() || editSaving) return
+    setEditSaving(true)
+    try {
+      const res = await fetch(`/api/messages/${editing.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ body: editBody.trim() }),
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error ?? 'Save failed')
+      const newBody = data.message.body as string
+      setDetail((d) =>
+        d
+          ? {
+              ...d,
+              messages: d.messages.map((m) =>
+                m.id === editing.id ? { ...m, body: newBody, edited: true } : m
+              ),
+            }
+          : d
+      )
+      toast.success('Message edited')
+      setEditing(null)
+      setSelectedIds(new Set())
+      onChatChanged?.()
+    } catch {
+      toast.error('Could not edit message')
+    } finally {
+      setEditSaving(false)
+    }
+  }
+
+  /**
+   * Inline edit persistence for MessageBubble (`onEditSave` contract):
+   * PATCH { body } then update local state. Returns success so the bubble
+   * can keep or revert its inline editor.
+   */
+  async function saveEditApi(id: string, body: string): Promise<boolean> {
+    const trimmed = body.trim()
+    if (!trimmed) return false
+    try {
+      const res = await fetch(`/api/messages/${id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ body: trimmed }),
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error ?? 'Save failed')
+      const newBody = data.message.body as string
+      setDetail((d) =>
+        d
+          ? {
+              ...d,
+              messages: d.messages.map((m) =>
+                m.id === id ? { ...m, body: newBody, edited: true } : m
+              ),
+            }
+          : d
+      )
+      toast.success('Message edited')
+      onChatChanged?.()
+      return true
+    } catch {
+      toast.error('Could not edit message')
+      return false
+    }
+  }
+
+  /**
+   * Simulated typing (10-b): shortly after you send, a random OTHER
+   * participant "types" for a few seconds. Purely client-side; skipped in
+   * Saved Messages and chats where nobody but 'You' ever sent anything.
+   */
+  function scheduleTypingSimulation() {
+    if (!detail || isSavedChat) return
+    const others = detail.chat.isGroup
+      ? [
+          ...new Set(
+            messages
+              .filter((m) => m.sender && m.sender !== 'You')
+              .map((m) => m.sender as string)
+          ),
+        ]
+      : [detail.chat.title]
+    if (others.length === 0) return
+    const name = others[Math.floor(Math.random() * others.length)]
+    clearTypingTimers()
+    setTypingName(null)
+    const showDelay = 1200 + Math.random() * 1300 // 1.2–2.5s after send
+    const showFor = 2500 + Math.random() * 2000 // visible for 2.5–4.5s
+    typingTimersRef.current.push(
+      window.setTimeout(() => {
+        setTypingName(name)
+        typingTimersRef.current.push(
+          window.setTimeout(() => setTypingName(null), showFor)
+        )
+      }, showDelay)
+    )
+  }
+
+  /* ---- 14-b: simulated persona replies (demo chats only) ---- */
+
+  /**
+   * Decide whether the just-sent message earns a persona reply and schedule
+   * one. Returns true when scheduled — handleSent then skips the random 10-b
+   * typing decoration (the real reply replaces it). Guards: demo chat only,
+   * auto-reply enabled, plain TEXT from 'You', nothing already pending,
+   * and a persona must exist in the transcript. Media/audio/poll/etc. sends
+   * never trigger a reply (type filter below).
+   */
+  function schedulePersonaReply(msg: ChatMessage): boolean {
+    if (!detail || !isDemoChat || !autoReplyOn) return false
+    if (personaPendingRef.current) return false // exactly ONE pending reply
+    if (msg.type !== 'text' || !msg.body.trim()) return false
+    if (msg.sender && msg.sender !== 'You') return false
+    const persona = derivePersona(detail.messages)
+    if (!persona) return false
+
+    const chatIdAtSend = chatId
+    const controller = new AbortController()
+    personaPendingRef.current = true
+    personaAbortRef.current = controller
+
+    // Recent outgoing texts (newest first) — keyword source for the offline
+    // builder. `detail` still holds the pre-append snapshot here, so the
+    // just-sent body leads the list.
+    const recentUserTexts = [
+      msg.body,
+      ...detail.messages
+        .filter((m) => m.sender === 'You' && m.type === 'text' && m.body.trim())
+        .slice(-3)
+        .reverse()
+        .map((m) => m.body),
+    ]
+    const seedCount = detail.messages.length + 1
+
+    // AI reply starts immediately — it has 4s from the send to settle.
+    const aiPromise = fetchAiReply(chatIdAtSend, { signal: controller.signal })
+
+    // Typing dots ~700ms after the send...
+    personaTimersRef.current.push(
+      window.setTimeout(() => {
+        if (!personaPendingRef.current) return
+        setTypingName(persona)
+      }, 700)
+    )
+    // ...the reply lands 1.5–4s after the send (total, randomized).
+    const delay = 1500 + Math.random() * 2500
+    personaTimersRef.current.push(
+      window.setTimeout(() => {
+        void deliverPersonaReply(
+          chatIdAtSend,
+          persona,
+          seedCount,
+          recentUserTexts,
+          aiPromise,
+          controller
+        )
+      }, delay)
+    )
+    return true
+  }
+
+  /**
+   * Generate + POST the persona reply. AI text wins when it settled within
+   * its 4s window; otherwise the deterministic offline line is used. The
+   * reply is POSTed as an ordinary incoming message and appended with the
+   * SAME mechanism as scheduled-message deliveries (refetch-free setDetail
+   * append). No toast — the message just appears. Failures only switch the
+   * typing indicator off and log; they never break the chat.
+   */
+  async function deliverPersonaReply(
+    chatIdAtSend: string,
+    persona: string,
+    seedCount: number,
+    recentUserTexts: string[],
+    aiPromise: Promise<string | null>,
+    controller: AbortController
+  ) {
+    try {
+      let text = pickPersonaReply({
+        chatId: chatIdAtSend,
+        messageCount: seedCount,
+        recentUserMessages: recentUserTexts,
+      })
+      try {
+        const ai = await aiPromise // resolves ≤4s after the send, or null
+        if (ai && ai.trim()) text = ai.trim()
+      } catch {
+        /* offline line — silent */
+      }
+      if (controller.signal.aborted) return // chat switched — cleanup owns state
+      const res = await fetch(`/api/chats/${chatIdAtSend}/messages`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ type: 'text', sender: persona, body: text }),
+        signal: controller.signal,
+      })
+      if (!res.ok) throw new Error(`status ${res.status}`)
+      const data = (await res.json()) as { message?: ChatMessage }
+      const reply = data.message
+      if (!reply) throw new Error('no message returned')
+      if (controller.signal.aborted) return // superseded while POSTing
+      personaPendingRef.current = false
+      personaAbortRef.current = null
+      personaTimersRef.current = [] // both timers already fired
+      setTypingName(null)
+      setDetail((d) =>
+        d && d.chat.id === chatIdAtSend
+          ? { ...d, messages: [...d.messages, reply] }
+          : d
+      )
+    } catch (err) {
+      if (controller.signal.aborted) return // chat switch — nothing to reset
+      personaPendingRef.current = false
+      personaAbortRef.current = null
+      setTypingName(null)
+      console.error('Persona reply failed:', err)
+    }
+  }
+
+  /** 14-b: flip the persisted auto-reply toggle (⋮ menu, demo chats only). */
+  function toggleAutoReply() {
+    setAutoReplyOn((v) => {
+      const next = !v
+      writeAutoReplyEnabled(next)
+      return next
+    })
+  }
+
+  function handleSent(msg: ChatMessage) {
+    // Stale-send guard: an upload started in chat A but finishing after the
+    // user switched to chat B must not append to B's transcript.
+    if (msg.chatId && msg.chatId !== chatId) return
+    setDetail((d) => (d ? { ...d, messages: [...d.messages, msg] } : d))
+    requestAnimationFrame(() => {
+      const el = scrollRef.current
+      if (el) el.scrollTo({ top: el.scrollHeight, behavior: 'smooth' })
+    })
+    // 14-b: in demo chats a persona reply replaces the random 10-b typing
+    // decoration — the dots now lead to a real incoming message. Extra sends
+    // while a reply is pending are ignored for scheduling (no stacking) and
+    // also skip the 10-b decoration so its auto-clear timer can't kill the
+    // persona's typing indicator mid-flight.
+    if (!schedulePersonaReply(msg) && !personaPendingRef.current) {
+      scheduleTypingSimulation()
+    }
+    onChatChanged?.()
+  }
+
+  async function createPoll(
+    question: string,
+    options: string[]
+  ): Promise<boolean> {
+    setPollCreating(true)
+    try {
+      const res = await fetch(`/api/chats/${chatId}/messages`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ type: 'poll', body: question, pollOptions: options }),
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error ?? 'Failed')
+      handleSent(data.message as ChatMessage)
+      toast.success('Poll created — tap an option to vote')
+      return true
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Could not create poll')
+      return false
+    } finally {
+      setPollCreating(false)
+    }
+  }
+
+  /** Expand the render window and smooth-scroll to a message with a flash. */
+  function jumpToMessageId(id: string) {
+    const idx = messages.findIndex((m) => m.id === id)
+    if (idx === -1) {
+      toast.info('Message not found in this chat')
+      return
+    }
+    const needed = messages.length - idx
+    if (needed > visibleCountRef.current) {
+      visibleCountRef.current = needed
+      setVisibleCount(needed)
+    }
+    pendingJumpRef.current = id
+    // If already rendered, the effect fires via visibleCount change; force check
+    requestAnimationFrame(() => {
+      const el = scrollRef.current?.querySelector(`[data-mid="${id}"]`)
+      if (el) {
+        el.scrollIntoView({
+          block: 'center',
+          behavior: prefersReducedMotion() ? 'auto' : 'smooth',
+        })
+        setJumpedId(id)
+        setTimeout(() => setJumpedId(null), 2000)
+        pendingJumpRef.current = null
+      }
+    })
+  }
+
+  /** Timeline scrubber pick (10-i) → jump to the first message of a month. */
+  function handleScrubPick(key: string) {
+    const [ys, ms] = key.split('-').map(Number)
+    const hit = messages.find((m) => {
+      const d = new Date(m.ts)
+      return d.getFullYear() === ys && d.getMonth() === ms - 1
+    })
+    if (hit) jumpToMessageId(hit.id)
+  }
+
+  /* ---- 14-f: unread pill — live count, scroll tracking, click-to-jump ---- */
+
+  /** Anchor position + live unread count, recomputed as messages change
+     (deletes shift the anchor safely; the anchor disappearing kills it). */
+  const unreadInfo = useMemo(() => {
+    if (!unreadFirstId) return null
+    const idx = messages.findIndex((m) => m.id === unreadFirstId)
+    if (idx === -1) return null
+    let count = 0
+    for (let i = idx; i < messages.length; i++) {
+      const m = messages[i]
+      if (m.sender && m.sender !== 'You' && m.type !== 'system') count++
+    }
+    return { idx, count }
+  }, [messages, unreadFirstId])
+
+  /**
+   * Pill visibility, driven by the container's scroll events:
+   *  - hidden when dismissed (pill click) or no unread anchor;
+   *  - visible while the first unread message is out of view (above the
+   *    viewport top after scrolling past it, below it after scrolling up,
+   *    or windowed out entirely);
+   *  - when on screen: hidden — except right after an open whose auto-scroll
+   *    was clamped (the 25% divider placement was impossible), where the
+   *    pill stays visible until the user actually scrolls on their own.
+   */
+  const updateUnreadPill = useCallback((wrap: HTMLDivElement) => {
+    const firstId = unreadFirstIdRef.current
+    if (!firstId || unreadDismissedRef.current) {
+      setShowUnreadPill(false)
+      return
+    }
+    const msgEl = wrap.querySelector(`[data-mid="${firstId}"]`)
+    const wr = wrap.getBoundingClientRect()
+    let out = true
+    if (msgEl) {
+      const r = msgEl.getBoundingClientRect()
+      out = r.bottom <= wr.top + 1 || r.top >= wr.bottom - 1
+    }
+    if (out) {
+      setShowUnreadPill(true)
+      return
+    }
+    if (!unreadClampedRef.current || userScrolledRef.current) {
+      setShowUnreadPill(false)
+    }
+  }, [])
+
+  /** Pill click: dismiss the pill, then reuse the standard jump machinery —
+      it expands the render window if needed, smooth-scrolls to the first
+      unread message and applies the flash treatment. */
+  function handleUnreadPillClick() {
+    unreadDismissedRef.current = true
+    setShowUnreadPill(false)
+    const firstId = unreadFirstIdRef.current
+    if (firstId) jumpToMessageId(firstId)
+  }
+
+  /**
+   * Word-cloud pick (10-i): close the dialog, seed the in-chat search with
+   * the word (same path the search input drives — `query` state), open the
+   * search bar and jump to the first matching message.
+   */
+  function handlePickWord(word: string) {
+    setWordCloudOpen(false)
+    setSearchOpen(true)
+    setStarredOnly(false)
+    setRegexMode(false)
+    setFromDate('')
+    setToDate('')
+    setQuery(word)
+    const q = word.toLowerCase()
+    const hit = messages.find((m) =>
+      `${m.body ?? ''}\n${m.sender ?? ''}`.toLowerCase().includes(q)
+    )
+    if (hit) jumpToMessageId(hit.id)
+  }
+
+  /** Smooth-scroll to the first message of `d` (expanding the window if needed). */
+  function jumpToDate(d: Date) {
+    const targetKey = `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`
+    const idx = messages.findIndex((m) => dayKey(m.ts) === targetKey)
+    if (idx === -1) {
+      toast.info(
+        `No messages on ${d.toLocaleDateString('en-GB', {
+          day: 'numeric',
+          month: 'long',
+          year: 'numeric',
+        })}`
+      )
+      return
+    }
+    jumpToMessageId(messages[idx].id)
+    setJumpOpen(false)
+  }
+
+  const starredCount = useMemo(
+    () => messages.reduce((s, m) => s + (m.starred ? 1 : 0), 0),
+    [messages]
+  )
+
+  /* -------------------------- Pinned messages (#11) -------------------------- */
+  const pinnedMessages = useMemo(
+    () => messages.filter((m) => m.pinned),
+    [messages]
+  )
+  const safePinIdx =
+    pinnedMessages.length > 0 ? Math.min(pinIdx, pinnedMessages.length - 1) : 0
+  const currentPinned = pinnedMessages[safePinIdx] ?? null
+
+  /* ------------------- Simulated presence (#9, non-group) ------------------- */
+  const presence = useMemo(() => {
+    if (!detail || isSavedChat || detail.chat.isGroup || nowMs === null) return null
+    // Deterministic online windows: minute-of-epoch + chat id hash
+    const online = ((Math.floor(nowMs / 60000) * 31 + hashStr(detail.chat.id)) % 97) < 18
+    if (online) return { online: true, text: 'online' }
+    const last = detail.chat.lastAt ? new Date(detail.chat.lastAt) : null
+    let text = 'last seen recently'
+    if (last && !Number.isNaN(last.getTime())) {
+      const now = new Date(nowMs)
+      const sameDay =
+        last.getFullYear() === now.getFullYear() &&
+        last.getMonth() === now.getMonth() &&
+        last.getDate() === now.getDate()
+      text = sameDay
+        ? `last seen today at ${hhmm(detail.chat.lastAt as string)}`
+        : `last seen ${dmy(detail.chat.lastAt as string)}`
+    }
+    return { online: false, text }
+  }, [detail, isSavedChat, nowMs])
+
+  /* --------------------- Jump-to-date day counts (#4) ---------------------- */
+  const chatDayCounts = useMemo(() => {
+    const map = new Map<string, number>()
+    for (const m of messages) {
+      const k = dayKey(m.ts)
+      map.set(k, (map.get(k) ?? 0) + 1)
+    }
+    return map
+  }, [messages])
+  const chatPeakDay = useMemo(() => {
+    let best: { key: string; count: number } | null = null
+    for (const [key, count] of chatDayCounts) {
+      if (!best || count > best.count) best = { key, count }
+    }
+    return best
+  }, [chatDayCounts])
+  const countedDayButton = useMemo(() => makeDayButton(chatDayCounts), [chatDayCounts])
+
+  const chatDaySet = useMemo(() => {
+    const s = new Set<string>()
+    for (const m of messages) s.add(dayKey(m.ts))
+    return s
+  }, [messages])
+
+  /* -------- 10-i: month buckets for the timeline scrubber -------- */
+  const scrubMonths = useMemo<ScrubMonth[]>(() => {
+    const map = new Map<string, { count: number; label: string }>()
+    for (const m of messages) {
+      const d = new Date(m.ts)
+      if (Number.isNaN(d.getTime())) continue
+      const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
+      const entry = map.get(key)
+      if (entry) {
+        entry.count++
+      } else {
+        map.set(key, {
+          count: 1,
+          label: d.toLocaleDateString('en-GB', { month: 'short', year: 'numeric' }),
+        })
+      }
+    }
+    return [...map.entries()].map(([key, v]) => ({
+      key,
+      label: v.label,
+      count: v.count,
+    }))
+  }, [messages])
+  const firstMsgDay = messages.length ? new Date(messages[0].ts) : null
+  const lastMsgDay = messages.length
+    ? new Date(messages[messages.length - 1].ts)
+    : null
+
+  /** Shared calendar body for the jump-to-date popovers (desktop + mobile). */
+  const jumpPopoverBody = (
+    <div className="flex flex-col items-center">
+      <Calendar
+        mode="single"
+        selected={jumpDate}
+        onSelect={(d) => {
+          if (!d) return
+          setJumpDate(d)
+          jumpToDate(d)
+        }}
+        defaultMonth={
+          lastMsgDay
+            ? new Date(lastMsgDay.getFullYear(), lastMsgDay.getMonth(), 1)
+            : undefined
+        }
+        startMonth={
+          firstMsgDay
+            ? new Date(firstMsgDay.getFullYear(), firstMsgDay.getMonth(), 1)
+            : undefined
+        }
+        endMonth={
+          lastMsgDay
+            ? new Date(lastMsgDay.getFullYear(), lastMsgDay.getMonth(), 1)
+            : undefined
+        }
+        disabled={
+          firstMsgDay && lastMsgDay
+            ? [
+                { before: firstMsgDay, after: lastMsgDay },
+                (date: Date) =>
+                  !chatDaySet.has(
+                    `${date.getFullYear()}-${date.getMonth()}-${date.getDate()}`
+                  ),
+              ]
+            : undefined
+        }
+        modifiers={{
+          hasMsg: (date: Date) =>
+            chatDaySet.has(
+              `${date.getFullYear()}-${date.getMonth()}-${date.getDate()}`
+            ),
+        }}
+        components={{ DayButton: countedDayButton }}
+        modifiersClassNames={{
+          hasMsg:
+            'relative after:absolute after:bottom-[3px] after:left-1/2 after:h-[3px] after:w-[3px] after:-translate-x-1/2 after:rounded-full after:bg-(--wa-accent) after:content-[""]',
+        }}
+        className="w-[272px] rounded-xl p-2 [&_[data-selected-single=true]]:bg-(--wa-accent) [&_[data-selected-single=true]]:text-white"
+      />
+      {/* Per-day activity footer (#4): active days + busiest day */}
+      {chatPeakDay && chatDayCounts.size > 0 && (
+        <p className="w-full px-3 pb-1.5 text-center text-[11px] leading-snug text-(--wa-text-2)">
+          {chatDayCounts.size} active day{chatDayCounts.size === 1 ? '' : 's'} ·{' '}
+          {chatPeakDay.count} message{chatPeakDay.count === 1 ? '' : 's'} on the
+          busiest day ({labelFromDayKey(chatPeakDay.key)})
+        </p>
+      )}
+      <div className="flex w-full gap-1.5 border-t px-2 pb-1.5 pt-2">
+        <Button
+          variant="ghost"
+          size="sm"
+          className="h-7 flex-1 gap-1 rounded-full text-[12px] text-(--wa-text-2)"
+          disabled={!messages.length}
+          onClick={() => {
+            jumpToMessageId(messages[0].id)
+            setJumpOpen(false)
+          }}
+        >
+          <ArrowUpToLine className="h-3.5 w-3.5" /> Oldest
+        </Button>
+        <Button
+          variant="ghost"
+          size="sm"
+          className="h-7 flex-1 gap-1 rounded-full text-[12px] text-(--wa-text-2)"
+          disabled={!messages.length}
+          onClick={() => {
+            jumpToMessageId(messages[messages.length - 1].id)
+            setJumpOpen(false)
+          }}
+        >
+          <ArrowDownToLine className="h-3.5 w-3.5" /> Latest
+        </Button>
+      </div>
+    </div>
+  )
+
+  /** Cycle the search-match cursor (1 = next, -1 = previous) and jump. */
+  function goToMatch(dir: 1 | -1) {
+    if (!filtered || filtered.length === 0) return
+    const next = (safeMatchIdx + dir + filtered.length) % filtered.length
+    setMatchIdx(next)
+    jumpToMessageId(filtered[next].id)
+  }
+
+  if (loading) {
+    return (
+      <div className="flex flex-1 items-center justify-center bg-(--wa-chat-bg)">
+        <Loader2 className="h-8 w-8 animate-spin text-(--wa-accent)" />
+      </div>
+    )
+  }
+
+  if (!detail) {
+    return (
+      <div className="relative hidden flex-1 flex-col items-center justify-center bg-(--wa-deep) px-6 text-center text-white/[0.08] md:flex">
+        <DoodleBackground />
+        <div className="anim-fade-up relative z-10 mx-auto max-w-md">
+          <div className="mx-auto mb-6 flex h-24 w-24 items-center justify-center rounded-full bg-white/10">
+            <svg viewBox="0 0 24 24" className="h-12 w-12 text-white/60" fill="none" stroke="currentColor" strokeWidth="1.4">
+              <rect x="2" y="4" width="20" height="13" rx="2" />
+              <path d="M8 21h8M12 17v4" />
+            </svg>
+          </div>
+          <h2 className="text-[32px] font-light text-(--wa-text)">WhatsApp Viewer</h2>
+          <p className="mt-4 text-sm leading-relaxed text-(--wa-text-2)">
+            Import a WhatsApp chat export (.zip or .txt) to read your conversations
+            here. Everything is stored locally in your own database — nothing leaves
+            this device.
+          </p>
+          <p className="mt-6 text-[12px] uppercase tracking-wide text-(--wa-text-2)">
+            Select a chat on the left to start reading
+          </p>
+        </div>
+      </div>
+    )
+  }
+
+  const { chat } = detail
+  const subtitle = isSavedChat
+    ? 'Your personal space — notes, links & media'
+    : chat.isGroup
+      ? `${countParticipants(messages)} participants`
+      : presence
+        ? presence.text
+        : 'click here for chat info'
+
+  return (
+    <div
+      className="anim-fade-up relative flex min-h-0 flex-1 flex-col"
+      style={accentVars ?? undefined}
+    >
+      {/* Wallpaper stack (base color/gradient → photo → doodles → dim overlay).
+          The whole stack gets the contrast/brightness/saturation filter so
+          bubbles and text stay untouched. */}
+      <div
+        aria-hidden
+        className="pointer-events-none absolute inset-0 overflow-hidden"
+        style={wallpaperFilter ? { filter: wallpaperFilter } : undefined}
+      >
+        {/* Base color (user pick or default) + optional pattern overlay */}
+        {!wpIsPreset && (
+          <div className="wp-base absolute inset-0" style={wallpaperBaseStyle} />
+        )}
+        {!wpIsPreset && wallpaperCfg.pattern && (
+          <div
+            className={cn('wpat-bg absolute inset-0', `wpat-${wallpaperCfg.pattern}`)}
+          />
+        )}
+        {/* Pre-built design (complete look) */}
+        {wpIsPreset && (
+          <div
+            className={cn(
+              'absolute inset-0 transition-[background-color,background-image] duration-300',
+              wallpaperPreset.bg
+            )}
+          />
+        )}
+        {wallpaperIsPhoto && wallpaperCfg.photo && (
+          <div
+            className="absolute inset-0"
+            style={{
+              backgroundImage: `url("${wallpaperCfg.photo}")`,
+              backgroundSize: 'cover',
+              backgroundPosition: 'center',
+              filter:
+                wallpaperCfg.blur > 0 ? `blur(${wallpaperCfg.blur}px)` : undefined,
+              transform: wallpaperCfg.blur > 0 ? 'scale(1.08)' : undefined,
+            }}
+          />
+        )}
+        {wpIsPreset && !wallpaperIsPhoto && wallpaperPreset.doodle && (
+          <div className={cn('absolute inset-0', wallpaperPreset.doodle)}>
+            <DoodleBackground />
+          </div>
+        )}
+        {wallpaperCfg.dim > 0 && (
+          <div
+            className="absolute inset-0 bg-black transition-opacity duration-300"
+            style={{ opacity: wallpaperCfg.dim }}
+          />
+        )}
+      </div>
+
+      {/* Header */}
+      <header className="relative z-10 flex items-center gap-3 border-l border-(--wa-line) bg-(--wa-panel-2) px-3 py-2 dark:bg-(--wa-panel-2)">
+        <Button
+          variant="ghost"
+          size="icon"
+          className="wa-iconbtn h-8 w-8 md:hidden"
+          onClick={onBack}
+          aria-label="Back to chats"
+        >
+          <ArrowLeft className="h-5 w-5 text-(--wa-text-2)" />
+        </Button>
+        <button
+          className="flex min-w-0 flex-1 items-center gap-3 text-left"
+          onClick={() => setInfoOpen(true)}
+        >
+          {isSavedChat ? (
+            <SavedAvatar size={40} />
+          ) : (
+            <Avatar name={chat.title} size={40} />
+          )}
+          <div className="min-w-0">
+            <h2 className="truncate text-[16px] font-medium leading-tight text-(--wa-text)">
+              {chat.title}
+            </h2>
+            <p
+              className="truncate text-[12.5px] text-(--wa-text-2)"
+              title={
+                typingName
+                  ? undefined
+                  : presence
+                    ? "Simulated presence — exports don't carry live status"
+                    : undefined
+              }
+            >
+              {typingName ? (
+                <span className="inline-flex items-center text-(--wa-accent-strong) dark:text-(--wa-accent)">
+                  {typingName} is typing
+                  <span className="wa-ellipsis-dots" aria-hidden>
+                    <i />
+                    <i />
+                    <i />
+                  </span>
+                </span>
+              ) : (
+                <>
+                  {presence?.online && (
+                    <span className="relative mr-1.5 inline-flex h-2 w-2 align-middle" aria-hidden>
+                      <span className="absolute inline-flex h-full w-full rounded-full bg-[#25d366] opacity-60 motion-safe:animate-ping" />
+                      <span className="relative inline-flex h-2 w-2 rounded-full bg-[#25d366]" />
+                    </span>
+                  )}
+                  {subtitle}
+                </>
+              )}
+            </p>
+          </div>
+        </button>
+        <div className="flex shrink-0 items-center gap-1">
+          <Button
+            variant="ghost"
+            size="icon"
+            className={cn(
+              'wa-iconbtn hidden h-9 w-9 sm:inline-flex',
+              readOnly &&
+                'bg-(--wa-accent)/15 text-(--wa-accent-strong) dark:text-(--wa-accent)'
+            )}
+            onClick={toggleReadOnly}
+            aria-label={readOnly ? 'Switch to editing view' : 'Switch to read-only view'}
+            aria-pressed={readOnly}
+            title={
+              readOnly
+                ? 'Back to editing — the default for every chat'
+                : 'Read-only view — hide composer & message interactions'
+            }
+          >
+            <Pencil className="h-5 w-5" />
+          </Button>
+          {/* Multi-select entry point (10-b): enter/exit selection mode */}
+          <Button
+            variant="ghost"
+            size="icon"
+            className={cn(
+              'wa-iconbtn hidden h-9 w-9 sm:inline-flex',
+              selecting &&
+                'bg-(--wa-accent)/15 text-(--wa-accent-strong) dark:text-(--wa-accent)'
+            )}
+            onClick={() => (selecting ? exitSelection() : enterSelection())}
+            aria-label="Select messages"
+            aria-pressed={selecting}
+            title={
+              selecting
+                ? 'Exit selection'
+                : 'Select messages — star, forward or delete in bulk'
+            }
+          >
+            <ListChecks className="h-5 w-5" />
+          </Button>
+          <Button
+            variant="ghost"
+            size="icon"
+            className="wa-iconbtn hidden h-9 w-9 sm:inline-flex"
+            onClick={() => setGalleryOpen(true)}
+            aria-label="Media gallery"
+            title="Media gallery"
+          >
+            <Images className="h-5 w-5 text-(--wa-text-2)" />
+          </Button>
+          <Button
+            variant="ghost"
+            size="icon"
+            className="wa-iconbtn h-9 w-9"
+            onClick={() => setSearchOpen((v) => !v)}
+            aria-label="Search in chat"
+            title="Search in chat"
+          >
+            <Search className="h-5 w-5 text-(--wa-text-2)" />
+          </Button>
+          <Button
+            variant="ghost"
+            size="icon"
+            className="wa-iconbtn relative h-9 w-9"
+            onClick={() => setStarredOpen(true)}
+            aria-label="Starred messages"
+            title="Starred messages"
+          >
+            <Star
+              className={cn(
+                'h-5 w-5',
+                starredCount > 0
+                  ? 'fill-[#f2a33c] text-[#f2a33c]'
+                  : 'text-(--wa-text-2)'
+              )}
+            />
+            {starredCount > 0 && (
+              <span className="absolute -right-0.5 -top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-[#f2a33c] px-1 text-[9px] font-bold leading-none text-white shadow">
+                {starredCount > 99 ? '99+' : starredCount}
+              </span>
+            )}
+          </Button>
+          {!isNarrow && (
+            <Popover open={jumpOpen} onOpenChange={setJumpOpen}>
+              <PopoverTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="wa-iconbtn h-9 w-9"
+                  aria-label="Jump to date"
+                  title="Jump to date"
+                >
+                  <CalendarDays className="h-5 w-5 text-(--wa-text-2)" />
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent align="end" className="w-auto p-0">
+                {jumpPopoverBody}
+              </PopoverContent>
+            </Popover>
+          )}
+          <WallpaperPicker
+            chatId={chatId}
+            chatTitle={chat.title}
+            open={wallpaperOpen}
+            onOpenChange={setWallpaperOpen}
+          >
+            <Button
+              variant="ghost"
+              size="icon"
+              className="wa-iconbtn hidden h-9 w-9 sm:inline-flex"
+              aria-label="Chat wallpaper"
+              title="Chat wallpaper & photo"
+            >
+              <Palette className="h-5 w-5 text-(--wa-text-2)" />
+            </Button>
+          </WallpaperPicker>
+          {/* Word cloud (10-i) — most used words, ≥sm header icon */}
+          <Button
+            variant="ghost"
+            size="icon"
+            className="wa-iconbtn hidden h-9 w-9 sm:inline-flex"
+            onClick={() => setWordCloudOpen(true)}
+            aria-label="Word cloud — most used words"
+            title="Word cloud — most used words"
+          >
+            <Hash className="h-5 w-5 text-(--wa-text-2)" />
+          </Button>
+          {/* Export / print menu (#10): .txt, .zip, .html, .json, .csv, print/PDF */}
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="wa-iconbtn h-9 w-9"
+                aria-label="Export or print chat"
+                title="Export / print — .txt, .zip, .html, .json, .csv, PDF"
+              >
+                <Download className="h-5 w-5 text-(--wa-text-2)" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-60">
+              <DropdownMenuItem onClick={handleExport} className="gap-2">
+                <FileText className="h-4 w-4 text-(--wa-text-2)" />
+                Export as .txt
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={handleExportZip} className="gap-2">
+                <FileArchive className="h-4 w-4 text-(--wa-text-2)" />
+                Export .zip (text + media)
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={handleExportHtml} className="gap-2">
+                <FileCode2 className="h-4 w-4 text-(--wa-text-2)" />
+                Export .html (viewable page)
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                onClick={() => handleExportFormat('json')}
+                className="gap-2"
+              >
+                <Braces className="h-4 w-4 text-(--wa-text-2)" />
+                Export .json (raw data)
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                onClick={() => handleExportFormat('csv')}
+                className="gap-2"
+              >
+                <Sheet className="h-4 w-4 text-(--wa-text-2)" />
+                Export .csv (spreadsheet)
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem onClick={openPrint} className="gap-2">
+                <Printer className="h-4 w-4 text-(--wa-text-2)" />
+                Print / Save as PDF
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+          {/* Narrow screens: tools whose buttons hide below sm (edit / gallery /
+              wallpaper) collapse into this overflow menu so nothing is lost. */}
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="wa-iconbtn h-9 w-9 sm:hidden"
+                aria-label="More chat tools"
+                title="More"
+              >
+                <MoreVertical className="h-5 w-5 text-(--wa-text-2)" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-52">
+              <DropdownMenuItem onClick={toggleReadOnly} className="gap-2">
+                <Eye className="h-4 w-4 text-(--wa-text-2)" />
+                {readOnly ? 'Editing view' : 'Read-only view'}
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                onClick={() => (selecting ? exitSelection() : enterSelection())}
+                className="gap-2"
+              >
+                <ListChecks className="h-4 w-4 text-(--wa-text-2)" />
+                {selecting ? 'Exit selection' : 'Select messages'}
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                onClick={() => setGalleryOpen(true)}
+                className="gap-2"
+              >
+                <Images className="h-4 w-4 text-(--wa-text-2)" />
+                Media gallery
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                onClick={() => setWallpaperOpen(true)}
+                className="gap-2"
+              >
+                <Palette className="h-4 w-4 text-(--wa-text-2)" />
+                Chat wallpaper
+              </DropdownMenuItem>
+              {/* 14-b: demo-only toggle — personas answer your texts here.
+                  onSelect preventDefault keeps the menu open so the Switch
+                  visibly flips; onClick does the actual toggling (exactly
+                  once — Radix fires select after click). */}
+              {isDemoChat && (
+                <>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem
+                    onClick={toggleAutoReply}
+                    onSelect={(e) => e.preventDefault()}
+                    className="gap-2"
+                    aria-label={`Simulated replies — ${
+                      autoReplyOn ? 'on' : 'off'
+                    }`}
+                  >
+                    <Bot className="h-4 w-4 text-(--wa-text-2)" />
+                    <span className="min-w-0 flex-1">
+                      <span className="block text-[13px] leading-tight">
+                        Simulated replies
+                      </span>
+                      <span className="mt-0.5 block truncate text-[11px] leading-tight text-(--wa-text-2)">
+                        {autoReplyOn
+                          ? 'On — personas answer your texts'
+                          : 'Off'}
+                      </span>
+                    </span>
+                    <Switch
+                      checked={autoReplyOn}
+                      tabIndex={-1}
+                      aria-hidden
+                      className="pointer-events-none"
+                    />
+                  </DropdownMenuItem>
+                </>
+              )}
+              <DropdownMenuItem
+                onClick={() => setWordCloudOpen(true)}
+                className="gap-2"
+              >
+                <Hash className="h-4 w-4 text-(--wa-text-2)" />
+                Word cloud
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                onClick={() => setTldrOpen(true)}
+                className="gap-2"
+              >
+                <Sparkles className="h-4 w-4 text-(--wa-text-2)" />
+                Summarize with AI
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+          <Button
+            variant="ghost"
+            size="icon"
+            className="wa-iconbtn hidden h-9 w-9 sm:inline-flex"
+            onClick={() => setTldrOpen(true)}
+            aria-label="Summarize this chat with AI"
+            title="Summarize with AI (TL;DR)"
+          >
+            <Sparkles className="h-5 w-5 text-(--wa-text-2)" />
+          </Button>
+          <Button
+            variant="ghost"
+            size="icon"
+            className="wa-iconbtn hidden h-9 w-9 lg:inline-flex"
+            onClick={() => setInfoOpen(true)}
+            aria-label="Chat info"
+            title="Chat info"
+          >
+            <Info className="h-5 w-5 text-(--wa-text-2)" />
+          </Button>
+          {!isSavedChat && (
+            <Button
+              variant="ghost"
+              size="icon"
+              className="wa-iconbtn h-9 w-9 shrink-0 hover:bg-rose-500/10"
+              onClick={() => onDelete(chat.id)}
+              disabled={deleting}
+              aria-label="Delete chat"
+            >
+              <Trash2 className="h-5 w-5 text-rose-500/80" />
+            </Button>
+          )}
+        </div>
+      </header>
+
+      {/* Pinned messages bar (#11) — WhatsApp-style strip under the header.
+          Click jumps to the current pin; chevrons cycle when several are
+          pinned; PinOff unpins the current one; X collapses the bar. */}
+      {!pinsCollapsed && currentPinned && (
+        <div className="wa-pins-bar relative z-10 flex items-center gap-1.5 border-t border-black/5 bg-(--wa-panel-2) px-3 py-1.5 dark:border-white/5 dark:bg-(--wa-panel-2)">
+          <Pin className="h-4 w-4 shrink-0 text-(--wa-accent)" aria-hidden />
+          <button
+            type="button"
+            onClick={() => jumpToMessageId(currentPinned.id)}
+            className="flex min-w-0 flex-1 items-center rounded-md py-0.5 text-left"
+            title="Jump to pinned message"
+          >
+            <span className="min-w-0">
+              <span className="block truncate text-[12px] font-semibold leading-tight text-(--wa-text)">
+                {currentPinned.sender ?? 'WhatsApp'}
+              </span>
+              <span className="block truncate text-[12px] leading-tight text-(--wa-text-2)">
+                {msgPreviewText(currentPinned)}
+              </span>
+            </span>
+          </button>
+          {pinnedMessages.length > 1 && (
+            <span className="flex shrink-0 items-center gap-0.5">
+              <span className="px-0.5 text-[11px] font-medium tabular-nums text-(--wa-text-2)">
+                {safePinIdx + 1}/{pinnedMessages.length}
+              </span>
+              <button
+                type="button"
+                onClick={() =>
+                  setPinIdx((i) => (i - 1 + pinnedMessages.length) % pinnedMessages.length)
+                }
+                aria-label="Previous pinned message"
+                title="Previous pinned message"
+                className="flex h-6 w-6 items-center justify-center rounded-full text-(--wa-text-2) transition-colors hover:bg-black/10 hover:text-(--wa-text) dark:hover:bg-white/10"
+              >
+                <ChevronUp className="h-3.5 w-3.5" />
+              </button>
+              <button
+                type="button"
+                onClick={() => setPinIdx((i) => (i + 1) % pinnedMessages.length)}
+                aria-label="Next pinned message"
+                title="Next pinned message"
+                className="flex h-6 w-6 items-center justify-center rounded-full text-(--wa-text-2) transition-colors hover:bg-black/10 hover:text-(--wa-text) dark:hover:bg-white/10"
+              >
+                <ChevronDown className="h-3.5 w-3.5" />
+              </button>
+            </span>
+          )}
+          <button
+            type="button"
+            onClick={() => handlePinMessage(currentPinned)}
+            aria-label="Unpin message"
+            title="Unpin"
+            className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-(--wa-text-2) transition-colors hover:bg-black/10 hover:text-(--wa-text) dark:hover:bg-white/10"
+          >
+            <PinOff className="h-3.5 w-3.5" />
+          </button>
+          <button
+            type="button"
+            onClick={() => setPinsCollapsed(true)}
+            aria-label="Hide pinned messages bar"
+            title="Hide pinned messages"
+            className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-(--wa-text-2) transition-colors hover:bg-black/10 hover:text-(--wa-text) dark:hover:bg-white/10"
+          >
+            <X className="h-3.5 w-3.5" />
+          </button>
+        </div>
+      )}
+
+      {/* In-chat search (text + optional date range) */}
+      {searchOpen && (
+        <div className="relative z-10 border-b border-black/10 bg-(--wa-panel-2) px-3 py-2 dark:bg-(--wa-panel-2)">
+          <div className="flex items-center gap-2">
+            <Input
+              suppressHydrationWarning
+              autoFocus
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  e.preventDefault()
+                  goToMatch(e.shiftKey ? -1 : 1)
+                }
+              }}
+              placeholder={
+                regexMode ? 'Regular expression...' : `Search in ${chat.title}...`
+              }
+              className={cn(
+                'h-9 min-w-0 flex-1 rounded-lg bg-(--wa-in) text-[14px] dark:bg-(--wa-row-active) dark:text-(--wa-text) dark:placeholder:text-(--wa-text-2)',
+                regexInvalid && 'ring-1 ring-rose-400 dark:ring-rose-500/60'
+              )}
+            />
+            {/* Match navigation (query only) */}
+            {query.trim() && matchCount > 0 && (
+              <span className="flex h-9 shrink-0 items-center gap-0.5 rounded-full bg-black/5 px-1 dark:bg-white/10">
+                <span className="px-1.5 text-[11.5px] font-medium tabular-nums text-(--wa-text-2)">
+                  {safeMatchIdx + 1}/{matchCount}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => goToMatch(-1)}
+                  aria-label="Previous match"
+                  title="Previous match (Shift+Enter)"
+                  className="flex h-7 w-7 items-center justify-center rounded-full text-(--wa-text-2) transition-colors hover:bg-black/10 hover:text-(--wa-text) dark:text-(--wa-text-2) dark:hover:bg-white/10 dark:hover:text-(--wa-text)"
+                >
+                  <ChevronUp className="h-4 w-4" />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => goToMatch(1)}
+                  aria-label="Next match"
+                  title="Next match (Enter)"
+                  className="flex h-7 w-7 items-center justify-center rounded-full text-(--wa-text-2) transition-colors hover:bg-black/10 hover:text-(--wa-text) dark:text-(--wa-text-2) dark:hover:bg-white/10 dark:hover:text-(--wa-text)"
+                >
+                  <ChevronDown className="h-4 w-4" />
+                </button>
+              </span>
+            )}
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-8 w-8 shrink-0"
+              onClick={() => {
+                setSearchOpen(false)
+                setQuery('')
+                setFromDate('')
+                setToDate('')
+                setDateFilterOpen(false)
+                setStarredOnly(false)
+                setRegexMode(false)
+              }}
+              aria-label="Close search"
+            >
+              <X className="h-4 w-4" />
+            </Button>
+          </div>
+          {/* Filter chips row (wraps on narrow screens) */}
+          <div className="mt-2 flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setStarredOnly((v) => !v)}
+              aria-pressed={starredOnly}
+              title="Show starred messages only"
+              className={cn(
+                'flex h-9 shrink-0 items-center gap-1.5 rounded-full px-3 text-[12.5px] font-medium transition-colors',
+                starredOnly
+                  ? 'bg-[#f2a33c]/20 text-[#a16a08] ring-1 ring-[#f2a33c]/50 dark:bg-[#f2a33c]/25 dark:text-[#f5c877]'
+                  : 'bg-black/5 text-(--wa-text-2) hover:bg-black/10 dark:bg-white/5 dark:text-(--wa-text-2) dark:hover:bg-white/10'
+              )}
+            >
+              <Star
+                className={cn(
+                  'h-3.5 w-3.5 transition-colors',
+                  starredOnly && 'fill-current'
+                )}
+              />
+              Starred
+            </button>
+            <button
+              type="button"
+              onClick={() => setRegexMode((v) => !v)}
+              aria-pressed={regexMode}
+              title="Treat the query as a regular expression"
+              className={cn(
+                'flex h-9 shrink-0 items-center gap-1 rounded-full px-2.5 text-[12.5px] font-medium transition-colors',
+                regexMode
+                  ? 'bg-(--wa-accent)/15 text-(--wa-accent-strong) ring-1 ring-(--wa-accent)/40 dark:bg-(--wa-accent)/25 dark:text-(--wa-accent)'
+                  : 'bg-black/5 text-(--wa-text-2) hover:bg-black/10 dark:bg-white/5 dark:text-(--wa-text-2) dark:hover:bg-white/10'
+              )}
+            >
+              <Regex className="h-3.5 w-3.5" />
+              .*
+            </button>
+            <Button
+              variant="ghost"
+              size="icon"
+              className={cn(
+                'h-9 w-9 shrink-0',
+                hasDateFilter &&
+                  'bg-(--wa-accent)/15 text-(--wa-accent-strong) dark:bg-(--wa-accent)/25 dark:text-(--wa-accent)'
+              )}
+              onClick={() => setDateFilterOpen((v) => !v)}
+              aria-label="Toggle date range filter"
+              title="Filter by date range"
+            >
+              <SlidersHorizontal className="h-4 w-4" />
+            </Button>
+            {isNarrow && (
+              <Popover open={jumpOpen} onOpenChange={setJumpOpen}>
+                <PopoverTrigger asChild>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-9 w-9 shrink-0"
+                    aria-label="Jump to date"
+                    title="Jump to date"
+                  >
+                    <CalendarDays className="h-4 w-4 text-(--wa-text-2)" />
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent align="end" className="w-auto p-0">
+                  {jumpPopoverBody}
+                </PopoverContent>
+              </Popover>
+            )}
+            {(query || hasDateFilter || starredOnly) && (
+              <span className="ml-auto shrink-0 text-[12px] text-(--wa-text-2)">
+                {filtered?.length ?? 0} result{(filtered?.length ?? 0) === 1 ? '' : 's'}
+              </span>
+            )}
+          </div>
+          {regexInvalid && (
+            <p className="mt-1.5 flex items-center gap-1.5 text-[12px] font-medium text-rose-600 dark:text-rose-400">
+              <TriangleAlert className="h-3.5 w-3.5 shrink-0" />
+              Invalid regular expression — fix the pattern to search again
+            </p>
+          )}
+          {dateFilterOpen && (
+            <div className="mt-2 flex flex-wrap items-center gap-2">
+              <span className="text-[11.5px] font-medium uppercase tracking-wide text-(--wa-text-2)">
+                From
+              </span>
+              <Input
+                suppressHydrationWarning
+                type="date"
+                value={fromDate}
+                max={toDate || undefined}
+                onChange={(e) => setFromDate(e.target.value)}
+                className="h-8 w-[150px] rounded-lg bg-(--wa-in) text-[13px] [color-scheme:light] dark:bg-(--wa-row-active) dark:text-(--wa-text) dark:[color-scheme:dark]"
+              />
+              <span className="text-[11.5px] font-medium uppercase tracking-wide text-(--wa-text-2)">
+                To
+              </span>
+              <Input
+                suppressHydrationWarning
+                type="date"
+                value={toDate}
+                min={fromDate || undefined}
+                onChange={(e) => setToDate(e.target.value)}
+                className="h-8 w-[150px] rounded-lg bg-(--wa-in) text-[13px] [color-scheme:light] dark:bg-(--wa-row-active) dark:text-(--wa-text) dark:[color-scheme:dark]"
+              />
+              {hasDateFilter && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-8 gap-1 rounded-full px-2.5 text-[12px] text-(--wa-text-2) hover:text-rose-500 dark:text-(--wa-text-2)"
+                  onClick={() => {
+                    setFromDate('')
+                    setToDate('')
+                  }}
+                >
+                  <X className="h-3.5 w-3.5" /> Clear dates
+                </Button>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Messages (+ timeline scrubber overlay, 10-i). The wrapper hosts the
+          scrubber so it stays fixed over the list viewport while the inner
+          div scrolls. */}
+      <div className="relative z-[1] flex min-h-0 flex-1 flex-col">
+      <div
+        ref={scrollRef}
+        onScroll={(e) => {
+          const el = e.currentTarget
+          setShowFab(el.scrollHeight - el.scrollTop - el.clientHeight > 400)
+          // 14-f: classify the scroll — a deviation from our own auto-scroll
+          // target (or any scroll once it settled) is the user's own, which
+          // ends the clamped-open pill exception.
+          if (autoScrollSettlingRef.current) {
+            const t = autoScrollTargetRef.current
+            if (t == null || Math.abs(el.scrollTop - t) > 4) {
+              autoScrollSettlingRef.current = false
+              userScrolledRef.current = true
+            }
+          } else {
+            userScrolledRef.current = true
+          }
+          updateUnreadPill(el)
+        }}
+        style={{ '--wa-msg-size': `${msgFontPx}px` } as React.CSSProperties}
+        className="wa-scroll relative flex-1 overflow-y-auto overflow-x-hidden py-3"
+        role="log"
+        aria-label={`Messages in ${chat.title}`}
+      >
+        {!filtered && messages.length > visibleCount && (
+          <div className="mb-3 flex justify-center">
+            <Button
+              size="sm"
+              variant="secondary"
+              className="rounded-full bg-(--wa-in) text-[12.5px] font-medium shadow-md hover:bg-(--wa-in) dark:bg-(--wa-panel-2) dark:text-(--wa-text)"
+              onClick={handleLoadEarlier}
+            >
+              Load earlier messages
+            </Button>
+          </div>
+        )}
+
+        {filtered && filtered.length === 0 && (
+          <div className="mt-10 text-center text-[13px] text-(--wa-text-2)">
+            {query ? (
+              regexInvalid ? (
+                'Invalid regular expression — fix the pattern in the search bar'
+              ) : (
+                <>
+                  No messages match &quot;{query}&quot;
+                  {hasDateFilter ? ' in the selected date range' : ''}
+                  {starredOnly ? ' among starred' : ''}
+                </>
+              )
+            ) : starredOnly ? (
+              hasDateFilter ? (
+                'No starred messages in the selected date range'
+              ) : (
+                'No starred messages here yet'
+              )
+            ) : (
+              'No messages in the selected date range'
+            )}
+          </div>
+        )}
+
+        {grouped.map((item) => {
+          if (item.kind === 'date') {
+            return (
+              <div key={item.key} className="my-3 flex justify-center">
+                <span className="anim-pop rounded-lg bg-(--wa-in)/95 px-3 py-1 text-[12.2px] font-medium uppercase tracking-wide text-(--wa-text-2) shadow-[0_1px_1px_rgba(11,20,26,0.12)] backdrop-blur-sm dark:bg-(--wa-panel-2)/95 dark:text-(--wa-text-2)">
+                  {item.label}
+                </span>
+              </div>
+            )
+          }
+          if (item.kind === 'unread-divider') {
+            return (
+              <div
+                key={item.key}
+                data-unread-divider
+                className="my-3 flex items-center gap-2 px-2"
+              >
+                <span
+                  aria-hidden
+                  className="min-w-6 flex-1 border-t-2 border-emerald-500/70"
+                />
+                <span
+                  aria-hidden
+                  className="rounded-full bg-(--wa-in)/95 px-3 py-1 text-[11px] font-medium uppercase tracking-wide text-emerald-600 shadow-[0_1px_1px_rgba(11,20,26,0.12)] backdrop-blur-sm dark:bg-(--wa-panel-2)/95 dark:text-emerald-400"
+                >
+                  Unread messages
+                </span>
+                <span
+                  aria-hidden
+                  className="min-w-6 flex-1 border-t-2 border-emerald-500/70"
+                />
+                <span className="sr-only">Unread messages start here</span>
+              </div>
+            )
+          }
+          if (item.kind === 'system') {
+            return (
+              <div
+                key={item.key}
+                data-mid={item.id}
+                className={cn(
+                  'my-2 flex justify-center rounded-lg px-8 transition-colors',
+                  jumpedId === item.id &&
+                    'bg-amber-200/50 ring-1 ring-amber-400/60 dark:bg-amber-500/20'
+                )}
+              >
+                <span className="flex max-w-lg items-center justify-center gap-1.5 rounded-md bg-[#ffeecd] px-3 py-1.5 text-center text-[12.5px] leading-snug text-(--wa-text-2) shadow-sm dark:bg-(--wa-panel-2) dark:text-[#ffd279]">
+                  {/encrypted/i.test(item.body) && <Lock className="h-3 w-3 shrink-0" />}
+                  {item.body}
+                </span>
+              </div>
+            )
+          }
+          return (
+            <div
+              key={item.key}
+              data-mid={item.msg.id}
+              data-msg-id={item.msg.id}
+              className={cn(
+                'animate-in fade-in slide-in-from-bottom-1 mt-0.5 rounded-lg duration-300 transition-colors',
+                item.showTail && 'mt-2.5',
+                jumpedId === item.msg.id &&
+                  'bg-amber-200/50 ring-1 ring-amber-400/60 dark:bg-amber-500/20',
+                selecting &&
+                  selectedIds.has(item.msg.id) &&
+                  'bg-(--wa-accent)/[0.06]'
+              )}
+            >
+              <MessageBubble
+                msg={item.msg}
+                chatId={chatId}
+                chatTitle={chat.title}
+                isGroup={chat.isGroup}
+                showTail={item.showTail}
+                showAvatar={item.showAvatar}
+                onToggleStar={readOnly || selecting ? undefined : handleToggleStar}
+                onReact={readOnly || selecting ? undefined : handleReact}
+                onPinMessage={readOnly || selecting ? undefined : handlePinMessage}
+                onTranslate={readOnly || selecting ? undefined : handleTranslate}
+                onReply={readOnly || selecting ? undefined : handleReplyTo}
+                onForwardSaved={readOnly || selecting ? undefined : forwardOne}
+                onEditMessage={readOnly || selecting ? undefined : openEdit}
+                onEditSave={readOnly || selecting ? undefined : saveEditApi}
+                highlight={query.trim() || undefined}
+                highlightRegex={regexMode && !!query.trim()}
+                selectMode={selecting}
+                selectionMode={selecting}
+                selected={selecting && selectedIds.has(item.msg.id)}
+                anySelected={selectedCount > 0}
+                onToggleSelect={readOnly ? undefined : handleToggleSelect}
+                linkPreview={linkPreviews.get(item.msg.id)}
+              />
+            </div>
+          )
+        })}
+
+        {/* Simulated typing bubble (10-b) — three WhatsApp-style dots */}
+        {typingName && !filtered && (
+          <div
+            data-typing-bubble
+            className="wa-typing-bubble mt-0.5 flex items-end gap-2 px-2 sm:px-4"
+          >
+            {chat.isGroup && (
+              <Avatar name={typingName} size={28} className="mb-0.5" />
+            )}
+            <div
+              className="flex items-center rounded-[7.5px] bg-(--wa-in) px-3 py-2.5 shadow-[0_1px_0.5px_rgba(11,20,26,0.13)] dark:bg-(--wa-panel-2)"
+              role="status"
+              aria-label={`${typingName} is typing`}
+            >
+              <span className="wa-typing-dots" aria-hidden>
+                <i />
+                <i />
+                <i />
+              </span>
+            </div>
+          </div>
+        )}
+      </div>
+
+        {/* Timeline scrubber (10-i) — month ticks, drag/wheel/keyboard jumps */}
+        <TimelineScrubber
+          months={scrubMonths}
+          onPick={handleScrubPick}
+          containerRef={scrollRef}
+        />
+      </div>
+
+      {/* Scroll-to-bottom FAB (WhatsApp style) — springs in/out of view */}
+      <button
+        onClick={handleScrollToBottom}
+        aria-label="Scroll to latest messages"
+        aria-hidden={!showFab || searchOpen}
+        tabIndex={showFab && !searchOpen ? 0 : -1}
+        className={cn(
+          'absolute bottom-[68px] right-4 z-20 flex h-10 w-10 items-center justify-center rounded-full bg-(--wa-in) text-(--wa-text-2) shadow-[0_1px_3px_rgba(11,20,26,0.3)] transition-all duration-300 [transition-timing-function:cubic-bezier(0.34,1.56,0.64,1)] hover:scale-110 active:scale-90 dark:bg-(--wa-panel-2) dark:text-(--wa-text-2)',
+          showFab && !searchOpen
+            ? 'translate-y-0 scale-100 opacity-100'
+            : 'pointer-events-none translate-y-4 scale-50 opacity-0'
+        )}
+      >
+        <ChevronDown className="h-6 w-6" />
+      </button>
+
+      {/* Unread pill (14-f) — WhatsApp-style "N new messages" (emerald),
+          stacked above the scroll-to-bottom chevron (bottom-[68px] + h-10)
+          and clear of the scheduled chip (top edge ≈116px above the
+          composer); hidden with the rest of the chrome while the search
+          panel is open; visible while the first unread message is out of
+          view (plus the clamped-open exception — see updateUnreadPill). */}
+      {unreadInfo && unreadInfo.count > 0 && (
+        <button
+          type="button"
+          onClick={handleUnreadPillClick}
+          aria-label="Jump to unread messages"
+          aria-hidden={!showUnreadPill || selecting || searchOpen}
+          tabIndex={showUnreadPill && !selecting && !searchOpen ? 0 : -1}
+          className={cn(
+            'absolute bottom-[120px] right-4 z-20 flex h-9 items-center gap-1.5 rounded-full bg-emerald-600 px-3.5 text-[12.5px] font-medium text-white shadow-lg transition-all duration-300 [transition-timing-function:cubic-bezier(0.34,1.56,0.64,1)] hover:bg-emerald-500 active:scale-95 dark:bg-emerald-600 dark:hover:bg-emerald-500',
+            showUnreadPill && !selecting && !searchOpen
+              ? 'translate-y-0 scale-100 opacity-100'
+              : 'pointer-events-none translate-y-4 scale-50 opacity-0'
+          )}
+        >
+          <ArrowDown className="h-4 w-4 shrink-0" aria-hidden />
+          <span className="whitespace-nowrap tabular-nums">
+            {unreadInfo.count} new message{unreadInfo.count === 1 ? '' : 's'}
+          </span>
+        </button>
+      )}
+
+      {/* Movie mode (10-i) — entry FAB + playback bar (auto-scroll the chat) */}
+      <MovieMode
+        containerRef={scrollRef}
+        enabled={movieMode}
+        onEnabledChange={setMovieMode}
+      />
+
+      {/* Multi-select floating action bar (10-b) — slides up over the composer
+          slot, safe-area aware; all buttons ≥44px. */}
+      {selecting && selectedCount > 0 ? (
+        <div
+          className="wa-select-bar absolute inset-x-0 bottom-0 z-30 border-t border-black/5 bg-(--wa-panel-2) px-2 pt-2 shadow-[0_-6px_20px_rgba(11,20,26,0.14)] dark:border-white/5 dark:bg-(--wa-panel-2)"
+          style={{ paddingBottom: 'max(0.5rem, env(safe-area-inset-bottom))' }}
+          role="toolbar"
+          aria-label="Selected message actions"
+        >
+          <div className="flex items-center gap-1">
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-11 w-11 shrink-0"
+              onClick={exitSelection}
+              aria-label="Cancel selection"
+              title="Cancel"
+            >
+              <X className="h-5 w-5 text-(--wa-text-2)" />
+            </Button>
+            <span className="min-w-0 flex-1 truncate px-1 text-[13.5px] font-medium text-(--wa-text)">
+              {selectedCount} selected
+            </span>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-11 w-11 shrink-0"
+              onClick={starSelected}
+              aria-label="Star selected"
+              title="Star selected"
+            >
+              <Star className="h-5 w-5 text-[#f2a33c]" />
+            </Button>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-11 w-11 shrink-0"
+              onClick={() => openForwardDialog(selectedMessages)}
+              aria-label="Forward selected"
+              title="Forward to another chat"
+            >
+              <Forward className="h-5 w-5 text-(--wa-accent)" />
+            </Button>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="hidden h-11 w-11 shrink-0 sm:inline-flex"
+              onClick={copySelected}
+              aria-label="Copy selected"
+              title="Copy selected messages"
+            >
+              <Copy className="h-5 w-5 text-(--wa-text-2)" />
+            </Button>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="hidden h-11 w-11 shrink-0 sm:inline-flex"
+              onClick={selectAll}
+              aria-label="Select all messages"
+              title="Select all"
+            >
+              <ListChecks className="h-5 w-5 text-(--wa-text-2)" />
+            </Button>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-11 w-11 shrink-0 hover:bg-rose-500/10"
+              onClick={() => setDeleteConfirm(true)}
+              aria-label="Delete selected"
+              title="Delete for everyone"
+            >
+              <Trash2 className="h-5 w-5 text-rose-500/90" />
+            </Button>
+          </div>
+        </div>
+      ) : readOnly ? (
+        <>
+          {schedBar}
+          {/* Read-only viewing strip — editing is the default (10-b), so this
+           only appears after the user deliberately switches to viewing mode. */}
+          <div className="relative z-10 bg-(--wa-panel-2) px-3 py-2.5 dark:bg-(--wa-panel-2)">
+            <div className="flex items-center justify-center gap-2 rounded-lg bg-(--wa-text-2)/10 px-4 py-2.5 text-[13px] text-(--wa-text-2) dark:bg-white/5 dark:text-(--wa-text-2)">
+              <Lock className="h-3.5 w-3.5" />
+              Read-only view — tap the pencil to interact
+            </div>
+          </div>
+        </>
+      ) : (
+        <>
+          {schedBar}
+          {/* Composer — ACTIVE by default in every chat, incl. Saved Messages */}
+          <Composer
+            chatId={chatId}
+            onSent={handleSent}
+            onOpenPoll={() => setPollOpen(true)}
+            replyTo={replyTo}
+            onCancelReply={() => setReplyTo(null)}
+            onJumpToReply={handleJumpToReply}
+          />
+        </>
+      )}
+
+      <ChatInfo
+        open={infoOpen}
+        onOpenChange={setInfoOpen}
+        chat={chat}
+        messages={messages}
+        onJumpToMessage={() => {
+          const el = scrollRef.current
+          if (el) el.scrollTo({ top: el.scrollHeight })
+        }}
+      />
+
+      {/* Starred messages list */}
+      <StarredMessages
+        open={starredOpen}
+        onOpenChange={setStarredOpen}
+        chatId={chatId}
+        chatTitle={chat.title}
+        isGroup={chat.isGroup}
+        onJumpToMessage={jumpToMessageId}
+        onUnstar={(id) => onStarMessage?.(id, false)}
+      />
+
+      {/* Full media gallery (mounted per open for fresh state) */}
+      {galleryOpen && (
+        <MediaGallery
+          chatId={chatId}
+          chatTitle={chat.title}
+          isGroup={chat.isGroup}
+          open
+          onClose={() => setGalleryOpen(false)}
+          onJumpToMessage={jumpToMessageId}
+        />
+      )}
+
+      {/* Create poll (local editing) */}
+      <PollDialog
+        open={pollOpen}
+        onOpenChange={setPollOpen}
+        onCreate={createPoll}
+        creating={pollCreating}
+      />
+
+      {/* Edit message text (local editing) */}
+      <Dialog open={!!editing} onOpenChange={(v) => !v && setEditing(null)}>
+        <DialogContent className="sm:max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Edit message</DialogTitle>
+            <DialogDescription>
+              Only the text can be changed locally — the message will show an
+              “edited” mark.
+            </DialogDescription>
+          </DialogHeader>
+          <Textarea
+            suppressHydrationWarning
+            autoFocus
+            value={editBody}
+            rows={4}
+            maxLength={8000}
+            onChange={(e) => setEditBody(e.target.value)}
+            className="resize-none text-[14px]"
+            aria-label="Message text"
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
+                e.preventDefault()
+                void saveEdit()
+              }
+            }}
+          />
+          <DialogFooter>
+            <Button variant="ghost" onClick={() => setEditing(null)}>
+              Cancel
+            </Button>
+            <Button
+              className="rounded-full bg-(--wa-accent) text-white hover:bg-(--wa-accent-strong)"
+              disabled={editSaving || !editBody.trim()}
+              onClick={() => void saveEdit()}
+            >
+              {editSaving ? 'Saving…' : 'Save'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Delete selected confirmation */}
+      <AlertDialog open={deleteConfirm} onOpenChange={setDeleteConfirm}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              Delete {selectedCount === 1 ? 'message' : `${selectedCount} messages`}?
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              They will be removed from this viewer for everyone, including any
+              attached media. This cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-rose-600 text-white hover:bg-rose-700"
+              onClick={(e) => {
+                e.preventDefault()
+                void executeDelete()
+              }}
+              disabled={deleteBusy}
+            >
+              {deleteBusy ? 'Deleting…' : 'Delete'}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Forward to other chats (10-b) — searchable multi-target dialog */}
+      <ForwardDialog
+        open={!!forwardState}
+        onOpenChange={(v) => {
+          if (!v) setForwardState(null)
+        }}
+        messages={forwardState?.messages ?? []}
+        sourceChatId={chatId}
+        sourceChatTitle={chat.title}
+        onForwarded={() => exitSelection()}
+      />
+
+      {/* AI message tools (translate / explain / ask-about-this-chat) — #13 */}
+      <AIToolsDialog
+        open={!!aiMsg}
+        message={aiMsg}
+        chatId={chatId}
+        onOpenChange={(v) => {
+          if (!v) setAiMsg(null)
+        }}
+      />
+
+      {/* Word cloud (10-i) — most used words; picking seeds in-chat search */}
+      <WordCloudDialog
+        open={wordCloudOpen}
+        onOpenChange={setWordCloudOpen}
+        chatId={chatId}
+        chatTitle={chat.title}
+        onPickWord={handlePickWord}
+      />
+
+      {/* AI chat summary (Task 12-c) — ⋮ menu + desktop Sparkles button */}
+      <TldrDialog
+        chatId={chatId}
+        open={tldrOpen}
+        onOpenChange={setTldrOpen}
+      />
+
+      {/* Print / Save-as-PDF preview (#10) — plain black-on-white transcript,
+          ignores wallpaper + dark mode. Screen = preview sheet; @media print
+          rules in chat-extras.css isolate this subtree for printing. */}
+      {printReady && (
+        <div className="print-overlay" role="dialog" aria-label="Print preview">
+          <div className="mx-auto max-w-[820px] px-8 py-10">
+            <header className="mb-5 border-b-2 border-black pb-4">
+              <h1 className="text-[22px] font-bold leading-tight">{chat.title}</h1>
+              <p className="mt-1 text-[12px] text-neutral-600">
+                {chat.isGroup ? 'Group chat' : 'Direct chat'} · {messages.length}{' '}
+                message{messages.length === 1 ? '' : 's'}
+                {chat.firstAt ? ` · ${dmy(chat.firstAt)}` : ''}
+                {chat.lastAt ? ` – ${dmy(chat.lastAt)}` : ''}
+              </p>
+              <p className="mt-0.5 text-[11px] text-neutral-500">
+                Exported {new Date().toLocaleString('en-GB')}
+              </p>
+            </header>
+            {messages.map((m) => {
+              const isSystem = m.type === 'system' || !m.sender
+              return (
+                <div
+                  key={m.id}
+                  className="print-row flex gap-2 border-b border-neutral-200 py-1 text-[12.5px] leading-snug"
+                >
+                  <span className="w-[54px] shrink-0 tabular-nums text-neutral-500">
+                    [{hhmm(m.ts)}]
+                  </span>
+                  {isSystem ? (
+                    <span className="italic text-neutral-600">
+                      {m.body || '[system]'}
+                    </span>
+                  ) : (
+                    <span className="min-w-0 break-words">
+                      <span className="font-semibold">{m.sender}:</span>{' '}
+                      {printBody(m)}
+                    </span>
+                  )}
+                </div>
+              )
+            })}
+          </div>
+          {/* Repeats on every printed page via position:fixed in @media print
+              (chat-extras.css). Chromium can't render counter(page), so this
+              carries the chat title + export date instead (honest footer). */}
+          <footer className="print-page-footer" aria-hidden>
+            {chat.title} · Exported {new Date().toLocaleString('en-GB')}
+          </footer>
+          <button
+            type="button"
+            className="print-close-btn"
+            onClick={() => setPrintReady(false)}
+          >
+            Close preview
+          </button>
+        </div>
+      )}
+    </div>
+  )
+}
+
+function countParticipants(messages: ChatMessage[]): number {
+  const set = new Set<string>()
+  for (const m of messages) if (m.sender) set.add(m.sender)
+  return set.size
+}

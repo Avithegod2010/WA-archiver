@@ -1,0 +1,70 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model Chat {
+  id           String    @id @default(cuid())
+  title        String
+  isGroup      Boolean   @default(false)
+  messageCount Int       @default(0)
+  mediaCount   Int       @default(0)
+  firstAt      DateTime?
+  lastAt       DateTime?
+  lastPreview  String    @default("")
+  lastSender   String?
+  lastType     String    @default("text")
+  sourceFile   String    @default("")
+  pinned       Boolean   @default(false)
+  archived     Boolean   @default(false)
+  createdAt    DateTime  @default(now())
+  messages     Message[]
+}
+
+model Message {
+  id            String   @id @default(cuid())
+  chatId        String
+  chat          Chat     @relation(fields: [chatId], references: [id], onDelete: Cascade)
+  idx           Int
+  ts            DateTime
+  sender        String?
+  body          String   @default("")
+  type          String   @default("text")
+  mediaPath     String?
+  mediaName     String?
+  starred       Boolean  @default(false)
+  edited        Boolean  @default(false)
+  forwardedFrom String?
+  pollOptions   String?
+  pinned        Boolean  @default(false)
+  reactions     String?
+  replyToId     String?
+
+  @@index([chatId, idx])
+  @@index([chatId, ts])
+}
+
+model ScheduledMessage {
+  id        String   @id @default(cuid())
+  chatId    String
+  body      String
+  sender    String   @default("You")
+  deliverAt DateTime
+  createdAt DateTime @default(now())
+  status    String   @default("pending")
+
+  @@index([chatId, status])
+  @@index([status, deliverAt])
+}
+
+/// Generic key/value store for server-side app state
+/// (e.g. app-lock PIN hash, backup timestamps).
+model AppSetting {
+  key       String   @id
+  value     String
+  updatedAt DateTime @updatedAt
+}
