@@ -32,6 +32,7 @@ yarn-error.log*
 
 # env files (can opt-in for committing if needed)
 .env*
+!.env.example
 
 # vercel
 .vercel
@@ -52,3 +53,9 @@ prompt
 server.log
 # Skills directory
 /skills/
+# --- v1.0 release: keep runtime data, internal docs and demos out of the repo ---
+/db/
+/public/downloads/
+/examples/
+/worklog.md
+/TODO.md
