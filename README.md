@@ -94,6 +94,26 @@ no import needed. To use your own chats: in WhatsApp, open a chat →
 
 ---
 
+## 📱 Android APK
+
+The repo ships with a ready Capacitor Android shell **plus a GitHub Actions
+workflow that builds an installable APK on every push** — no Android Studio
+needed on your machine.
+
+1. Host the web app (see Deploying) and copy its URL.
+2. Edit **one line**: `capacitor.config.ts` → `server.url` → your hosted URL.
+3. Push to GitHub → open the **Actions** tab → latest run → download
+   **whatsapp-viewer-apk** → install on any Android phone
+   (allow "install unknown apps" when prompted).
+
+Prefer zero config? After hosting, you can also generate a signed package at
+[pwabuilder.com](https://www.pwabuilder.com) by pasting your site URL.
+
+> Note: the APK is a native shell around your hosted app — the server keeps
+> your data, so the phone needs an internet connection.
+
+---
+
 ## ☁️ Deploying
 
 The app ships as a standalone Next.js build (`bun run build` → `bun run start`).
