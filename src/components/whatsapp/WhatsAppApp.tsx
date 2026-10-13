@@ -917,6 +917,7 @@ export function WhatsAppApp() {
                 onClick={() => setTextSizeOpen((v) => !v)}
                 aria-label="Display settings"
                 title="Text size & font"
+                suppressHydrationWarning
               >
                 <ALargeSmall className="h-5 w-5" />
               </Button>

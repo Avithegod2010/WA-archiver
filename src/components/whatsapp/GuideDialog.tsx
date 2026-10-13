@@ -25,6 +25,7 @@ import { Button } from '@/components/ui/button'
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
   DialogTitle,
 } from '@/components/ui/dialog'
 import {
@@ -488,6 +489,9 @@ export function GuideDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="overflow-hidden p-0 sm:max-w-xl">
         <DialogTitle className="sr-only">Interactive guide</DialogTitle>
+        <DialogDescription className="sr-only">
+          Step-by-step tour of importing, reading and exploring your chats.
+        </DialogDescription>
 
         {/* Animated progress bar */}
         <div className="h-1 w-full bg-black/5 dark:bg-white/10">

@@ -11,6 +11,7 @@ import {
   EyeOff,
   FileDown,
   HardDrive,
+  Info,
   Keyboard,
   KeyRound,
   Loader2,
@@ -1052,6 +1053,45 @@ export function SettingsDialog({
             Installable: use your browser menu → Install app / Add to Home
             Screen. Recently opened chats stay readable offline.
           </p>
+        </section>
+
+        {/* g) About — v1.0 release */}
+        <section aria-label="About" className="flex flex-col gap-2">
+          <h3 className="flex items-center gap-1.5 text-[13px] font-semibold text-(--wa-text)">
+            <Info className="h-3.5 w-3.5 text-(--wa-accent)" aria-hidden />
+            About
+          </h3>
+          <div className="rounded-lg border border-black/10 bg-black/[0.03] p-3 dark:border-white/10 dark:bg-white/[0.04]">
+            <div className="flex items-center justify-between gap-2">
+              <span className="text-[13px] font-semibold text-(--wa-text)">
+                WhatsApp Viewer
+              </span>
+              <span
+                className="rounded-full bg-(--wa-accent)/10 px-2 py-0.5 text-[11px] font-semibold text-(--wa-accent)"
+                aria-label="Version 1.0"
+              >
+                v1.0
+              </span>
+            </div>
+            <p className="mt-1 text-[12px] leading-snug text-(--wa-text-2)">
+              View, explore and enrich your exported WhatsApp chats — media,
+              voice notes, reactions, AI tools, privacy lock and more, all on
+              your own device.
+            </p>
+            <p className="mt-2 text-[11px] leading-snug text-(--wa-text-2)">
+              You&apos;re running the v1.0 release. More features are planned
+              for upcoming versions.
+            </p>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={openGettingStarted}
+              className="mt-2 w-full justify-start gap-1.5"
+            >
+              <BookOpen className="h-4 w-4" aria-hidden />
+              Take the feature tour
+            </Button>
+          </div>
         </section>
 
         {/* Self-managed tutorial — opens via the 'wa-open-getting-started' event */}
