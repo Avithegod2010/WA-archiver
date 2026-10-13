@@ -8,6 +8,7 @@ import ZAI from 'z-ai-web-dev-sdk'
 import { db } from '@/lib/db'
 import { assertAppUnlocked, getSetting, setSetting } from '@/lib/server-lock'
 import { resolveMediaPath } from '@/lib/media-store'
+import { isRateLimited, clientIpOf } from '@/lib/rate-limit'
 
 export const runtime = 'nodejs'
 export const maxDuration = 60
@@ -15,8 +16,6 @@ export const maxDuration = 60
 const MAX_AUDIO_BYTES = 25 * 1024 * 1024 // 25 MB (original file)
 const MAX_CONVERTED_BYTES = 50 * 1024 * 1024 // safety net for decoded WAVs
 const MAX_TRANSCRIPT_CHARS = 64_000
-const RATE_LIMIT = 10
-const RATE_WINDOW_MS = 60_000
 
 /**
  * The ASR provider only accepts WAV and WebM — every other voice-note
@@ -54,26 +53,10 @@ function ffmpegToWav(input: string, output: string): Promise<void> {
 }
 
 /**
- * Simple in-memory rate limit: 10 transcribe requests per minute per client.
- * Buckets are pruned lazily whenever the map grows past 500 entries.
+ * Rate limit: 10 transcribe requests per minute per client (shared limiter).
  */
-const rateBuckets = new Map<string, { count: number; resetAt: number }>()
-
-function isRateLimited(clientId: string): boolean {
-  const now = Date.now()
-  const bucket = rateBuckets.get(clientId)
-  if (!bucket || now >= bucket.resetAt) {
-    if (rateBuckets.size > 500) {
-      for (const [key, b] of rateBuckets) {
-        if (now >= b.resetAt) rateBuckets.delete(key)
-      }
-    }
-    rateBuckets.set(clientId, { count: 1, resetAt: now + RATE_WINDOW_MS })
-    return false
-  }
-  bucket.count += 1
-  return bucket.count > RATE_LIMIT
-}
+const RATE_LIMIT = 10
+const RATE_WINDOW_MS = 60_000
 
 /**
  * POST /api/transcribe
@@ -97,8 +80,8 @@ export async function POST(req: NextRequest) {
   const denied = await assertAppUnlocked(req)
   if (denied) return denied
 
-  const ip = req.headers.get('x-forwarded-for')?.split(',')[0]?.trim() || 'local'
-  if (isRateLimited(ip)) {
+  const ip = clientIpOf(req)
+  if (isRateLimited(ip, RATE_LIMIT, RATE_WINDOW_MS)) {
     return NextResponse.json(
       { error: 'Too many transcription requests — please wait a moment' },
       { status: 429 }

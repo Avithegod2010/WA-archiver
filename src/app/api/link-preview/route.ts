@@ -295,7 +295,12 @@ async function scrape(rawUrl: string): Promise<LinkPreview | null> {
       !meta.ogImage.startsWith('data:')
     ) {
       try {
-        image = new URL(meta.ogImage, finalUrl).toString()
+        const resolved = new URL(meta.ogImage, finalUrl)
+        // Only http(s) image URLs are safe to hand to the client — anything
+        // else (javascript:, vbscript:, …) must never reach an <img src>.
+        if (resolved.protocol === 'http:' || resolved.protocol === 'https:') {
+          image = resolved.toString()
+        }
       } catch {
         image = undefined
       }

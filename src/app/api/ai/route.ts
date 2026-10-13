@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import ZAI from 'z-ai-web-dev-sdk'
 import { db } from '@/lib/db'
 import { assertAppUnlocked } from '@/lib/server-lock'
+import { isRateLimited, clientIpOf } from '@/lib/rate-limit'
 import {
   AiError,
   buildAskPrompt,
@@ -20,6 +21,9 @@ export const runtime = 'nodejs'
 export const maxDuration = 60
 
 const TIMEOUT_MS = 25_000
+/** Rate limit: 20 AI calls per minute per client (shared limiter). */
+const RATE_LIMIT = 20
+const RATE_WINDOW_MS = 60_000
 const REPLY_CONTEXT_MESSAGES = 12
 const SUMMARIZE_CONTEXT_MESSAGES = 80
 const ASK_CONTEXT_MESSAGES = 120
@@ -42,6 +46,14 @@ export async function POST(req: NextRequest) {
   // Server-side app lock — protects every mode (Task 14-e).
   const denied = await assertAppUnlocked(req)
   if (denied) return denied
+
+  // Rate limit — AI calls are expensive (server provider cost + latency).
+  if (isRateLimited(clientIpOf(req), RATE_LIMIT, RATE_WINDOW_MS)) {
+    return NextResponse.json(
+      { error: 'Too many AI requests — please wait a moment' },
+      { status: 429 }
+    )
+  }
 
   let payload: unknown
   try {

@@ -32,6 +32,7 @@ export async function GET(
       headers: {
         'Content-Type': mimeFromName(name),
         'Cache-Control': 'private, max-age=31536000, immutable',
+        'X-Content-Type-Options': 'nosniff',
       },
     })
   } catch {

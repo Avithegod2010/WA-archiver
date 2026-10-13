@@ -30,6 +30,28 @@ const nextConfig: NextConfig = isApkExport
         ignoreBuildErrors: true,
       },
       reactStrictMode: false,
+      // Baseline security headers for every server-rendered response
+      // (security audit, v1.0.1). Static/APK export has no server, so
+      // headers only apply to the hosted/dev build.
+      async headers() {
+        return [
+          {
+            source: "/(.*)",
+            headers: [
+              { key: "X-Content-Type-Options", value: "nosniff" },
+              { key: "X-Frame-Options", value: "DENY" },
+              {
+                key: "Referrer-Policy",
+                value: "strict-origin-when-cross-origin",
+              },
+              {
+                key: "Permissions-Policy",
+                value: "camera=(), geolocation=(), microphone=(self)",
+              },
+            ],
+          },
+        ];
+      },
     };
 
 // NOTE: keep this file minimal — editing it makes `next dev` self-restart
