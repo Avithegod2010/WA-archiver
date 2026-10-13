@@ -19,6 +19,7 @@
  */
 
 import { getGeminiKey } from './ai-client'
+import { isOnline, offlineAiMessage } from './online'
 import {
   AiError,
   buildAskPrompt,
@@ -87,6 +88,10 @@ export async function runDeviceAi(
 
   // The device path has no built-in provider — a key is mandatory.
   if (!key) throw new AiError(missingKeyMessage())
+
+  // AI is the one feature that needs the internet — fail fast with a
+  // friendly message instead of a raw network error when offline.
+  if (!isOnline()) throw new AiError(offlineAiMessage())
 
   let built: { systemPrompt: string; userText: string }
   try {

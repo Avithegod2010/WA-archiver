@@ -13,6 +13,7 @@ import {
 } from '@/components/ui/dialog'
 import { aiHeaders } from '@/lib/ai-client'
 import { runDeviceAi } from '@/lib/device-ai'
+import { isOnline, offlineAiMessage } from '@/lib/online'
 import { useData } from './data-provider'
 
 interface TldrSummary {
@@ -94,6 +95,7 @@ export function TldrDialog({
               context: onBuildContext ? onBuildContext() : [],
             })
           : await (async () => {
+              if (!isOnline()) throw new Error(offlineAiMessage())
               const res = await fetch('/api/ai', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json', ...aiHeaders() },

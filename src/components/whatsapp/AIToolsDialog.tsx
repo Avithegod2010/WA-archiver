@@ -25,6 +25,7 @@ import {
 import { cn } from '@/lib/utils'
 import { aiHeaders, getGeminiKey } from '@/lib/ai-client'
 import { runDeviceAi } from '@/lib/device-ai'
+import { isOnline, offlineAiMessage } from '@/lib/online'
 import { useData } from './data-provider'
 import type { ChatMessage } from './types'
 
@@ -128,6 +129,7 @@ export function AIToolsDialog({
         transportMode === 'device'
           ? await runDeviceAi({ mode, text: body })
           : await (async () => {
+              if (!isOnline()) throw new Error(offlineAiMessage())
               const res = await fetch('/api/ai', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json', ...aiHeaders() },
@@ -181,6 +183,7 @@ export function AIToolsDialog({
         transportMode === 'device'
           ? await runDeviceAi({ mode: 'ask', question: q, history, context: context ?? [] })
           : await (async () => {
+              if (!isOnline()) throw new Error(offlineAiMessage())
               const res = await fetch('/api/ai', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json', ...aiHeaders() },

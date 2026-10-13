@@ -59,6 +59,13 @@ log('copying sql-wasm assets into public/ …')
 const wasm = spawnSync(process.execPath, [COPY_WASM], { stdio: 'inherit' })
 if (wasm.status !== 0) fail('copy-sql-wasm.mjs failed')
 
+// ---- 1b. Whisper ASR runtime (on-device voice transcription) ---------------
+log('copying whisper assets into public/ …')
+const whisper = spawnSync(process.execPath, [
+  path.join(root, 'scripts', 'copy-whisper.mjs'),
+], { stdio: 'inherit' })
+if (whisper.status !== 0) fail('copy-whisper.mjs failed')
+
 // ---- 2. stash the API routes ----------------------------------------------
 if (existsSync(STASH_DIR)) {
   fail(

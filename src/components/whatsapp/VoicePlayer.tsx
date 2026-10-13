@@ -22,6 +22,11 @@ import {
   subscribePlayed,
 } from './unplayed-voice'
 import { useData } from './data-provider'
+import {
+  cachedTranscript,
+  transcribeAudio,
+  type AsrProgress,
+} from '@/lib/whisper-asr'
 
 const BAR_COUNT = 26
 
@@ -80,8 +85,8 @@ export function VoicePlayer({
   /** Seek requested before the engine knows the duration (load-then-seek). */
   const pendingSeekRef = useRef<number | null>(null)
 
-  // Active transport (Phase 2): transcribing needs the server (ffmpeg + the
-  // server-side media file), so the button is hidden on-device.
+  // Active transport (Phase 2): server mode transcribes via the server
+  // route; device mode (Phase 4) runs Whisper fully on this device.
   const { mode: transportMode } = useData()
 
   // Shared engine state — every VoicePlayer re-renders on engine changes.
@@ -104,6 +109,11 @@ export function VoicePlayer({
   // AI speech-to-text (additive): idle → loading → done/error per voice note.
   const [transcript, setTranscript] = useState<string | null>(null)
   const [transcribing, setTranscribing] = useState(false)
+  // Device transport (Phase 4): Whisper runs locally — 'download' covers the
+  // one-time model fetch (~45 MB) with a byte-accurate percentage.
+  const [asrPhase, setAsrPhase] = useState<'idle' | 'download' | 'transcribing'>('idle')
+  const [asrPct, setAsrPct] = useState(0)
+  const asrBusy = asrPhase !== 'idle'
 
   const duration = active ? engine.duration : localDuration
   const current = active ? engine.current : 0
@@ -206,7 +216,44 @@ export function VoicePlayer({
   }
 
   const transcribe = useCallback(async () => {
-    if (transcribing) return
+    if (transcribing || asrBusy) return
+    // Device transport: decode + Whisper entirely on this device. Cached
+    // transcripts return instantly; the model downloads once (~45 MB).
+    if (transportMode === 'device') {
+      const cached = cachedTranscript(seed)
+      if (cached !== null) {
+        setTranscript(cached)
+        return
+      }
+      setAsrPct(0)
+      setAsrPhase('download')
+      try {
+        const res = await fetch(src)
+        const blob = await res.blob()
+        const text = await transcribeAudio(blob, {
+          messageId: seed,
+          onProgress: (p: AsrProgress) => {
+            if (p.phase === 'download') {
+              setAsrPhase('download')
+              if (typeof p.pct === 'number') setAsrPct(p.pct)
+            } else {
+              setAsrPhase('transcribing')
+            }
+          },
+        })
+        setTranscript(text)
+      } catch (err) {
+        toast.error(
+          err instanceof Error && err.message
+            ? err.message
+            : 'Transcription failed. Please try again.'
+        )
+      } finally {
+        setAsrPhase('idle')
+      }
+      return
+    }
+    // Server transport: proxied route (ffmpeg + ASR provider, cached server-side).
     setTranscribing(true)
     try {
       const res = await fetch('/api/transcribe', {
@@ -221,12 +268,16 @@ export function VoicePlayer({
         throw new Error(data?.error ?? 'Transcription failed')
       }
       setTranscript(data.text)
-    } catch {
-      toast.error('Transcription failed. Please try again.')
+    } catch (err) {
+      toast.error(
+        err instanceof Error && err.message
+          ? err.message
+          : 'Transcription failed. Please try again.'
+      )
     } finally {
       setTranscribing(false)
     }
-  }, [seed, transcribing])
+  }, [seed, transcribing, asrBusy, transportMode, src])
 
   const copyTranscript = useCallback(async () => {
     if (!transcript) return
@@ -331,17 +382,29 @@ export function VoicePlayer({
         {rate}×
       </button>
 
-      {transportMode !== 'device' && (
-        <button
-          type="button"
-          onClick={transcribe}
-          disabled={transcribing}
-          aria-busy={transcribing}
-          aria-label={transcribing ? 'Transcribing voice message' : 'Transcribe voice message'}
-          title="Transcribe voice message"
-          className="flex h-8 shrink-0 items-center gap-1 rounded-full bg-black/5 px-2.5 text-[11px] font-semibold text-(--wa-text-2) transition-colors hover:bg-black/10 disabled:cursor-default disabled:opacity-70 dark:bg-white/10 dark:text-(--wa-text-2) dark:hover:bg-white/15"
-        >
-          {transcribing ? (
+      <button
+        type="button"
+        onClick={transcribe}
+        disabled={transcribing || asrBusy}
+        aria-busy={transcribing || asrBusy}
+        aria-label={
+          asrPhase === 'download'
+            ? `Downloading voice model ${asrPct}%`
+            : transcribing || asrPhase === 'transcribing'
+              ? 'Transcribing voice message'
+              : 'Transcribe voice message'
+        }
+        title={
+          transportMode === 'device'
+            ? 'Transcribe on this device (private, works offline)'
+            : 'Transcribe voice message'
+        }
+        className="flex h-8 shrink-0 items-center gap-1 rounded-full bg-black/5 px-2.5 text-[11px] font-semibold text-(--wa-text-2) transition-colors hover:bg-black/10 disabled:cursor-default disabled:opacity-70 dark:bg-white/10 dark:text-(--wa-text-2) dark:hover:bg-white/15"
+      >
+        {transcribing || asrBusy ? (
+          asrPhase === 'download' ? (
+            <span className="tabular-nums">{asrPct}%</span>
+          ) : (
             <span aria-hidden="true" className="flex items-center gap-[3px] py-2">
               {[0, 150, 300].map((delay) => (
                 <span
@@ -351,12 +414,14 @@ export function VoicePlayer({
                 />
               ))}
             </span>
-          ) : (
-            <AudioLines aria-hidden="true" className="h-3.5 w-3.5" />
-          )}
-          <span className="hidden min-[420px]:inline">Transcribe</span>
-        </button>
-      )}
+          )
+        ) : (
+          <AudioLines aria-hidden="true" className="h-3.5 w-3.5" />
+        )}
+        <span className="hidden min-[420px]:inline">
+          {asrPhase === 'download' ? 'Model' : 'Transcribe'}
+        </span>
+      </button>
 
       {/* Metadata-only element: duration preview for tracks not yet played
           through the shared engine (this element never plays). */}

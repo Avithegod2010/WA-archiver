@@ -77,15 +77,43 @@ either way, so nothing is lost by *not* choosing RN now.
     as-is in the Android System WebView (async OPFS + IndexedDB fallback);
     `@capacitor-community/sqlite` stays a Phase-4 hardening option for
     older WebViews.
-- **Phase 4 — polish:** offline-aware AI states (done for the no-key case),
-  optional Whisper-WASM on-device transcription, optional sync server (only
-  if multi-device is ever wanted), optional native-SQLite driver.
+- **Phase 4 — polish ✅ DONE (with two options deliberately deferred):**
+  - **Offline-aware AI states:** every AI surface (Translate/Explain in
+    AIToolsDialog, Ask, TL;DR summarize, persona reply suggestions, the
+    Settings key test, and the device transport itself) pre-checks
+    `navigator.onLine` (src/lib/online.ts) and fails fast with
+    "You're offline — AI needs internet. Everything else keeps working on
+    this device." instead of a raw network error. The global offline banner
+    (Task 7-e) already covers general offline awareness.
+  - **On-device voice transcription (Whisper-WASM):** the Transcribe button
+    now works on the device transport — previously it was server-only and
+    hidden. `src/lib/whisper-asr.ts` runs Whisper tiny (quantized,
+    multilingual) fully in the browser via transformers.js + ONNX Runtime
+    WASM: voice-note blob → WebAudio decode → 16 kHz mono → WASM inference.
+    - Runtime vendored to `public/whisper/` by scripts/copy-whisper.mjs
+      (same bundler-free script-tag pattern as sql.js); served offline via
+      the service worker's stale-while-revalidate list.
+    - Model (~45 MB, one time) downloads from the HF CDN on first use with a
+      byte-accurate progress UI (in the bubble and in Settings → AI), then
+      lives in the browser Cache API; transcripts are cached in localStorage
+      per message id (instant repeats, capped store).
+    - Settings → AI gains a "Voice transcription (offline)" model manager:
+      status pill, Download / Remove (removes model + cached transcripts).
+    - Verified end-to-end in the browser: import zip with a real voice note →
+      transcribe online (91% → 100% download → transcript) → **transcribe
+      again with the network fully off — full inference, zero requests**.
+  - *Deferred by design (kept as options):* `@capacitor-community/sqlite`
+    native driver (the WASM+OPFS engine works in the Android WebView; the
+    native driver remains a hardening path for very old WebViews) and a
+    sync server (only relevant if multi-device is ever wanted).
 
 ## What offline still can't do
 
-AI features (translate/explain/ask/summarize/transcribe/wallpapers) call a
-model — those stay online-only by nature. Everything else — reading, sending,
-reactions, notes, lock, export, import — becomes fully device-local.
+AI features (translate/explain/ask/summarize/wallpapers) call a model — those
+stay online-only by nature (voice-note transcription is the exception: since
+Phase 4 it runs on-device with Whisper, after a one-time model download).
+Everything else — reading, sending, reactions, notes, lock, export, import,
+transcription — becomes fully device-local.
 
 ## Hosting impact
 

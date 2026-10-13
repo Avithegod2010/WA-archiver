@@ -65,7 +65,11 @@ self.addEventListener('fetch', (event) => {
     // On-device SQLite engine (local-first refactor, Phase 1) — cached so
     // the database engine itself also works with no network.
     url.pathname === '/sql-wasm.js' ||
-    url.pathname === '/sql-wasm.wasm'
+    url.pathname === '/sql-wasm.wasm' ||
+    // On-device voice-transcription runtime (Phase 4) — transformers.js
+    // bundle + ONNX Runtime wasm binaries. The ASR MODEL files are cached
+    // separately by transformers.js (its own Cache-API bucket).
+    url.pathname.startsWith('/whisper/')
 
   if (!cacheable) return
 

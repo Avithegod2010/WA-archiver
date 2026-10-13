@@ -3,8 +3,8 @@
   "version": "1.0.0",
   "private": true,
   "scripts": {
-    "dev": "node scripts/copy-sql-wasm.mjs && next dev -p 3000 2>&1 | tee dev.log",
-    "build": "node scripts/copy-sql-wasm.mjs && next build && cp -r .next/static .next/standalone/.next/ && cp -r public .next/standalone/",
+    "dev": "node scripts/copy-sql-wasm.mjs && node scripts/copy-whisper.mjs && next dev -p 3000 2>&1 | tee dev.log",
+    "build": "node scripts/copy-sql-wasm.mjs && node scripts/copy-whisper.mjs && next build && cp -r .next/static .next/standalone/.next/ && cp -r public .next/standalone/",
     "build:capacitor": "node scripts/build-capacitor.mjs",
     "start": "NODE_ENV=production bun .next/standalone/server.js 2>&1 | tee server.log",
     "lint": "eslint .",
@@ -52,6 +52,7 @@
     "@reactuses/core": "^6.0.5",
     "@tanstack/react-query": "^5.82.0",
     "@tanstack/react-table": "^8.21.3",
+    "@xenova/transformers": "2",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "cmdk": "^1.1.1",

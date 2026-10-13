@@ -17,7 +17,7 @@ more. Everything stays on your device: no account, no cloud, no tracking.
 - Import one or many exports (`.zip` with media, or `.txt`) — with preview before import
 - Authentic chat UI: bubbles, day separators, replies, reactions, starred messages
 - Rich media: photos, videos, documents, **location & contact cards**, call cards
-- Voice notes: play with waveform + speed control, **transcribe to text** (AI)
+- Voice notes: play with waveform + speed control, **transcribe to text** (on-device Whisper offline, or AI on the server)
 - Unread badge, unread divider with "jump to first unread", jump to date, timeline scrubber
 - Global search, per-chat search, word cloud, cross-chat Insights dashboard
 - "On this day" memories — see what happened on today's date in past years
@@ -110,8 +110,9 @@ database (OPFS-persisted), importing, searching, stats, lock and backups all
 happen on the phone. The only online-optional features are the AI tools —
 add your own free
 [Gemini API key](https://aistudio.google.com/apikey) in Settings → AI and
-they call Google directly (optional). Voice transcription is server-only and
-hidden inside the APK.
+they call Google directly (optional). **Voice notes transcribe on the phone
+itself** (on-device Whisper, Settings → AI → one-time ~45 MB model download) —
+no server, no API key, works in airplane mode.
 
 Build it yourself with `bun run build:capacitor` (static-exports the app into
 `capacitor-web/`) followed by `bunx cap sync android` and a Gradle debug

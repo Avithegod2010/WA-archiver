@@ -236,6 +236,9 @@ export async function fetchAiReply(
   const timer = setTimeout(() => controller.abort(), AI_REPLY_TIMEOUT_MS)
   const onOuterAbort = () => controller.abort()
   opts?.signal?.addEventListener('abort', onOuterAbort, { once: true })
+  // Offline (Phase 4): skip the doomed request — the suggestion chip simply
+  // doesn't appear, exactly like a timeout would.
+  if (typeof navigator !== 'undefined' && !navigator.onLine) return null
   try {
     const res = await fetch('/api/ai', {
       method: 'POST',

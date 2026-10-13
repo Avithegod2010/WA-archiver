@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { toast } from 'sonner'
 import {
+  AudioLines,
   BookOpen,
   ChevronRight,
   Download,
@@ -20,10 +21,19 @@ import {
   Lock,
   ShieldCheck,
   Sparkles,
+  Trash2,
   Upload,
 } from 'lucide-react'
 import { aiHeaders, getGeminiKey, setGeminiKey } from '@/lib/ai-client'
 import { runDeviceAi } from '@/lib/device-ai'
+import { isOnline, offlineAiMessage } from '@/lib/online'
+import {
+  ASR_MODEL_MB,
+  asrModelReady,
+  clearTranscriptCache,
+  prepareAsrModel,
+  resetAsrModel,
+} from '@/lib/whisper-asr'
 import { GettingStartedDialog, openGettingStarted } from './GettingStartedDialog'
 import { StorageDialog } from './StorageDialog'
 import {
@@ -162,6 +172,10 @@ export function SettingsDialog({
   const [exportAudioOn, setExportAudioOn] = useState(false)
   // Standalone shell detection (Phase 3) — read in an effect so SSR/CSR agree.
   const [native, setNative] = useState(false)
+  // On-device voice transcription (Phase 4) — Whisper model manager state.
+  const [asrReady, setAsrReady] = useState(false)
+  const [asrBusy, setAsrBusy] = useState(false)
+  const [asrPct, setAsrPct] = useState(0)
 
   const syncLock = useCallback(async () => {
     try {
@@ -202,6 +216,7 @@ export function SettingsDialog({
   useEffect(() => {
     setAiKey(getGeminiKey())
     setNative(isNativeApp())
+    setAsrReady(asrModelReady())
     try {
       setToastsOn(localStorage.getItem(TOASTS_PREF_KEY) !== '0')
       setAutoCleanOn(localStorage.getItem(AUTO_CLEAN_PREF_KEY) === '1')
@@ -215,6 +230,12 @@ export function SettingsDialog({
     }
     setAiReady(true)
   }, [])
+
+  // Refresh the ASR-model status every time the dialog opens — the model
+  // may have been downloaded (or removed) since this component mounted.
+  useEffect(() => {
+    if (open) setAsrReady(asrModelReady())
+  }, [open])
 
   const handleAiKeyChange = (value: string) => {
     setAiKey(value)
@@ -236,6 +257,7 @@ export function SettingsDialog({
       if (mode === 'device' || isNativeApp()) {
         await runDeviceAi({ mode: 'translate', text: 'hello' })
       } else {
+        if (!isOnline()) throw new Error(offlineAiMessage())
         const res = await fetch('/api/ai', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', ...aiHeaders() },
@@ -259,6 +281,47 @@ export function SettingsDialog({
       )
     } finally {
       setTestingKey(false)
+    }
+  }
+
+  // ---- On-device voice transcription (Phase 4) ----------------------------
+
+  const handleAsrDownload = async () => {
+    if (asrBusy) return
+    setAsrBusy(true)
+    setAsrPct(0)
+    try {
+      await prepareAsrModel((p) => {
+        if (typeof p.pct === 'number') setAsrPct(p.pct)
+      })
+      setAsrReady(true)
+      toast.success('Voice model ready — transcription now works offline')
+    } catch (err) {
+      setAsrReady(false)
+      toast.error(
+        err instanceof Error && err.message
+          ? err.message
+          : 'Could not download the voice model — try again'
+      )
+    } finally {
+      setAsrBusy(false)
+    }
+  }
+
+  const handleAsrRemove = async () => {
+    if (asrBusy) return
+    setAsrBusy(true)
+    try {
+      await resetAsrModel()
+      const cleared = clearTranscriptCache()
+      setAsrReady(false)
+      toast.success(
+        cleared > 0
+          ? `Voice model removed — ${cleared} cached transcript${cleared === 1 ? '' : 's'} cleared`
+          : 'Voice model removed'
+      )
+    } finally {
+      setAsrBusy(false)
     }
   }
 
@@ -609,6 +672,78 @@ export function SettingsDialog({
               onCheckedChange={handleAutoCleanChange}
               aria-label="Auto-clean archived chats"
             />
+          </div>
+
+          {/* On-device voice transcription (Phase 4) — Whisper model manager */}
+          <div className="flex items-center justify-between gap-3 rounded-lg bg-black/[0.03] p-3 dark:bg-white/[0.04]">
+            <div className="min-w-0">
+              <p className="flex items-center gap-1.5 text-[12.5px] font-medium text-(--wa-text)">
+                <AudioLines className="h-3.5 w-3.5 text-(--wa-accent)" aria-hidden />
+                Voice transcription (offline)
+                {asrReady && (
+                  <span className="inline-flex items-center gap-1 rounded-full bg-(--wa-accent)/10 px-1.5 py-px text-[10px] font-semibold text-(--wa-accent-strong) dark:text-(--wa-accent)">
+                    <span className="h-1.5 w-1.5 rounded-full bg-(--wa-accent)" aria-hidden />
+                    Ready
+                  </span>
+                )}
+              </p>
+              <p className="mt-0.5 text-[11.5px] leading-snug text-(--wa-text-2)">
+                {asrReady
+                  ? 'Whisper runs on this device — voice notes transcribe with no internet and no API key.'
+                  : `Downloads the Whisper voice model (~${ASR_MODEL_MB} MB, one time). After that, voice notes transcribe fully offline on this device.`}
+              </p>
+              {asrBusy && asrPct > 0 && (
+                <div
+                  className="mt-2 h-1.5 w-full overflow-hidden rounded-full bg-black/10 dark:bg-white/10"
+                  role="progressbar"
+                  aria-valuemin={0}
+                  aria-valuemax={100}
+                  aria-valuenow={asrPct}
+                  aria-label="Downloading voice model"
+                >
+                  <div
+                    className="h-full rounded-full bg-(--wa-accent) transition-[width] duration-200"
+                    style={{ width: `${asrPct}%` }}
+                  />
+                </div>
+              )}
+            </div>
+            {asrReady ? (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => void handleAsrRemove()}
+                disabled={asrBusy}
+                className="shrink-0 gap-1.5"
+              >
+                {asrBusy ? (
+                  <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
+                ) : (
+                  <Trash2 className="h-4 w-4" aria-hidden />
+                )}
+                Remove
+              </Button>
+            ) : (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => void handleAsrDownload()}
+                disabled={asrBusy}
+                className="shrink-0 gap-1.5"
+              >
+                {asrBusy ? (
+                  <>
+                    <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
+                    {asrPct > 0 ? `${asrPct}%` : '…'}
+                  </>
+                ) : (
+                  <>
+                    <Download className="h-4 w-4" aria-hidden />
+                    Download
+                  </>
+                )}
+              </Button>
+            )}
           </div>
 
           <a
