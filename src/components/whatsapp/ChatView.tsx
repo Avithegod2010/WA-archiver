@@ -87,6 +87,7 @@ import {
   writeAutoReplyEnabled,
 } from '@/lib/persona-engine'
 import { runDeviceAi } from '@/lib/device-ai'
+import { suggestReplies } from '@/lib/smart-replies'
 import { useData, useMessageNormalizer } from './data-provider'
 
 type SchedItem = {
@@ -777,6 +778,14 @@ export function ChatView({
   const msgFontPx = TEXT_SIZES[textSizeKey]?.px ?? 14.2
 
   const messages = detail?.messages ?? []
+
+  /* ---- Smart reply chips (idea #1) — deterministic per anchor message,
+          salt rotates the pool via the shuffle button / after each send. ---- */
+  const [replySalt, setReplySalt] = useState(0)
+  const smartReplies = useMemo(
+    () => suggestReplies(messages, replySalt),
+    [messages, replySalt]
+  )
 
   /* ---- 14-f: unread divider + jump-to-first-unread state ----
      unreadFirstId anchors the divider (id-based so deletes shift safely);
@@ -1930,6 +1939,7 @@ export function ChatView({
     // user switched to chat B must not append to B's transcript.
     if (msg.chatId && msg.chatId !== chatId) return
     setDetail((d) => (d ? { ...d, messages: [...d.messages, msg] } : d))
+    setReplySalt((s) => s + 1) // fresh chips after every send
     requestAnimationFrame(() => {
       const el = scrollRef.current
       if (el) el.scrollTo({ top: el.scrollHeight, behavior: 'smooth' })
@@ -3342,6 +3352,8 @@ export function ChatView({
             replyTo={replyTo}
             onCancelReply={() => setReplyTo(null)}
             onJumpToReply={handleJumpToReply}
+            suggestions={smartReplies}
+            onShuffleReplies={() => setReplySalt((s) => s + 1)}
           />
         </>
       )}

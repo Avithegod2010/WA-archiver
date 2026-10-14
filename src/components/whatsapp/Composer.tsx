@@ -11,9 +11,11 @@ import {
   Mic,
   Music,
   Plus,
+  RefreshCw,
   Reply,
   SendHorizontal,
   Smile,
+  Sparkles,
   Trash2,
   UserRound,
   X,
@@ -94,6 +96,8 @@ export function Composer({
   replyTo = null,
   onCancelReply,
   onJumpToReply,
+  suggestions = [],
+  onShuffleReplies,
 }: {
   chatId: string
   onSent: (msg: ChatMessage) => void
@@ -104,6 +108,10 @@ export function Composer({
   onCancelReply?: () => void
   /** Optional nicety: tap the quote preview to jump to + flash the original. */
   onJumpToReply?: () => void
+  /** Smart reply chips (idea #1) — tap to send immediately. */
+  suggestions?: string[]
+  /** Rotate the suggestion pool (shuffle button). */
+  onShuffleReplies?: () => void
 }) {
   const [text, setText] = useState('')
   const [busy, setBusy] = useState(false)
@@ -153,8 +161,8 @@ export function Composer({
     })
   }
 
-  async function sendText() {
-    const body = text.trim()
+  async function sendText(override?: string) {
+    const body = (typeof override === 'string' ? override : text).trim()
     if (!body || busy) return
     setBusy(true)
     try {
@@ -428,6 +436,43 @@ export function Composer({
         onChange={(e) => sendFiles(e.target.files)}
       />
 
+      {/* Smart reply chips (idea #1): tap-to-send pills above the input.
+          Hidden while composing, replying or recording — WhatsApp parity. */}
+      {!recording && !replyTo && !busy && text === '' && suggestions.length > 0 && (
+        <div
+          className="wa-smart-replies mb-1.5 flex items-center gap-1.5 overflow-x-auto pb-0.5"
+          role="group"
+          aria-label="Smart reply suggestions"
+        >
+          <span
+            className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-(--wa-accent)/12 text-(--wa-accent)"
+            aria-hidden
+          >
+            <Sparkles className="h-3.5 w-3.5" />
+          </span>
+          {suggestions.map((s, i) => (
+            <button
+              key={s}
+              type="button"
+              onClick={() => sendText(s)}
+              style={{ animationDelay: `${i * 55}ms` }}
+              className="wa-chip-in h-8 shrink-0 rounded-full border border-black/[0.06] bg-white px-3.5 text-[13px] font-medium text-(--wa-text) shadow-sm transition-all duration-150 hover:border-(--wa-accent)/40 hover:bg-(--wa-accent)/8 hover:text-(--wa-accent-strong) active:scale-95 dark:border-white/10 dark:bg-(--wa-row-active) dark:text-(--wa-text) dark:hover:border-(--wa-accent)/50 dark:hover:text-(--wa-accent)"
+            >
+              {s}
+            </button>
+          ))}
+          <button
+            type="button"
+            onClick={onShuffleReplies}
+            aria-label="More suggestions"
+            title="More suggestions"
+            className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-(--wa-text-2) transition-colors hover:bg-black/5 active:scale-90 dark:hover:bg-white/10"
+          >
+            <RefreshCw className="h-3.5 w-3.5" />
+          </button>
+        </div>
+      )}
+
       {/* Reply quote strip (WhatsApp-style): accent bar + sender + 1-line body */}
       {replyTo && (
         <div
@@ -663,7 +708,7 @@ export function Composer({
           <Button
             size="icon"
             disabled={busy}
-            onClick={sendText}
+            onClick={() => sendText()}
             className="h-10 w-10 shrink-0 rounded-full bg-(--wa-accent) text-white shadow-md transition-all duration-200 [transition-timing-function:cubic-bezier(0.34,1.56,0.64,1)] hover:scale-110 hover:bg-(--wa-accent-strong) active:scale-90 disabled:hover:scale-100"
             aria-label="Send message"
             title="Send"

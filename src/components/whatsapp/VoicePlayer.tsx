@@ -56,7 +56,8 @@ function barHeights(seed: string): number[] {
 
 /**
  * WhatsApp-style voice message player: play/pause, seekable waveform,
- * elapsed/total time and a 1×/1.5×/2× speed toggle.
+ * elapsed/total time and a 0.5×/1×/1.5×/2× speed toggle (persisted across
+ * sessions). Playbacks of tracks >3s resume where you left off (idea #7).
  *
  * Playback runs through the shared audio-engine (ONE app-wide element), so
  * a voice note keeps playing when the user switches chats — the floating

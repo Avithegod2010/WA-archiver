@@ -20,7 +20,21 @@
  *   - chatTitle: chat display name ('' if unknown)
  *   - sender:   voice-note sender name ('' if unknown)
  *   - src:      media URL (e.g. /api/media/<chatId>/<path>)
+ *
+ * Idea #7 (voice-note upgrade):
+ *   - 0.5× – 2× speed range, persisted across sessions (localStorage)
+ *   - resume-where-you-left: positions are persisted via voice-progress.ts
+ *     (throttled on timeupdate + on pause/close), and `play()` transparently
+ *     seeks back to the saved spot for tracks >3s that weren't finished.
  */
+
+import {
+  MIN_RESUME_SECONDS,
+  clearProgress,
+  getProgress,
+  setProgress,
+} from './voice-progress'
+
 
 export type AudioTrackMeta = {
   id: string
@@ -42,17 +56,53 @@ export type AudioEngineState = {
   current: number
   /** Seconds total (0 until metadata is loaded). */
   duration: number
-  /** Index into RATES — persists for the whole session across tracks. */
+  /** Index into RATES — persists across tracks AND sessions (localStorage). */
   rateIdx: number
+  /** Saved resume position (seconds) for the active track, 0 when none. */
+  savedAt: number
   /** True when the media failed to load/play. */
   failed: boolean
 }
 
-/** Playback speeds, cycled by `cycleRate()` (1× → 1.5× → 2×). */
-export const RATES = [1, 1.5, 2] as const
+/**
+ * Playback speeds, cycled by `cycleRate()` (0.5× → 1× → 1.5× → 2×).
+ * 0.5× covers idea #7's slow-listen end of the range.
+ */
+export const RATES = [0.5, 1, 1.5, 2] as const
 
 /** Window event dispatched on every engine state change. */
 export const AUDIO_STATE_EVENT = 'wa-audio-state'
+
+const RATE_STORAGE_KEY = 'wa-viewer:voice-rate'
+
+function readStoredRateIdx(): number {
+  if (typeof window === 'undefined') return 1
+  try {
+    const raw = window.localStorage.getItem(RATE_STORAGE_KEY)
+    if (raw === null) return 1 // default 1× (0.5× stays opt-in via cycling)
+    const n = Number(raw)
+    return Number.isInteger(n) && n >= 0 && n < RATES.length ? n : 1
+  } catch {
+    return 1
+  }
+}
+
+function writeStoredRateIdx(idx: number): void {
+  if (typeof window === 'undefined') return
+  try {
+    window.localStorage.setItem(RATE_STORAGE_KEY, String(idx))
+  } catch {
+    /* storage unavailable — session-only persistence */
+  }
+}
+
+// Chosen speed persists across tracks for the session + across reloads.
+// SSR-SAFE: the initial STATE always renders the default (1×) on both
+// server and client so hydration matches; the stored value is applied in
+// a post-hydration task (a client-side re-render swaps the label right
+// after mount). Reading it into the first render caused hydration
+// mismatches when localStorage held a different index.
+const INITIAL_RATE_IDX = 1
 
 const INITIAL: AudioEngineState = {
   currentId: null,
@@ -63,15 +113,30 @@ const INITIAL: AudioEngineState = {
   playing: false,
   current: 0,
   duration: 0,
-  rateIdx: 0,
+  rateIdx: INITIAL_RATE_IDX,
+  savedAt: 0,
   failed: false,
 }
 
 let state: AudioEngineState = INITIAL
 const listeners = new Set<() => void>()
 let el: HTMLAudioElement | null = null
-/** Chosen speed persists across tracks for the whole session. */
-let rateIdx = 0
+let rateIdx = INITIAL_RATE_IDX
+/** Position write throttle — persist at most every 2s of playback. */
+let lastSavedAt = 0
+/** Only restore a saved position once per load of a given track. */
+let resumedForId: string | null = null
+
+// Apply the persisted speed once the app has hydrated (client only).
+if (typeof window !== 'undefined') {
+  const stored = readStoredRateIdx()
+  if (stored !== INITIAL_RATE_IDX) {
+    window.setTimeout(() => {
+      rateIdx = stored
+      setState({ rateIdx: stored })
+    }, 0)
+  }
+}
 
 function notify(): void {
   for (const fn of listeners) {
@@ -101,7 +166,21 @@ function getEl(): HTMLAudioElement | null {
     if (el && isFinite(el.duration)) setState({ duration: el.duration })
   })
   el.addEventListener('timeupdate', () => {
-    if (el) setState({ current: el.currentTime })
+    if (!el) return
+    setState({ current: el.currentTime })
+    // Persist resume position at most every 2s of playback (idea #7).
+    const now = Date.now()
+    if (
+      state.currentId &&
+      el.currentTime > 0 &&
+      isFinite(el.duration) &&
+      el.currentTime < el.duration - 0.5 &&
+      now - lastSavedAt > 2000
+    ) {
+      lastSavedAt = now
+      setProgress(state.currentId, el.currentTime)
+      setState({ savedAt: el.currentTime })
+    }
   })
   el.addEventListener('play', () => setState({ playing: true }))
   el.addEventListener('pause', () => setState({ playing: false }))
@@ -113,7 +192,10 @@ function getEl(): HTMLAudioElement | null {
         /* not seekable yet */
       }
     }
-    setState({ playing: false, current: 0 })
+    // Finished → forget the resume point.
+    if (state.currentId) clearProgress(state.currentId)
+    resumedForId = null
+    setState({ playing: false, current: 0, savedAt: 0 })
   })
   el.addEventListener('error', () => setState({ failed: true, playing: false }))
   return el
@@ -146,6 +228,10 @@ export function load(meta: AudioTrackMeta): void {
   } catch {
     /* ignore */
   }
+  // Persist the position of the track we're leaving (mid-flight switch).
+  if (state.currentId && state.current > MIN_RESUME_SECONDS) {
+    setProgress(state.currentId, state.current)
+  }
   a.src = meta.src
   a.playbackRate = RATES[rateIdx]
   try {
@@ -153,6 +239,9 @@ export function load(meta: AudioTrackMeta): void {
   } catch {
     /* metadata not loaded yet — starts at 0 anyway */
   }
+  const saved = getProgress(meta.id)
+  resumedForId = null
+  lastSavedAt = Date.now()
   setState({
     currentId: meta.id,
     chatId: meta.chatId,
@@ -164,6 +253,7 @@ export function load(meta: AudioTrackMeta): void {
     duration: 0,
     failed: false,
     rateIdx,
+    savedAt: saved,
   })
 }
 
@@ -172,6 +262,22 @@ export function play(): void {
   const a = getEl()
   if (!a || !state.currentId || !state.src || state.failed) return
   a.playbackRate = RATES[state.rateIdx]
+  // Resume-where-you-left (idea #7): the FIRST play of a freshly loaded
+  // track jumps back to its saved position (only for meaningful spots —
+  // >3s in and not already past it).
+  if (
+    state.savedAt > MIN_RESUME_SECONDS &&
+    resumedForId !== state.currentId &&
+    state.current < state.savedAt - 0.75
+  ) {
+    resumedForId = state.currentId
+    try {
+      a.currentTime = state.savedAt
+      setState({ current: state.savedAt })
+    } catch {
+      /* metadata not loaded — currentTime settles once it is */
+    }
+  }
   a.play()
     .then(() => setState({ playing: true }))
     .catch(() => setState({ playing: false }))
@@ -185,6 +291,11 @@ export function pause(): void {
     a.pause()
   } catch {
     /* ignore */
+  }
+  // Pausing is the classic resume checkpoint.
+  if (state.current > MIN_RESUME_SECONDS) {
+    setProgress(state.currentId, state.current)
+    setState({ savedAt: state.current })
   }
   setState({ playing: false })
 }
@@ -207,7 +318,13 @@ export function seekRatio(ratio: number): void {
   } catch {
     /* not seekable yet */
   }
-  setState({ current: t })
+  // A manual seek is the user's explicit choice of position.
+  resumedForId = state.currentId
+  if (t > MIN_RESUME_SECONDS) {
+    setProgress(state.currentId, t)
+    lastSavedAt = Date.now()
+  }
+  setState({ current: t, savedAt: t > MIN_RESUME_SECONDS ? t : 0 })
 }
 
 /** Seek relatively by ±seconds, clamped to the track. */
@@ -219,9 +336,10 @@ export function seekBy(seconds: number): void {
   seekRatio((state.current + seconds) / dur)
 }
 
-/** Cycle 1× → 1.5× → 2×. Applies immediately and persists for the session. */
+/** Cycle 0.5× → 1× → 1.5× → 2×. Applies now; persists across sessions. */
 export function cycleRate(): void {
   rateIdx = (rateIdx + 1) % RATES.length
+  writeStoredRateIdx(rateIdx)
   const a = el
   if (a) a.playbackRate = RATES[rateIdx]
   setState({ rateIdx })
@@ -239,6 +357,10 @@ export function close(): void {
       /* ignore */
     }
   }
+  // Keep the resume point when closing mid-track (chat switch / dock X).
+  if (state.currentId && state.current > MIN_RESUME_SECONDS) {
+    setProgress(state.currentId, state.current)
+  }
   setState({
     currentId: null,
     chatId: '',
@@ -249,6 +371,7 @@ export function close(): void {
     current: 0,
     duration: 0,
     failed: false,
+    savedAt: 0,
   })
 }
 
