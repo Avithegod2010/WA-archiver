@@ -1,6 +1,25 @@
 apply plugin: 'com.android.application'
 
+// Release signing: CI injects KEYSTORE_PATH / KEYSTORE_PASSWORD / KEYSTORE_ALIAS
+// env vars (see .github/workflows/android-apk.yml, secrets KEYSTORE_BASE64 etc.).
+// Without them (local builds) release APKs fall back to the debug key so the
+// build always succeeds.
+def releaseKeystorePath = System.getenv("KEYSTORE_PATH")
+def releaseKeystorePass = System.getenv("KEYSTORE_PASSWORD")
+def releaseKeystoreAlias = System.getenv("KEYSTORE_ALIAS")
+def hasReleaseKeystore = releaseKeystorePath != null && file(releaseKeystorePath).exists()
+
 android {
+    signingConfigs {
+        release {
+            if (hasReleaseKeystore) {
+                storeFile file(releaseKeystorePath)
+                storePassword releaseKeystorePass
+                keyAlias releaseKeystoreAlias
+                keyPassword releaseKeystorePass
+            }
+        }
+    }
     namespace = "com.whatsappviewer.app"
     compileSdk = rootProject.ext.compileSdkVersion
     defaultConfig {
@@ -20,6 +39,7 @@ android {
         release {
             minifyEnabled false
             proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
+            signingConfig hasReleaseKeystore ? signingConfigs.release : signingConfigs.debug
         }
     }
 }

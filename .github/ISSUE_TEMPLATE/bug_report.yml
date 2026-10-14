@@ -1,0 +1,58 @@
+name: 🐛 Bug report
+description: Something broke or behaves unexpectedly
+labels: ["bug", "triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting! Please fill in the details below — the more
+        precise, the faster the fix.
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: Also tell us what you *expected* to happen.
+      placeholder: Importing my chat zip shows an empty chat, but the preview listed 412 messages…
+    validations:
+      required: true
+  - type: dropdown
+    id: where
+    attributes:
+      label: Where does it happen?
+      options:
+        - Android APK
+        - Web app (self-hosted / local dev)
+        - PWA (installed in browser)
+        - Both / not sure
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Export chat with media
+        2. Drop the zip into the import panel
+        3. Open the chat → …
+    validations:
+      required: true
+  - type: dropdown
+    id: ai-features
+    attributes:
+      label: Does it involve AI features?
+      options:
+        - "No"
+        - "Yes, and my Gemini key is set"
+        - "Yes, and I have no key set"
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Console output / screenshot
+      description: Browser devtools console errors or a screenshot help a lot. **Never paste actual chat content** — redact names, numbers and messages.
+  - type: input
+    id: version
+    attributes:
+      label: App version / commit
+      placeholder: v1.0.1 or commit sha
