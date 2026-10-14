@@ -1,59 +1,86 @@
-# WhatsApp Viewer 🟢
+<div align="center">
 
-**Read, explore and enrich your exported WhatsApp chats — private & local.**
+<img src="docs/assets/banner.svg" alt="WhatsApp Viewer — read, explore and enrich your exported WhatsApp chats, privately and locally" width="100%">
 
-WhatsApp Viewer is a local-first web app (installable as a PWA) that turns your
-WhatsApp chat exports (`.zip` with media or `.txt`) into a beautiful, familiar
-chat experience — with AI superpowers, voice notes, reactions, privacy lock and
-more. Everything stays on your device: no account, no cloud, no tracking.
+[![Release](https://img.shields.io/github/v/release/Avithegod2010/WA-archiver?color=00A884&label=release&logo=github)](https://github.com/Avithegod2010/WA-archiver/releases/latest)
+[![License](https://img.shields.io/badge/license-MIT-00A884.svg)](LICENSE)
+[![Platform](https://img.shields.io/badge/platform-Web%20%7C%20Android-075E54.svg)](#-android-app-offline-apk)
+[![Next.js](https://img.shields.io/badge/Next.js-16-black?logo=next.js)](https://nextjs.org)
+[![PRs welcome](https://img.shields.io/badge/PRs-welcome-25D366.svg)](#-contributing)
 
-**Version: v1.0** 🎉
+**Turn your exported WhatsApp chats into a beautiful, private chat experience —
+with AI superpowers, voice notes, reactions, stats and an app lock.**
+
+No account · No cloud · No tracking · Your data never leaves your device
+
+[Features](#-features) · [Quick start](#-quick-start) · [Android app](#-android-app-offline-apk) · [Privacy](#-privacy-model) · [FAQ](#-faq) · [Roadmap](#-roadmap)
+
+</div>
+
+---
+
+## 🤔 What is this?
+
+Three bullet points, honestly:
+
+- 📥 **You export** — In WhatsApp, open a chat → `⋮ → More → Export chat → with media`. You get a `.zip` (or `.txt`).
+- 💬 **You drop it in** — WhatsApp Viewer reads the export and shows it in a familiar, polished chat interface: bubbles, replies, reactions, photos, voice notes, documents, locations.
+- 🔒 **It stays yours** — Everything is stored in a local SQLite database on your own device. No server, no login, no analytics. Optional AI features use *your own* key and talk straight to Google.
+
+> 💡 **No export at hand?** Click **Try demo chats** on first launch and explore a
+> fully-populated app in one second — no import needed.
 
 ---
 
 ## ✨ Features
 
-**Reading & exploring**
-- Import one or many exports (`.zip` with media, or `.txt`) — with preview before import
-- Authentic chat UI: bubbles, day separators, replies, reactions, starred messages
-- Rich media: photos, videos, documents, **location & contact cards**, call cards
-- Voice notes: play with waveform + speed control, **transcribe to text** (on-device Whisper offline, or AI on the server)
-- Unread badge, unread divider with "jump to first unread", jump to date, timeline scrubber
-- Global search, per-chat search, word cloud, cross-chat Insights dashboard
-- "On this day" memories — see what happened on today's date in past years
-- Telegram-style floating mini-player that keeps audio playing across chats
+| | Category | Highlights |
+|---|---|---|
+| 💬 | **Reading** | Authentic chat UI · day separators · replies · reactions · starred messages · unread divider |
+| 🖼️ | **Media** | Photos, videos, documents, locations, contact cards · lightbox viewer · media gallery grid · media ZIP export |
+| 🎙️ | **Voice notes** | Waveform player · speed control · floating mini-player across chats · **on-device transcription** (offline Whisper) |
+| 🔍 | **Finding** | Global search (`Ctrl+K`) · per-chat search with date/starred/regex filters · jump to date · word cloud |
+| 📊 | **Understanding** | Cross-chat Insights dashboard · per-chat stats · storage breakdown · "On this day" memories |
+| ✍️ | **Messaging** | Send messages, photos, audio, docs & polls · scheduled messages · simulated replies in demo chats |
+| 🤖 | **AI toolbox** | Translate · explain slang & context · ask AI about the chat · chat TL;DR · AI-generated wallpapers |
+| 🔐 | **Privacy** | Server-verified **PIN App Lock** (4–8 digits) · local SQLite storage · nothing phones home |
+| 📦 | **Getting data out** | Export to `.txt` / `.zip` / standalone offline `.html` · full JSON backup · print |
+| 📱 | **Experience** | Installable PWA · dark & light mode · wallpapers · text size & font settings · keyboard shortcuts |
 
-**Messaging (demo & imported chats)**
-- Send messages, photos, videos, audio, documents & polls
+<details>
+<summary><b>🗒️ The full feature list</b> (click to expand)</summary>
+
+- Import one or many exports (`.zip` with media, or `.txt`) — with preview before import
+- Telegram-style floating mini-player that keeps audio playing across chats
+- Unread badge + unread divider with "jump to first unread"
+- Timeline scrubber and jump-to-date popover
+- Chat folders, pins, archive and swipe actions
 - One-second hover quick-actions: reply, react, forward, star, copy
+- Long-press a message → **Speak** (text-to-speech), translate, explain
 - Scheduled messages — compose now, deliver later
 - Simulated replies in demo chats (AI or offline personas)
-- Long-press a message → **Speak** (text-to-speech), translate, explain
-
-**AI toolbox** (bring your own Gemini key, or built-in provider where available)
-- Translate any message · Explain context & slang · Ask AI about the chat
-- "Summarize this chat" TL;DR · AI-generated chat wallpapers
-
-**Privacy & data**
-- Server-verified **App Lock (PIN)** — 4–8 digits, verified server-side
-- Everything stored in a local SQLite database — nothing leaves your device
-- Export chats back out: `.txt`, `.zip` (with media), standalone `.html` (offline voice notes), or print
-- Download a full JSON backup; optional backup reminders
+- Message editing safety, message deletion, forward with multi-select
+- Word cloud per chat, cross-chat Insights dashboard
+- "On this day" memories
+- Backup reminders (gentle nudges, no nagging)
 - Data & storage dashboard — see exactly what each chat uses
+- Custom chat wallpapers (built-in gradients or AI-generated)
+- Adjustable text size and font family
+- Keyboard shortcuts + printable shortcut sheet
 
-**App-like experience**
-- Installable PWA — works offline for recently opened chats
-- Dark mode, light mode, chat wallpapers, text size & font settings
+</details>
 
 ---
 
 ## 🚀 Quick start
 
 **Prerequisites:** [Node.js 20+](https://nodejs.org) and [Bun](https://bun.sh)
-(or use npm/pnpm — scripts work with any runner).
+(npm/pnpm work too — the scripts are runner-agnostic).
 
 ```bash
-# 1. Install dependencies
+# 1. Clone & install
+git clone https://github.com/Avithegod2010/WA-archiver.git whatsapp-viewer
+cd whatsapp-viewer
 bun install
 
 # 2. Create your env file
@@ -66,9 +93,77 @@ bun run db:push
 bun run dev
 ```
 
-Open http://localhost:3000 and click **Try demo chats** to explore instantly —
-no import needed. To use your own chats: in WhatsApp, open a chat →
-**⋮ → More → Export chat → with media**, then drop the `.zip` into the app.
+Open **http://localhost:3000** → click **Try demo chats** to explore instantly.
+To use your own chats, export them from WhatsApp (`⋮ → More → Export chat → with media`)
+and drop the `.zip` into the import panel.
+
+> ⚡ **Don't want to run a server?** Grab the [Android APK](#-android-app-offline-apk) —
+> the entire app ships inside it and works fully offline.
+
+---
+
+## 📱 Android app (offline APK)
+
+The whole app — UI, on-device SQLite, search, stats, lock, backups — is bundled
+into a single installable APK. **No internet required, ever** (AI tools are the
+only optional online bits).
+
+**📥 Download:** Go to the [**Releases**](https://github.com/Avithegod2010/WA-archiver/releases) page →
+
+| Release | What you get |
+|---|---|
+| **Versioned** (e.g. `v1.0.1`) | Stable build for that release, APK attached as an asset |
+| **`latest`** (rolling pre-release) | Auto-built APK from the newest `main` commit, refreshed on every push |
+
+Then on your phone: open the APK → allow *"install from unknown sources"* when
+prompted → done. Voice-note transcription runs on the phone itself (on-device
+Whisper, one-time ~45 MB model download in Settings → AI) — it works in
+airplane mode.
+
+<details>
+<summary><b>Building it yourself</b></summary>
+
+```bash
+bun run build:capacitor   # static-exports the app into capacitor-web/
+bunx cap sync android     # copies web assets + config into the Android shell
+cd android && ./gradlew assembleDebug
+# → android/app/build/outputs/apk/debug/app-debug.apk
+```
+
+CI does the same thing automatically — see
+[`.github/workflows/android-apk.yml`](.github/workflows/android-apk.yml).
+
+</details>
+
+---
+
+## 🧠 AI features (optional)
+
+The AI toolbox is **bring-your-own-key**: paste a free
+[Gemini API key](https://aistudio.google.com/apikey) in *Settings → AI* and
+requests go **directly from your device to Google** — never through any
+intermediary server. No key? Everything else keeps working.
+
+| Tool | What it does |
+|---|---|
+| Translate | Any message, any language |
+| Explain | Slang, context, tone — handy for old chats |
+| Ask AI | Chat-grounded Q&A ("where did we decide on X?") |
+| Summarize | TL;DR of long chats |
+| Wallpapers | Generate a custom chat wallpaper |
+
+---
+
+## 🔒 Privacy model
+
+- Chats, media and settings live in a local SQLite database (`db/` on server
+  installs, OPFS-persisted SQLite on the Android app).
+- **Zero telemetry.** The app makes exactly two kinds of network calls: the AI
+  actions you explicitly trigger, and link previews — both optional.
+- App Lock is a 4–8 digit PIN verified server-side (your machine) with an
+  httpOnly cookie session.
+- Security policy: see [docs/SECURITY.md](docs/SECURITY.md) and
+  [docs/offline-architecture.md](docs/offline-architecture.md) for the design decisions.
 
 ---
 
@@ -78,70 +173,64 @@ no import needed. To use your own chats: in WhatsApp, open a chat →
 |---|---|
 | Framework | Next.js 16 (App Router) + TypeScript |
 | UI | Tailwind CSS 4 + shadcn/ui (New York) + Lucide icons |
-| Database | Prisma ORM + SQLite (local file) |
-| AI | Gemini (user key) / built-in provider — translate, explain, ask, summarize, TTS, ASR, image generation |
-| Realtime-ish | Scheduled-message dispatcher, simulated replies, PWA service worker |
+| Database | Prisma ORM + SQLite (server) · SQLite WASM/OPFS (device) |
+| Android | Capacitor shell, Gradle debug builds via GitHub Actions |
+| AI | Gemini (user key) — translate, explain, ask, summarize, TTS, ASR, wallpapers |
 
 ---
 
-## 🔒 Privacy model
+## 🌿 Branches
 
-- Chats, media and settings live in `db/` on your machine.
-- The only network calls are the AI features you trigger — and if you set a
-  Gemini key, requests go to Google's API directly.
-- App Lock is verified on the server that runs the app (your machine), with an
-  httpOnly cookie session.
-
----
-
-## 📱 Android APK (fully offline, standalone)
-
-The repo ships with a ready Capacitor Android shell **plus a GitHub Actions
-workflow that builds a STANDALONE, installable APK on every push** — no
-Android Studio needed on your machine, and **no hosted URL either**: the
-entire app (UI + on-device SQLite) is bundled inside the APK.
-
-1. Push to GitHub → open the **Actions** tab → latest run → download
-   **whatsapp-viewer-apk** → install on any Android phone
-   (allow "install unknown apps" when prompted).
-
-The APK works with **no internet at all**: chats live in an on-device SQLite
-database (OPFS-persisted), importing, searching, stats, lock and backups all
-happen on the phone. The only online-optional features are the AI tools —
-add your own free
-[Gemini API key](https://aistudio.google.com/apikey) in Settings → AI and
-they call Google directly (optional). **Voice notes transcribe on the phone
-itself** (on-device Whisper, Settings → AI → one-time ~45 MB model download) —
-no server, no API key, works in airplane mode.
-
-Build it yourself with `bun run build:capacitor` (static-exports the app into
-`capacitor-web/`) followed by `bunx cap sync android` and a Gradle debug
-build.
+| Branch | Purpose |
+|---|---|
+| `main` | Release line — stable, tagged releases, APK builds |
+| `stable` | Mirror of the latest release for pinning |
+| `beta` | Active development (v1.1 ideas) — may be bumpy |
 
 ---
 
-## ☁️ Deploying
+## 🗺️ Roadmap
 
-The app ships as a standalone Next.js build (`bun run build` → `bun run start`).
-Because it stores data in a local SQLite file and on-disk media, a classic
-serverless host (Vercel's free tier) needs small adaptations for persistence
-(e.g. Turso/libSQL + object storage). A tiny always-free VM (e.g. Oracle Cloud
-Always Free) runs it as-is. See the roadmap for the planned cloud-ready mode.
+- [ ] Message editing / unsend with "edited" tags
+- [ ] Export round-trip for location & contact cards, scheduled messages
+- [ ] Cloud-ready persistence mode (one-click deploy to free hosts)
+- [ ] Multi-language UI (i18n)
+- [ ] Media gallery favorites & albums
+- [ ] One-bundle multi-device transfer
+
+---
+
+## ❓ FAQ
+
+**Is my data uploaded anywhere?**
+No. Imports are parsed on your machine and stored in a local database. The only
+optional network calls are AI features (your key → Google) and link previews.
+
+**Do I need a Gemini API key?**
+No — it's optional. Without a key, everything except the AI toolbox works fully
+offline.
+
+**Is this affiliated with WhatsApp or Meta?**
+**No.** WhatsApp Viewer is an independent, open-source tool that reads export
+files produced by WhatsApp. It is not endorsed by, affiliated with, or connected
+to WhatsApp LLC or Meta Platforms in any way. *WhatsApp* is a trademark of its
+respective owner.
+
+**Why a debug APK?**
+The project is single-maintainer and pre-play-store. Debug builds keep the
+pipeline simple; signed release builds are on the roadmap.
+
+**Does it work on iPhone?**
+Not as an app — iOS doesn't allow sideloading APKs. The PWA runs in any mobile
+browser, though, and the full Android APK works on any Android 8+ phone.
 
 ---
 
-## 🗺️ Roadmap (v1.1 candidates)
+## 🤝 Contributing
 
-- Message editing / unsend with "edited" tags
-- Export/import round-trip for location & contact cards, scheduled messages
-- Cloud-ready persistence mode (one-click deploy to free hosts)
-- Custom offline page + update toast for the PWA
-- Multi-language UI (i18n)
-- Media gallery grid + per-media favorites
-- One-bundle multi-device transfer
-
----
+Issues and PRs are welcome! For big changes, open an issue first so we can align
+on direction. Feature ideas live in the issue tracker.
 
 ## 📄 License
 
-MIT — see [LICENSE](LICENSE).
+[MIT](LICENSE) — free to use, modify and share.

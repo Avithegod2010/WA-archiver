@@ -1,17 +1,23 @@
 name: Build Android APK
 
-# Builds a ready-to-install STANDALONE debug APK on every push to main (and
-# on demand). The APK bundles the whole web app (static export) and the
-# on-device SQLite database — it works with no internet and no hosted URL.
-# Download it from the run's "Artifacts" section → whatsapp-viewer-apk
+# Builds a ready-to-install STANDALONE debug APK and attaches it to GitHub
+# Releases:
+#   • push to main            → refreshes the rolling "latest" pre-release
+#   • push a tag (v1.2.3…)    → creates a versioned Release with the APK
+#   • workflow_dispatch       → refreshes the rolling "latest" pre-release
+#
+# The APK bundles the whole web app (static export) and the on-device SQLite
+# database — it works with no internet and no hosted URL. Users download it
+# from the Releases page, not from CI logs.
 
 on:
   workflow_dispatch:
   push:
     branches: [main]
-    paths-ignore:
-      - '**.md'
-      - 'docs/**'
+    tags: ['v*']
+
+permissions:
+  contents: write
 
 jobs:
   apk:
@@ -48,9 +54,60 @@ jobs:
           chmod +x gradlew
           ./gradlew assembleDebug --no-daemon --stacktrace
 
-      - name: Upload APK artifact
+      - name: Name the APK
+        id: apk
+        run: |
+          VERSION=$(node -p "require('./package.json').version")
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+            APK="WhatsApp-Viewer-${GITHUB_REF#refs/tags/}-debug.apk"
+          else
+            APK="WhatsApp-Viewer-v${VERSION}-debug-${GITHUB_SHA::7}.apk"
+          fi
+          cp android/app/build/outputs/apk/debug/app-debug.apk "$APK"
+          echo "file=$APK" >> "$GITHUB_OUTPUT"
+
+      - name: Attach APK to GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -e
+          APK_FILE="${{ steps.apk.outputs.file }}"
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+            TAG="${GITHUB_REF#refs/tags/}"
+            echo "Attaching $APK_FILE to versioned release $TAG"
+            gh release create "$TAG" \
+              --title "WhatsApp Viewer $TAG" \
+              --generate-notes \
+              "$APK_FILE"
+          else
+            TAG="latest"
+            TITLE="Latest APK (auto-build)"
+            NOTES=$(printf '%s\n' \
+              "Automated APK build of commit \`$GITHUB_SHA\` ($(date -u +'%Y-%m-%d %H:%M UTC'))." \
+              "" \
+              "**Install:** download the APK below → allow \"install unknown apps\" for your browser → open the APK." \
+              "" \
+              "- Works fully offline — chats live on-device, voice notes transcribe on the phone." \
+              "- AI tools are optional: add your own free [Gemini API key](https://aistudio.google.com/apikey) in Settings → AI." \
+              "" \
+              "> This rolling release is overwritten on every push to \`main\`." \
+              "> For stable builds, check the [versioned releases](https://github.com/${GITHUB_REPOSITORY}/releases).")
+            if gh release view "$TAG" >/dev/null 2>&1; then
+              gh release upload "$TAG" "$APK_FILE" --clobber
+              gh release edit "$TAG" --title "$TITLE" --notes "$NOTES" --prerelease
+            else
+              gh release create "$TAG" \
+                --title "$TITLE" \
+                --notes "$NOTES" \
+                --prerelease \
+                "$APK_FILE"
+            fi
+          fi
+
+      - name: Upload APK artifact (short-lived convenience copy)
         uses: actions/upload-artifact@v4
         with:
           name: whatsapp-viewer-apk
           path: android/app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
+          retention-days: 7
