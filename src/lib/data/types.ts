@@ -132,6 +132,15 @@ export interface MediaItem extends StarredItem {
   bytes: number | null
 }
 
+/** Global media-hub row (mirrors GET /api/media-index items[]). */
+export interface AllMediaItem extends MediaItem {
+  /** Owning chat (the hub groups/filters across every chat). */
+  chatId: string
+  chatTitle: string
+  /** Reuses the message-level star as the media "favorite". */
+  starred: boolean
+}
+
 /** One "On this day" card (mirrors GET /api/memories groups[].items[]). */
 export interface MemoryItem {
   id: string
@@ -262,6 +271,11 @@ export interface DataClient {
   searchAll(query: string): Promise<SearchResult>
   listStarred(chatId: string): Promise<{ items: StarredItem[] }>
   listChatMedia(chatId: string): Promise<{ items: MediaItem[] }>
+  /**
+   * Global media index across every chat, newest first (media hub).
+   * Capped server-side; `truncated` is true when older rows were dropped.
+   */
+  listAllMedia(): Promise<{ items: AllMediaItem[]; truncated?: boolean }>
   /** A downloadable zip of the chat's media (blob), or null when empty. */
   chatMediaZip(chatId: string): Promise<Blob | null>
   memories(mmd?: string): Promise<MemoriesResult>

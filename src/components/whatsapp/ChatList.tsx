@@ -22,6 +22,7 @@ import {
   FileText,
   Film,
   Image as ImageIcon,
+  Images,
   Loader2,
   MapPin,
   MessagesSquare,
@@ -489,6 +490,7 @@ export function ChatList({
   onToggleArchive,
   onOpenInsights,
   onOpenMemories,
+  onOpenMediaHub,
   onOpenGlobalSearch,
   bindImportTrigger,
 }: {
@@ -504,6 +506,7 @@ export function ChatList({
   onToggleArchive: (id: string, archived: boolean) => void
   onOpenInsights: () => void
   onOpenMemories: () => void
+  onOpenMediaHub: () => void
   onOpenGlobalSearch: (query: string) => void
   /** Lets the parent (guide) open the hidden import file picker. */
   bindImportTrigger?: (fn: () => void) => void
@@ -889,6 +892,17 @@ export function ChatList({
               aria-label="On this day memories"
             >
               <CalendarHeart className="h-4 w-4" />
+            </Button>
+            <Button
+              size="icon"
+              variant="ghost"
+              className="wa-iconbtn h-9 w-9 rounded-full bg-white/10 text-white hover:bg-white/20 dark:text-(--wa-text)"
+              onClick={onOpenMediaHub}
+              disabled={importing}
+              title="Media hub — all photos, videos, voice notes and documents"
+              aria-label="Open media hub"
+            >
+              <Images className="h-4 w-4" />
             </Button>
             <Button
               size="sm"

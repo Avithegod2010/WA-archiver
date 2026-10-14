@@ -19,6 +19,7 @@ import { buildPreview, type MessageType } from '@/lib/whatsapp-parser'
 import { isAudioName, isVideoName } from '@/lib/media-kinds'
 import {
   DataError,
+  type AllMediaItem,
   type BackupImportResult,
   type DataClient,
   type DeviceStatus,
@@ -1129,6 +1130,57 @@ export class LocalDataClient implements DataClient {
         }
       }),
     }
+  }
+
+  async listAllMedia(): Promise<{ items: AllMediaItem[]; truncated?: boolean }> {
+    const e = await this.db()
+    const placeholders = [...MEDIA_TYPES].map(() => '?').join(',')
+    const rows = e.all(
+      `SELECT m.id, m.idx, m.ts, m.sender, m.body, m.type,
+              m.mediaPath, m.mediaName, m.starred, m.chatId, c.title AS chatTitle
+         FROM "Message" m
+         JOIN "Chat" c ON c.id = m.chatId
+        WHERE m.type IN (${placeholders}) AND m.mediaPath IS NOT NULL
+        ORDER BY m.ts DESC, m.idx DESC
+        LIMIT 5000`,
+      [...MEDIA_TYPES]
+    )
+    const truncated = rows.length >= 5000
+    // Group byte lookups per chat (one IndexedDB pass per chat with hits).
+    const byChat = new Map<string, AllMediaItem[]>()
+    for (const r of rows) {
+      const chatId = str(r.chatId)
+      const list = byChat.get(chatId) ?? []
+      list.push({
+        id: str(r.id),
+        idx: num(r.idx),
+        ts: isoDate(r.ts) ?? new Date(0).toISOString(),
+        sender: nstr(r.sender),
+        body: str(r.body),
+        type: str(r.type),
+        mediaPath: nstr(r.mediaPath),
+        mediaName: nstr(r.mediaName),
+        bytes: null,
+        chatId,
+        chatTitle: str(r.chatTitle),
+        starred: num(r.starred) === 1,
+      })
+      byChat.set(chatId, list)
+    }
+    await Promise.all(
+      [...byChat.keys()].map(async (chatId) => {
+        const sizes = await mediaBytesByName(chatId).catch(
+          () => new Map<string, number>()
+        )
+        for (const item of byChat.get(chatId) ?? []) {
+          item.bytes = item.mediaPath ? (sizes.get(item.mediaPath) ?? null) : null
+        }
+      })
+    )
+    // Flatten back to newest-first (each group preserves its own order).
+    const items = [...byChat.values()].flat()
+    items.sort((a, b) => (a.ts < b.ts ? 1 : a.ts > b.ts ? -1 : b.idx - a.idx))
+    return { items, truncated }
   }
 
   async chatMediaZip(chatId: string): Promise<Blob | null> {

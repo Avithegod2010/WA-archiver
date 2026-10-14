@@ -18,6 +18,7 @@ import type {
 } from '@/components/whatsapp/types'
 import {
   DataError,
+  type AllMediaItem,
   type BackupImportResult,
   type DataClient,
   type DeviceStatus,
@@ -290,6 +291,13 @@ export class ServerDataClient implements DataClient {
       await get(`/api/chats/${encodeURIComponent(chatId)}/media`)
     )
     return { items: data.items ?? [] }
+  }
+
+  async listAllMedia(): Promise<{ items: AllMediaItem[]; truncated?: boolean }> {
+    const data = await json<{ items?: AllMediaItem[]; truncated?: boolean }>(
+      await get('/api/media-index')
+    )
+    return { items: data.items ?? [], truncated: data.truncated }
   }
 
   async chatMediaZip(chatId: string): Promise<Blob | null> {

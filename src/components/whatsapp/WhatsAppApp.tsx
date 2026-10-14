@@ -51,6 +51,7 @@ import { StatsDashboard } from './StatsDashboard'
 import { MemoriesDialog } from './MemoriesDialog'
 import { scheduleBackupReminder, writeLastBackupAt } from './backup-reminder'
 import { GlobalSearch } from './GlobalSearch'
+import { MediaHub } from './MediaHub'
 import { GuideDialog } from './GuideDialog'
 import { DemoPickerDialog } from './DemoPickerDialog'
 import { SettingsDialog } from './SettingsDialog'
@@ -135,6 +136,7 @@ function WhatsAppAppInner() {
   const [demoPickerOpen, setDemoPickerOpen] = useState(false)
   const [statsOpen, setStatsOpen] = useState(false)
   const [memoriesOpen, setMemoriesOpen] = useState(false)
+  const [mediaHubOpen, setMediaHubOpen] = useState(false)
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [shortcutsOpen, setShortcutsOpen] = useState(false)
   const [importPanelOpen, setImportPanelOpen] = useState(false)
@@ -1188,6 +1190,7 @@ function WhatsAppAppInner() {
             onDelete={deleteChat}
             onImportFiles={importFiles}
             onDemo={loadDemo}
+            onOpenMediaHub={() => setMediaHubOpen(true)}
             onTogglePin={togglePin}
             onToggleArchive={toggleArchive}
             onOpenInsights={() => setStatsOpen(true)}
@@ -1258,6 +1261,13 @@ function WhatsAppAppInner() {
         open={globalSearchOpen}
         onOpenChange={setGlobalSearchOpen}
         initialQuery={globalSearchQuery}
+        onOpenMessage={openFromSearch}
+      />
+
+      {/* Global media hub — every photo/video/voice/doc across all chats (#6) */}
+      <MediaHub
+        open={mediaHubOpen}
+        onClose={() => setMediaHubOpen(false)}
         onOpenMessage={openFromSearch}
       />
 
