@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: 💡 Ideas & roadmap
+    url: https://github.com/Avithegod2010/WA-archiver/discussions
+    about: Discuss feature ideas, roadmap and usage questions
+  - name: 🔒 Security vulnerability
+    url: https://github.com/Avithegod2010/WA-archiver/blob/main/docs/SECURITY.md
+    about: Please report security issues responsibly — see the security policy (do not open a public issue)
