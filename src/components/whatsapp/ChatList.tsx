@@ -19,6 +19,7 @@ import {
   ChevronDown,
   ChevronRight,
   CircleDot,
+  Command,
   FileText,
   Film,
   Image as ImageIcon,
@@ -488,6 +489,7 @@ export function ChatList({
   onDemo,
   onTogglePin,
   onToggleArchive,
+  onOpenPalette,
   onOpenInsights,
   onOpenMemories,
   onOpenMediaHub,
@@ -504,6 +506,7 @@ export function ChatList({
   onDemo: () => void
   onTogglePin: (id: string, pinned: boolean) => void
   onToggleArchive: (id: string, archived: boolean) => void
+  onOpenPalette: () => void
   onOpenInsights: () => void
   onOpenMemories: () => void
   onOpenMediaHub: () => void
@@ -871,6 +874,17 @@ export function ChatList({
             Chats
           </h1>
           <div className="flex items-center gap-1">
+            <Button
+              size="icon"
+              variant="ghost"
+              className="wa-iconbtn h-9 w-9 rounded-full bg-white/10 text-white hover:bg-white/20 dark:text-(--wa-text)"
+              onClick={onOpenPalette}
+              disabled={importing}
+              title="Command palette — jump to chats & run actions (Ctrl/⌘+K)"
+              aria-label="Open command palette"
+            >
+              <Command className="h-4 w-4" />
+            </Button>
             <Button
               size="icon"
               variant="ghost"

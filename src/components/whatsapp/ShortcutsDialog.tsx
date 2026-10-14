@@ -33,7 +33,7 @@ const GROUPS: ShortcutGroup[] = [
   {
     title: 'Chats & search',
     rows: [
-      { keys: ['Ctrl / ⌘', 'K'], label: 'Global search across all chats' },
+      { keys: ['Ctrl / ⌘', 'K'], label: 'Command palette — jump to chats & run actions' },
       { keys: ['/'], label: 'Focus chat search' },
       { keys: ['j / k'], label: 'Move up / down the chat list' },
       { keys: ['↑ / ↓'], label: 'Move up / down the chat list' },

@@ -2,18 +2,25 @@
 
 import './app-extras.css'
 
-import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
 import { useTheme } from 'next-themes'
 import { toast } from 'sonner'
 import {
   ALargeSmall,
+  BarChart3,
+  CalendarHeart,
   Check,
+  Compass,
   HelpCircle,
+  Images,
+  Keyboard,
   Loader2,
   Moon,
   Paintbrush,
   Settings,
+  Sparkles,
   Sun,
+  TextSearch,
   Upload,
   WifiOff,
 } from 'lucide-react'
@@ -51,6 +58,7 @@ import { StatsDashboard } from './StatsDashboard'
 import { MemoriesDialog } from './MemoriesDialog'
 import { scheduleBackupReminder, writeLastBackupAt } from './backup-reminder'
 import { GlobalSearch } from './GlobalSearch'
+import { CommandPalette, type PaletteAction } from './CommandPalette'
 import { MediaHub } from './MediaHub'
 import { GuideDialog } from './GuideDialog'
 import { DemoPickerDialog } from './DemoPickerDialog'
@@ -144,6 +152,7 @@ function WhatsAppAppInner() {
   const [textSizeOpen, setTextSizeOpen] = useState(false)
   const [globalSearchOpen, setGlobalSearchOpen] = useState(false)
   const [globalSearchQuery, setGlobalSearchQuery] = useState('')
+  const [paletteOpen, setPaletteOpen] = useState(false)
   const [pendingJumpId, setPendingJumpId] = useState<string | null>(null)
   const textSizeKey: TextSizeKey = useSyncExternalStore(
     subscribeTextSize,
@@ -902,9 +911,90 @@ function WhatsAppAppInner() {
 
   const totalMessages = chats.reduce((s, c) => s + c.messageCount, 0)
 
+  // Command palette action registry (backlog #17). The theme entry flips
+  // label/icon with the active theme, hence the resolvedTheme dependency.
+  const paletteActions: PaletteAction[] = useMemo(
+    () => [
+      {
+        id: 'search',
+        label: 'Search messages across all chats',
+        icon: <TextSearch />,
+        keywords: 'find full text grep messages',
+        run: () => {
+          setGlobalSearchQuery('')
+          setGlobalSearchOpen(true)
+        },
+      },
+      {
+        id: 'media',
+        label: 'Media hub — photos, videos, voice & docs',
+        icon: <Images />,
+        keywords: 'gallery photos videos media export storage',
+        run: () => setMediaHubOpen(true),
+      },
+      {
+        id: 'insights',
+        label: 'Insights dashboard',
+        icon: <BarChart3 />,
+        keywords: 'stats statistics charts analytics',
+        run: () => setStatsOpen(true),
+      },
+      {
+        id: 'memories',
+        label: 'On this day memories',
+        icon: <CalendarHeart />,
+        keywords: 'memories history time machine nostalgia',
+        run: () => setMemoriesOpen(true),
+      },
+      {
+        id: 'import',
+        label: 'Import chats (.zip / .txt)',
+        icon: <Upload />,
+        keywords: 'add export upload whatsapp zip txt',
+        run: () => setImportPanelOpen(true),
+      },
+      {
+        id: 'demo',
+        label: 'Load demo chats',
+        icon: <Sparkles />,
+        keywords: 'sample try example playground',
+        run: () => setDemoPickerOpen(true),
+      },
+      {
+        id: 'settings',
+        label: 'Settings',
+        icon: <Settings />,
+        keywords: 'preferences lock backup wallpaper font storage',
+        run: () => setSettingsOpen(true),
+      },
+      {
+        id: 'theme',
+        label: resolvedTheme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode',
+        icon: resolvedTheme === 'dark' ? <Sun /> : <Moon />,
+        keywords: 'dark light theme appearance night',
+        run: () => setTheme(resolvedTheme === 'dark' ? 'light' : 'dark'),
+      },
+      {
+        id: 'shortcuts',
+        label: 'Keyboard shortcuts',
+        icon: <Keyboard />,
+        keywords: 'keys hotkeys help bindings',
+        run: () => setShortcutsOpen(true),
+      },
+      {
+        id: 'guide',
+        label: 'Open the guide',
+        icon: <Compass />,
+        keywords: 'help about tutorial walkthrough',
+        run: () => setAboutOpen(true),
+      },
+    ],
+    [resolvedTheme, setTheme]
+  )
+
   // Global keyboard shortcuts (Task 7-e #7)
   useShortcuts({
-    onOpenSearch: () => setGlobalSearchOpen(true),
+    onOpenPalette: () => setPaletteOpen(true),
     onOpenInsights: () => setStatsOpen(true),
     onOpenGuide: () => setAboutOpen(true),
     onToggleDark: () => setTheme(resolvedTheme === 'dark' ? 'light' : 'dark'),
@@ -1193,6 +1283,7 @@ function WhatsAppAppInner() {
             onOpenMediaHub={() => setMediaHubOpen(true)}
             onTogglePin={togglePin}
             onToggleArchive={toggleArchive}
+            onOpenPalette={() => setPaletteOpen(true)}
             onOpenInsights={() => setStatsOpen(true)}
             onOpenMemories={() => setMemoriesOpen(true)}
             onOpenGlobalSearch={(q) => {
@@ -1262,6 +1353,15 @@ function WhatsAppAppInner() {
         onOpenChange={setGlobalSearchOpen}
         initialQuery={globalSearchQuery}
         onOpenMessage={openFromSearch}
+      />
+
+      {/* Ctrl/⌘+K command palette — chat jump + actions (backlog #17) */}
+      <CommandPalette
+        open={paletteOpen}
+        onOpenChange={setPaletteOpen}
+        chats={chats}
+        actions={paletteActions}
+        onOpenChat={openChat}
       />
 
       {/* Global media hub — every photo/video/voice/doc across all chats (#6) */}

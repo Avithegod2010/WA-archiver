@@ -3,7 +3,8 @@
 import { useEffect, useRef } from 'react'
 
 export interface ShortcutHandlers {
-  onOpenSearch: () => void
+  /** Ctrl/⌘+K — opens the command palette (chat jump + actions). */
+  onOpenPalette: () => void
   onOpenInsights: () => void
   onOpenGuide: () => void
   onToggleDark: () => void
@@ -24,9 +25,10 @@ function isDialogOpen(): boolean {
 }
 
 /**
- * Global keyboard shortcuts (Task 7-e #7).
+ * Global keyboard shortcuts (Task 7-e #7, palette in backlog #17).
  * - Skips plain-key shortcuts while typing in inputs or when any dialog is open.
- * - Ignores meta/ctrl/alt combos except Ctrl/Cmd+K. Ignores auto-repeats.
+ * - Ignores meta/ctrl/alt combos except Ctrl/Cmd+K (command palette).
+ *   Ignores auto-repeats.
  */
 export function useShortcuts(handlers: ShortcutHandlers) {
   const handlersRef = useRef(handlers)
@@ -45,7 +47,7 @@ export function useShortcuts(handlers: ShortcutHandlers) {
         if (e.key.toLowerCase() === 'k' && !e.altKey && !e.shiftKey) {
           if (isDialogOpen()) return
           e.preventDefault()
-          handlersRef.current.onOpenSearch()
+          handlersRef.current.onOpenPalette()
         }
         return
       }

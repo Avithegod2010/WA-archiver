@@ -22,6 +22,9 @@ const MAX_ROWS = 5000
 /**
  * Global media index across every chat (media hub). Newest first, with the
  * owning chat's title so the UI can group/filter/label without N requests.
+ *
+ * Chat titles are joined in JS (not via the Prisma relation) so a stray
+ * orphaned message row can never fail the whole index with P2023.
  */
 export async function GET(req: NextRequest) {
   const denied = await assertAppUnlocked(req)
@@ -42,9 +45,16 @@ export async function GET(req: NextRequest) {
       mediaName: true,
       starred: true,
       chatId: true,
-      chat: { select: { title: true } },
     },
   })
+
+  // title lookup for the owning chats — tolerant of orphaned rows
+  const chatIds = [...new Set(rows.map((m) => m.chatId))]
+  const chats = await db.chat.findMany({
+    where: { id: { in: chatIds } },
+    select: { id: true, title: true },
+  })
+  const titleById = new Map(chats.map((c) => [c.id, c.title]))
 
   const truncated = rows.length >= MAX_ROWS
 
@@ -70,7 +80,7 @@ export async function GET(req: NextRequest) {
       mediaName: m.mediaName,
       bytes,
       chatId: m.chatId,
-      chatTitle: m.chat.title,
+      chatTitle: titleById.get(m.chatId) ?? 'Unknown chat',
       starred: m.starred,
     }
   })
