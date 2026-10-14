@@ -1,0 +1,69 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="320" viewBox="0 0 1280 320" role="img" aria-label="WhatsApp Viewer — read, explore and enrich your exported WhatsApp chats. Private and local.">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#052E26"/>
+      <stop offset="0.55" stop-color="#075E54"/>
+      <stop offset="1" stop-color="#00A884"/>
+    </linearGradient>
+    <linearGradient id="tile" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#25D366"/>
+      <stop offset="1" stop-color="#008069"/>
+    </linearGradient>
+  </defs>
+
+  <rect width="1280" height="320" fill="url(#bg)"/>
+
+  <!-- decorative chat bubbles, right side -->
+  <g opacity="0.10" fill="#ffffff">
+    <rect x="880" y="52" width="210" height="66" rx="22"/>
+    <path d="M904 118 l-14 26 34 -26 z"/>
+    <rect x="1010" y="140" width="190" height="60" rx="20"/>
+    <path d="M1176 200 l16 24 -40 -24 z"/>
+    <rect x="920" y="222" width="240" height="64" rx="22"/>
+    <path d="M948 286 l-16 26 38 -26 z"/>
+  </g>
+  <g opacity="0.14" fill="#ffffff">
+    <circle cx="856" cy="90" r="7"/>
+    <circle cx="884" cy="90" r="7"/>
+    <circle cx="912" cy="90" r="7"/>
+    <circle cx="1078" cy="170" r="7"/>
+    <circle cx="1106" cy="170" r="7"/>
+    <circle cx="1134" cy="170" r="7"/>
+  </g>
+  <g opacity="0.07" fill="#ffffff">
+    <rect x="700" y="20" width="120" height="40" rx="14"/>
+    <rect x="1180" y="40" width="80" height="34" rx="12"/>
+    <rect x="760" y="270" width="110" height="36" rx="13"/>
+    <circle cx="640" cy="300" r="5"/>
+    <circle cx="820" cy="34" r="5"/>
+  </g>
+
+  <!-- app icon tile -->
+  <g transform="translate(84 84)">
+    <rect width="152" height="152" rx="34" fill="url(#tile)" stroke="#ffffff" stroke-opacity="0.85" stroke-width="4"/>
+    <ellipse cx="76" cy="70" rx="46" ry="38" fill="#ffffff"/>
+    <path d="M40 102 L30 128 L62 112 Z" fill="#ffffff"/>
+    <circle cx="57" cy="70" r="6" fill="#008069"/>
+    <circle cx="76" cy="70" r="6" fill="#008069"/>
+    <circle cx="95" cy="70" r="6" fill="#008069"/>
+  </g>
+
+  <!-- wordmark -->
+  <text x="286" y="150" font-family="'Segoe UI', -apple-system, 'Helvetica Neue', Roboto, Arial, sans-serif" font-size="66" font-weight="800" fill="#ffffff" letter-spacing="0.5">WhatsApp Viewer</text>
+  <text x="290" y="198" font-family="'Segoe UI', -apple-system, 'Helvetica Neue', Roboto, Arial, sans-serif" font-size="25" fill="#B7EDE0">Read, explore &amp; enrich your exported chats — private &amp; local.</text>
+
+  <!-- feature chips -->
+  <g font-family="'Segoe UI', -apple-system, 'Helvetica Neue', Roboto, Arial, sans-serif" font-size="19" font-weight="600">
+    <rect x="290" y="232" width="150" height="40" rx="20" fill="#ffffff" fill-opacity="0.14" stroke="#ffffff" stroke-opacity="0.25"/>
+    <text x="365" y="258" text-anchor="middle" fill="#E8FFF7">Local-first</text>
+
+    <rect x="456" y="232" width="140" height="40" rx="20" fill="#ffffff" fill-opacity="0.14" stroke="#ffffff" stroke-opacity="0.25"/>
+    <text x="526" y="258" text-anchor="middle" fill="#E8FFF7">AI toolbox</text>
+
+    <rect x="612" y="232" width="150" height="40" rx="20" fill="#ffffff" fill-opacity="0.14" stroke="#ffffff" stroke-opacity="0.25"/>
+    <text x="687" y="258" text-anchor="middle" fill="#E8FFF7">Android APK</text>
+
+    <rect x="778" y="232" width="86" height="40" rx="20" fill="#ffffff" fill-opacity="0.14" stroke="#ffffff" stroke-opacity="0.25"/>
+    <text x="821" y="258" text-anchor="middle" fill="#E8FFF7">PWA</text>
+  </g>
+</svg>
