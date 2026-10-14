@@ -105,7 +105,9 @@ export function previewText(
     }
     if (type === 'call') return callPreviewText(body)
     if (type === 'poll') return body.slice(0, 120)
-    return body ? body.slice(0, 120) : ''
+    // Caption-less media falls back to its file name so the chat list never
+    // renders a bare "Photo:" chip (matches import-time previews).
+    return (body || mediaName || '').slice(0, 120)
   }
   return body.slice(0, 300)
 }
