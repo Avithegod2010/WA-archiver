@@ -10,9 +10,13 @@
 | `main` | Trunk — mirrors the current release line; security fixes land here first | `1.0.x` | release quality |
 | `stable` | The supported release branch. Tags/artifacts (APK builds, source zips) are cut from here | `1.0.x` | hardened, slow-moving |
 | `beta` | **All new features land here.** May break; may change UI; experimental | `1.1.0-beta.N` | best-effort |
-| `v1.0` | Frozen orphan snapshot of the original v1.0 release (release-kit source zip) | `1.0.0` | immutable |
+| *(tag)* `v1.0` | Frozen snapshot of the original v1.0 release — preserved as a **tag**, not a branch | `1.0.0` | immutable |
 
-Current: `main` = `stable` = `da98ffc` (v1.0.1, security-audited), `beta` = `da98ffc` + beta-only commits.
+Current: `main` = `stable` (v1.0.1, security-audited + repo housekeeping), `beta` = main + beta-only commits.
+
+Tags: `v1.0` (historical orphan snapshot), `v1.0.1` (current release point). The Actions workflow
+builds an APK for every `v*` tag and attaches it to a GitHub Release; pushes to `main` refresh
+the rolling `latest` pre-release.
 
 ## Workflow rules
 
