@@ -35,11 +35,22 @@ import {
   RefreshCw,
   Save,
   Search,
+  Trash2,
   X,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog'
 import {
   Select,
   SelectContent,
@@ -148,6 +159,8 @@ export function MediaHub({
   const [selectMode, setSelectMode] = useState(false)
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [zipping, setZipping] = useState(false)
+  const [confirmDelete, setConfirmDelete] = useState(false)
+  const [deleting, setDeleting] = useState(false)
   const [viewerIdx, setViewerIdx] = useState<number | null>(null)
   const [visibleMonths, setVisibleMonths] = useState(8)
   const [quota, setQuota] = useState<{ usage: number; quota: number } | null>(null)
@@ -420,6 +433,32 @@ export function MediaHub({
       toast.error('Export failed', { id: toastId })
     } finally {
       setZipping(false)
+    }
+  }
+
+  /**
+   * Bulk delete the selected media files. The messages stay in their chats
+   * with a WhatsApp-style "Media deleted" placeholder; the bytes are freed
+   * (disk in server mode, IndexedDB blobs in device mode).
+   */
+  async function deleteSelected() {
+    if (selectedItems.length === 0 || deleting) return
+    setDeleting(true)
+    try {
+      const n = await data.deleteMessageMedia(selectedItems.map((it) => it.id))
+      toast.success(
+        n > 0
+          ? `Deleted ${n} file${n === 1 ? '' : 's'} · ${formatBytes(selectedBytes)} freed — chats now show a "Media deleted" note`
+          : 'Nothing to delete — the files were already missing'
+      )
+      setConfirmDelete(false)
+      setSelectMode(false)
+      setSelected(new Set())
+      await load()
+    } catch {
+      toast.error('Could not delete the selected media')
+    } finally {
+      setDeleting(false)
     }
   }
 
@@ -737,6 +776,15 @@ export function MediaHub({
               Export ZIP
             </Button>
             <Button
+              size="sm"
+              className="h-8 gap-1.5 rounded-full bg-rose-600/90 px-3 text-[12px] font-medium text-white hover:bg-rose-600"
+              onClick={() => setConfirmDelete(true)}
+              disabled={selected.size === 0 || deleting}
+            >
+              {deleting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />}
+              Delete
+            </Button>
+            <Button
               size="icon"
               variant="ghost"
               className="h-8 w-8 rounded-full text-white/60 hover:bg-white/10 hover:text-white"
@@ -752,6 +800,37 @@ export function MediaHub({
           </div>
         </div>
       )}
+
+      {/* Delete confirmation */}
+      <AlertDialog open={confirmDelete} onOpenChange={setConfirmDelete}>
+        <AlertDialogContent className="max-w-[min(92vw,420px)]">
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              Delete {selected.size} file{selected.size === 1 ? '' : 's'}?
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              The files are removed from this device
+              {selectedBytes > 0 ? ` (${formatBytes(selectedBytes)} freed)` : ''} and the
+              messages stay in their chats with a “Media deleted” note. This cannot
+              be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={deleting}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-rose-600 text-white hover:bg-rose-700 focus-visible:ring-rose-600/40"
+              disabled={deleting}
+              onClick={(e) => {
+                // Keep the dialog mounted while the deletion runs.
+                e.preventDefault()
+                void deleteSelected()
+              }}
+            >
+              {deleting ? 'Deleting…' : 'Delete files'}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       {/* Lightbox over the hub */}
       {viewerIdx != null && flatShown[viewerIdx] && (

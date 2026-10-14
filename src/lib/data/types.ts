@@ -222,6 +222,13 @@ export interface DataClient {
   importParsed(input: ImportParsedInput): Promise<{ chatId: string }>
   deleteMessage(id: string): Promise<void>
   /**
+   * Bulk media deletion (media hub). Deletes the stored file behind each
+   * message and marks the row `type='deleted'` ("Media deleted: <name>") —
+   * the message stays in the transcript, the bytes go. Ids without media
+   * are ignored. Returns how many messages were updated.
+   */
+  deleteMessageMedia(ids: string[]): Promise<number>
+  /**
    * Apply a star state; resolves to the applied value. Callers pass the
    * explicit target state (the UI computes it before calling).
    */

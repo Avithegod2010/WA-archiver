@@ -160,6 +160,26 @@ export async function deleteMediaForChat(chatId: string): Promise<void> {
   }
 }
 
+/** Delete specific stored blobs (`<chatId>/<storedName>`); missing keys are ignored. */
+export async function deleteMediaBlobs(
+  chatId: string,
+  names: string[]
+): Promise<void> {
+  if (names.length === 0) return
+  const db = await openDb()
+  try {
+    const tx = db.transaction(STORE, 'readwrite')
+    const store = tx.objectStore(STORE)
+    for (const n of names) store.delete(`${chatId}/${n}`)
+    await new Promise<void>((resolve) => {
+      tx.oncomplete = () => resolve()
+      tx.onerror = () => resolve()
+    })
+  } finally {
+    db.close()
+  }
+}
+
 export async function clearAllMedia(): Promise<void> {
   const db = await openDb()
   try {

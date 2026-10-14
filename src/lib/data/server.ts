@@ -135,6 +135,17 @@ export class ServerDataClient implements DataClient {
     await json(await fetch(`/api/messages/${encodeURIComponent(id)}`, { method: 'DELETE' }))
   }
 
+  async deleteMessageMedia(ids: string[]): Promise<number> {
+    const res = await json<{ deleted?: number }>(
+      await fetch('/api/messages/delete-media', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ids }),
+      })
+    )
+    return res.deleted ?? 0
+  }
+
   async toggleStar(id: string, starred: boolean): Promise<boolean> {
     await json(
       await fetch(`/api/messages/${encodeURIComponent(id)}`, {

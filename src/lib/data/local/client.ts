@@ -36,6 +36,7 @@ import {
 import { getEngine, type LocalEngine } from './engine'
 import {
   clearAllMedia,
+  deleteMediaBlobs,
   deleteMediaForChat,
   getMediaBlob,
   mediaBytesByName,
@@ -669,6 +670,55 @@ export class LocalDataClient implements DataClient {
     e.run('DELETE FROM "Message" WHERE id = ?', [id])
     await this.refreshAggregates(e, str(row.chatId))
     await this.engine.flush()
+  }
+
+  /**
+   * Bulk media deletion (media hub). Removes the stored blobs from
+   * IndexedDB and marks the rows `type='deleted'` ("Media deleted: <name>")
+   * so the transcript keeps a WhatsApp-style placeholder. Ids without
+   * media are ignored. Returns how many messages were updated.
+   */
+  async deleteMessageMedia(ids: string[]): Promise<number> {
+    const e = await this.db()
+    const clean = ids
+      .filter((x) => typeof x === 'string' && x.length > 0 && x.length <= 128)
+      .slice(0, 500)
+    if (clean.length === 0) return 0
+    const ph = clean.map(() => '?').join(',')
+    const rows = e.all(
+      `SELECT id, chatId, mediaPath, mediaName FROM "Message"
+       WHERE id IN (${ph}) AND mediaPath IS NOT NULL`,
+      clean
+    ) as unknown as Array<{
+      id: string
+      chatId: string
+      mediaPath: string
+      mediaName: string | null
+    }>
+    if (rows.length === 0) return 0
+
+    // Remove blobs grouped per chat.
+    const byChat = new Map<string, string[]>()
+    for (const r of rows) {
+      const list = byChat.get(r.chatId) ?? []
+      list.push(r.mediaPath)
+      byChat.set(r.chatId, list)
+    }
+    await Promise.all(
+      [...byChat].map(([chatId, names]) => deleteMediaBlobs(chatId, names))
+    )
+
+    for (const r of rows) {
+      e.run(
+        `UPDATE "Message" SET type = 'deleted', body = ?, mediaPath = NULL,
+         mediaName = NULL WHERE id = ?`,
+        [`Media deleted: ${r.mediaName || r.mediaPath}`, r.id]
+      )
+    }
+    const touched = [...new Set(rows.map((r) => r.chatId))]
+    for (const chatId of touched) await this.refreshAggregates(e, chatId)
+    await this.engine.flush()
+    return rows.length
   }
 
   async toggleStar(id: string, starred?: boolean): Promise<boolean> {
