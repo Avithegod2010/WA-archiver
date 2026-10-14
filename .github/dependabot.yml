@@ -1,22 +1,6 @@
 version: 2
 updates:
-  # App dependencies (bun.lock is read by the npm ecosystem)
-  - package-ecosystem: "npm"
-    directory: "/"
-    schedule:
-      interval: "weekly"
-    groups:
-      minor-and-patch:
-        applies-to: version-updates
-        update-types:
-          - "minor"
-          - "patch"
-    ignore:
-      # Next.js 16 major upgrades need manual migration attention
-      - dependency-name: "next"
-        update-types: ["version-update:semver-major"]
-
-  # GitHub Actions used by the workflows
+  # GitHub Actions used by the workflows — Dependabot handles these well.
   - package-ecosystem: "github-actions"
     directory: "/"
     schedule:
@@ -25,3 +9,10 @@ updates:
       actions:
         patterns:
           - "*"
+
+  # NOTE: JS dependencies are NOT managed by Dependabot — this repo locks
+  # dependencies with Bun (bun.lock), which Dependabot's npm updater cannot
+  # parse (every run errors with "Bun is misconfigured"). Update JS deps via:
+  #   bun update && bun run build:capacitor && bun run lint
+  # (the beta branch carries dependency bumps first, e.g. the sharp 0.34.x bump
+  # that superseded Dependabot PR #1's original attempt)
