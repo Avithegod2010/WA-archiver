@@ -125,6 +125,11 @@ jobs:
               "> This rolling release is overwritten on every push to \`main\`." \
               "> For stable builds, check the [versioned releases](https://github.com/${GITHUB_REPOSITORY}/releases).")
             if gh release view "$TAG" >/dev/null 2>&1; then
+              # purge stale APK assets so the rolling release keeps only the newest build
+              gh api "repos/$GITHUB_REPOSITORY/releases/tags/$TAG" --jq '.assets[].name' 2>/dev/null |
+                while IFS= read -r asset; do
+                  [ -n "$asset" ] && gh release delete-asset "$TAG" "$asset" -y || true
+                done
               gh release upload "$TAG" "$APK_FILE" --clobber
               gh release edit "$TAG" --title "$TITLE" --notes "$NOTES" --prerelease
             else
