@@ -9,6 +9,15 @@
  *
  * Guards mirror the server route (zip-bomb budget, per-entry cap, txt cap,
  * media file cap) so a malicious archive can't blow up the tab.
+ *
+ * Idea #13 — selective import preview: the flow is split into two phases.
+ * `previewDeviceImport` reads + parses the export WITHOUT touching the
+ * database and returns a summary (date span, per-sender counts, media type
+ * counts) plus the parsed transcript. `commitDeviceImport` then applies an
+ * optional `ImportSelection` (date range, senders, media types) and writes
+ * only the matching rows — extracting only media that survived the filter.
+ * `importFileToDevice` remains as preview + full commit for callers that
+ * don't need the preview step.
  */
 
 import JSZip from 'jszip'
@@ -16,6 +25,7 @@ import {
   guessTitleFromFilename,
   isMediaFilename,
   parseWhatsAppText,
+  type MessageType,
   type ParseResult,
 } from '@/lib/whatsapp-parser'
 import { isAudioName } from '@/lib/media-kinds'
@@ -46,6 +56,53 @@ export interface LocalImportResult {
 
 export class LocalImportError extends Error {}
 
+/** Per-sender message count (system notices are reported separately). */
+export interface ImportSenderCount {
+  name: string
+  count: number
+}
+
+export interface ImportPreviewSummary {
+  fileName: string
+  title: string
+  isGroup: boolean
+  totalMessages: number
+  /** ISO timestamps of the first/last datable message. */
+  firstAt: string
+  lastAt: string
+  /** Sorted by count desc, then name. */
+  senders: ImportSenderCount[]
+  systemCount: number
+  /** Message-type census, sorted desc, zero-count types omitted. */
+  typeCounts: { type: MessageType; count: number }[]
+  /** ZIP only: non-transcript entries the chat could reference. */
+  mediaCandidates: number
+  mediaCandidatesBytes: number
+}
+
+/** Everything commit needs, held in memory while the user picks a filter. */
+export interface ImportPreviewData {
+  summary: ImportPreviewSummary
+  parsed: ParseResult
+  file: File
+}
+
+/**
+ * What to keep when committing a previewed import. `null` selection (no
+ * object) means "import everything". System notices are always kept —
+ * they document export structure, not conversation content.
+ */
+export interface ImportSelection {
+  /** Inclusive lower bound (ms since epoch, local midnight). */
+  fromMs: number | null
+  /** Inclusive upper bound (ms since epoch, local end of day). */
+  toMs: number | null
+  /** `null` = keep every sender; otherwise only these senders. */
+  senders: string[] | null
+  /** Content types to drop (e.g. ['sticker','gif']); text/system immune. */
+  excludedTypes: string[]
+}
+
 /** Pick the chat transcript entry — same preference rules as the server. */
 function pickChatTxtEntry(names: string[]): string | null {
   const txts = names.filter((n) => /\.txt$/i.test(n))
@@ -64,20 +121,64 @@ function entrySize(entry: JSZip.JSZipObject): number {
   return typeof d?.uncompressedSize === 'number' ? d.uncompressedSize : -1
 }
 
+/** Census + date span for a parsed transcript. */
+function summarize(
+  file: File,
+  parsed: ParseResult,
+  title: string,
+  media: { candidates: number; bytes: number }
+): ImportPreviewSummary {
+  const senders = new Map<string, number>()
+  const types = new Map<MessageType, number>()
+  let systemCount = 0
+  let firstAt = ''
+  let lastAt = ''
+
+  for (const m of parsed.messages) {
+    if (m.sender === null) {
+      systemCount += 1
+    } else {
+      senders.set(m.sender, (senders.get(m.sender) ?? 0) + 1)
+    }
+    types.set(m.type, (types.get(m.type) ?? 0) + 1)
+    const at = m.ts.getTime()
+    if (Number.isFinite(at)) {
+      if (!firstAt || at < Date.parse(firstAt)) firstAt = m.ts.toISOString()
+      if (!lastAt || at > Date.parse(lastAt)) lastAt = m.ts.toISOString()
+    }
+  }
+
+  return {
+    fileName: file.name,
+    title,
+    isGroup: parsed.isGroup,
+    totalMessages: parsed.messages.length,
+    firstAt,
+    lastAt,
+    senders: [...senders.entries()]
+      .map(([name, count]) => ({ name, count }))
+      .sort((a, b) => b.count - a.count || a.name.localeCompare(b.name)),
+    systemCount,
+    typeCounts: [...types.entries()]
+      .map(([type, count]) => ({ type, count }))
+      .sort((a, b) => b.count - a.count),
+    mediaCandidates: media.candidates,
+    mediaCandidatesBytes: media.bytes,
+  }
+}
+
 /**
- * Import a WhatsApp export (.zip or .txt File) into the on-device database.
- * Progress is reported through `onProgress` so the UI can show a live bar.
+ * Phase A — read + parse an export WITHOUT writing anything. Safe to call
+ * for any size the guards allow; the parsed transcript is kept in memory
+ * until commit (or until the preview is discarded).
  */
-export async function importFileToDevice(
+export async function previewDeviceImport(
   file: File,
   opts: {
-    includeAudio?: boolean
     onProgress?: (p: LocalImportProgress) => void
   } = {}
-): Promise<LocalImportResult> {
-  const includeAudio = opts.includeAudio !== false
+): Promise<ImportPreviewData> {
   const report = (p: LocalImportProgress) => opts.onProgress?.(p)
-  const client = getLocalClient()
 
   if (file.size > MAX_FILE_BYTES) {
     throw new LocalImportError('File too large (max 400 MB).')
@@ -93,49 +194,175 @@ export async function importFileToDevice(
   report({ phase: 'reading', processed: 0, total: 0 })
   const buf = await file.arrayBuffer()
 
-  let parsed: ParseResult
-  let title: string
-
-  if (!isZip) {
-    if (file.size > MAX_TXT_BYTES) {
+  if (!isTxt) {
+    // ---- .zip export ------------------------------------------------------
+    let zip: JSZip
+    try {
+      zip = await JSZip.loadAsync(buf)
+    } catch {
       throw new LocalImportError(
-        'Chat transcript too large (max 20 MB uncompressed).'
+        'Could not read the ZIP archive. Is it a valid WhatsApp export?'
       )
     }
-    const text = new TextDecoder().decode(buf)
-    parsed = parseWhatsAppText(text)
+
+    const fileEntries: { name: string; entry: JSZip.JSZipObject }[] = []
+    zip.forEach((path, entry) => {
+      if (entry.dir) return
+      if (/__MACOSX|\.DS_Store|\.nomedia/i.test(path)) return
+      fileEntries.push({ name: path, entry })
+    })
+
+    const txtName = pickChatTxtEntry(fileEntries.map((f) => f.name))
+    if (!txtName) {
+      throw new LocalImportError(
+        'No chat .txt file found inside the ZIP. Please export the chat again and include the .txt file.'
+      )
+    }
+
+    const txtEntry = zip.file(txtName)!
+    if (entrySize(txtEntry) > MAX_TXT_BYTES) {
+      throw new LocalImportError(
+        'Chat transcript inside the ZIP is too large (max 20 MB uncompressed).'
+      )
+    }
+
+    report({ phase: 'parsing', processed: 0, total: 0 })
+    const chatText: string = await txtEntry.async('string')
+    const parsed = parseWhatsAppText(chatText)
     if (parsed.messages.length === 0) {
       throw new LocalImportError(
-        'Could not parse any messages from this file. Make sure it is an unmodified WhatsApp chat export.'
+        'Could not parse any messages from this export. Make sure it is an unmodified WhatsApp chat export.'
       )
     }
-    title = guessTitleFromFilename(file.name)
+    const title =
+      guessTitleFromFilename(txtName) || guessTitleFromFilename(file.name)
 
+    const mediaCandidates = fileEntries.filter(
+      (f) => f.name !== txtName && !/\.txt$/i.test(f.name)
+    )
+    const bytes = mediaCandidates.reduce(
+      (sum, f) => sum + Math.max(0, entrySize(f.entry)),
+      0
+    )
+
+    return {
+      parsed,
+      file,
+      summary: summarize(file, parsed, title, {
+        candidates: Math.min(mediaCandidates.length, MAX_MEDIA_FILES),
+        bytes,
+      }),
+    }
+  }
+
+  // ---- plain .txt ---------------------------------------------------------
+  if (file.size > MAX_TXT_BYTES) {
+    throw new LocalImportError(
+      'Chat transcript too large (max 20 MB uncompressed).'
+    )
+  }
+  report({ phase: 'parsing', processed: 0, total: 0 })
+  const text = new TextDecoder().decode(buf)
+  const parsed = parseWhatsAppText(text)
+  if (parsed.messages.length === 0) {
+    throw new LocalImportError(
+      'Could not parse any messages from this file. Make sure it is an unmodified WhatsApp chat export.'
+    )
+  }
+  const title = guessTitleFromFilename(file.name)
+
+  return {
+    parsed,
+    file,
+    summary: summarize(file, parsed, title, { candidates: 0, bytes: 0 }),
+  }
+}
+
+/** Apply a selection to parsed messages (order preserved). */
+export function applyImportSelection(
+  messages: ParseResult['messages'],
+  selection: ImportSelection | null
+): ParseResult['messages'] {
+  if (!selection) return messages
+  const { fromMs, toMs, senders, excludedTypes } = selection
+  const sendersSet = senders === null ? null : new Set(senders)
+  const excluded = new Set(excludedTypes)
+  if (sendersSet === null && excluded.size === 0 && fromMs === null && toMs === null) {
+    return messages
+  }
+  return messages.filter((m) => {
+    const at = m.ts.getTime()
+    if (fromMs !== null && at < fromMs) return false
+    if (toMs !== null && at > toMs) return false
+    if (sendersSet !== null && m.sender !== null && !sendersSet.has(m.sender)) {
+      return false
+    }
+    if (
+      excluded.size > 0 &&
+      m.type !== 'text' &&
+      m.type !== 'system' &&
+      excluded.has(m.type)
+    ) {
+      return false
+    }
+    return true
+  })
+}
+
+/**
+ * Phase B — write the (optionally filtered) transcript to the device
+ * database. Re-opens the ZIP from the kept File so the preview holds no
+ * decompressed data; media extraction only stores files the filtered
+ * transcript still references.
+ */
+export async function commitDeviceImport(
+  preview: ImportPreviewData,
+  selection: ImportSelection | null,
+  opts: {
+    includeAudio?: boolean
+    onProgress?: (p: LocalImportProgress) => void
+  } = {}
+): Promise<LocalImportResult> {
+  const includeAudio = opts.includeAudio !== false
+  const report = (p: LocalImportProgress) => opts.onProgress?.(p)
+  const client = getLocalClient()
+  const { parsed, file, summary } = preview
+
+  const filtered = applyImportSelection(parsed.messages, selection)
+  if (filtered.length === 0) {
+    throw new LocalImportError(
+      'The selected filters match no messages — loosen the date range, senders or media types and try again.'
+    )
+  }
+
+  const isZip = /\.zip$/i.test(file.name)
+
+  if (!isZip) {
     report({ phase: 'inserting', processed: 0, total: 0 })
     const { chatId } = await client.importParsed({
-      title,
+      title: summary.title,
       sourceFile: file.name,
       isGroup: parsed.isGroup,
-      messages: parsed.messages,
+      messages: filtered,
     })
     report({ phase: 'done', processed: 0, total: 0 })
     return {
       chatId,
-      title,
-      messages: parsed.messages.length,
+      title: summary.title,
+      messages: filtered.length,
       mediaFiles: 0,
       participants: parsed.participants.length,
       isGroup: parsed.isGroup,
     }
   }
 
-  // ---- .zip export -------------------------------------------------------
+  // ---- .zip export --------------------------------------------------------
   let zip: JSZip
   try {
-    zip = await JSZip.loadAsync(buf)
+    zip = await JSZip.loadAsync(await file.arrayBuffer())
   } catch {
     throw new LocalImportError(
-      'Could not read the ZIP archive. Is it a valid WhatsApp export?'
+      'Could not re-read the ZIP archive. Was the file moved or changed?'
     )
   }
 
@@ -153,37 +380,28 @@ export async function importFileToDevice(
     )
   }
 
-  const txtEntry = zip.file(txtName)!
-  if (entrySize(txtEntry) > MAX_TXT_BYTES) {
-    throw new LocalImportError(
-      'Chat transcript inside the ZIP is too large (max 20 MB uncompressed).'
-    )
-  }
-  report({ phase: 'parsing', processed: 0, total: 0 })
-  const chatText: string = await txtEntry.async('string')
-  parsed = parseWhatsAppText(chatText)
-  if (parsed.messages.length === 0) {
-    throw new LocalImportError(
-      'Could not parse any messages from this export. Make sure it is an unmodified WhatsApp chat export.'
-    )
-  }
-  title = guessTitleFromFilename(txtName) || guessTitleFromFilename(file.name)
-
   // Create the chat row first so media blobs have an owner to key off.
   const chat = await client.createChat({
-    title,
+    title: summary.title,
     isGroup: parsed.isGroup,
     sourceFile: file.name,
   })
   const chatId = chat.id
 
   try {
-    // ---- media extraction (browser blobs → IndexedDB) -------------------
+    // ---- media extraction (browser blobs → IndexedDB) --------------------
+    const wanted = new Set<string>()
+    for (const m of filtered) {
+      if (m.mediaName) wanted.add(m.mediaName.toLowerCase())
+    }
+
     const mediaMap = new Map<string, string>()
     const candidates = fileEntries.filter(
       (f) => f.name !== txtName && !/\.txt$/i.test(f.name)
     )
-    const chosen = candidates.slice(0, MAX_MEDIA_FILES)
+    const chosen = candidates
+      .slice(0, MAX_MEDIA_FILES)
+      .filter((f) => wanted.has((f.name.split('/').pop() ?? f.name).toLowerCase()))
     report({ phase: 'media', processed: 0, total: chosen.length })
 
     let totalExtracted = 0
@@ -205,8 +423,6 @@ export async function importFileToDevice(
         if (!blob || blob.size === 0 || blob.size > MAX_ENTRY_BYTES) continue
         totalExtracted += blob.size
         if (totalExtracted > MAX_TOTAL_EXTRACT_BYTES) break
-        // Only keep files the transcript can reference (any media-ish name
-        // matches the server behavior: it stores every non-txt entry).
         const stored = await client.putMedia(chatId, base, blob)
         mediaMap.set(base.toLowerCase(), stored)
         mediaFileCount++
@@ -219,15 +435,15 @@ export async function importFileToDevice(
     // ---- messages --------------------------------------------------------
     report({ phase: 'inserting', processed: 0, total: 0 })
     const messages = includeAudio
-      ? parsed.messages
-      : parsed.messages.map((m) =>
+      ? filtered
+      : filtered.map((m) =>
           m.mediaName && isAudioName(m.mediaName)
             ? { ...m, mediaName: null }
             : m
         )
     await client.importParsed({
       chatId,
-      title,
+      title: summary.title,
       sourceFile: file.name,
       isGroup: parsed.isGroup,
       messages,
@@ -237,8 +453,8 @@ export async function importFileToDevice(
     report({ phase: 'done', processed: 0, total: 0 })
     return {
       chatId,
-      title,
-      messages: parsed.messages.length,
+      title: summary.title,
+      messages: filtered.length,
       mediaFiles: mediaFileCount,
       participants: parsed.participants.length,
       isGroup: parsed.isGroup,
@@ -248,6 +464,24 @@ export async function importFileToDevice(
     await client.deleteChat(chatId).catch(() => undefined)
     throw err
   }
+}
+
+/**
+ * Import a WhatsApp export (.zip or .txt File) into the on-device database
+ * in one go (preview + unfiltered commit). Kept for drag-and-drop quick
+ * imports; the ImportPanel uses the two-phase flow to offer a preview.
+ */
+export async function importFileToDevice(
+  file: File,
+  opts: {
+    includeAudio?: boolean
+    onProgress?: (p: LocalImportProgress) => void
+  } = {}
+): Promise<LocalImportResult> {
+  const preview = await previewDeviceImport(file, {
+    onProgress: opts.onProgress,
+  })
+  return commitDeviceImport(preview, null, opts)
 }
 
 /**

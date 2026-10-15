@@ -12,11 +12,15 @@ import {
   XCircle,
 } from 'lucide-react'
 import {
-  importFileToDevice,
+  commitDeviceImport,
+  previewDeviceImport,
   LocalImportError,
+  type ImportPreviewData,
+  type ImportSelection,
   type LocalImportProgress,
 } from '@/lib/data'
 import { useData } from './data-provider'
+import { ImportPreviewStep } from './ImportPreviewStep'
 import {
   Dialog,
   DialogContent,
@@ -35,7 +39,7 @@ export interface ImportPanelProps {
   onImported?: (chatIds: string[]) => void
 }
 
-type Phase = 'idle' | 'running' | 'success' | 'error'
+type Phase = 'idle' | 'preview' | 'running' | 'success' | 'error'
 
 interface NdjsonEvent {
   type?: string
@@ -184,6 +188,8 @@ export function ImportPanel({
   const [dragOver, setDragOver] = useState(false)
   // Device import phase (null while using the server NDJSON stream).
   const [stage, setStage] = useState<LocalImportProgress['phase'] | null>(null)
+  // Idea #13 — parsed-but-not-committed export awaiting a selection.
+  const [previewData, setPreviewData] = useState<ImportPreviewData | null>(null)
   // "Include audio files" — sent as the `includeAudio` form field ('0' skips
   // voice-note files on the server; '1'/absent keeps the default behavior).
   // Deliberately NOT reset between imports so a retry keeps the choice.
@@ -210,6 +216,7 @@ export function ImportPanel({
     setErrorMsg('')
     setDragOver(false)
     setStage(null)
+    setPreviewData(null)
     stickRef.current = true
     runIdRef.current += 1
   }, [])
@@ -246,12 +253,13 @@ export function ImportPanel({
       setFileName(file.name)
 
       if (mode === 'device') {
-        // ---- device transport: parse + insert entirely in this tab ------
+        // ---- device transport: parse now, preview, then commit ----------
+        // Idea #13: nothing is written until the user confirms the
+        // selection in the preview step (or imports everything).
         const runId = runIdRef.current
         void (async () => {
           try {
-            const result = await importFileToDevice(file, {
-              includeAudio,
+            const data = await previewDeviceImport(file, {
               onProgress: (p) => {
                 if (runIdRef.current !== runId) return
                 setStage(p.phase)
@@ -265,14 +273,9 @@ export function ImportPanel({
               },
             })
             if (runIdRef.current !== runId) return
-            setChatIds([result.chatId])
-            setImportedCount(result.messages)
-            setChatTitle(result.title)
-            setStage('done')
-            setPhase('success')
-            toast.success(
-              `Imported ${result.messages.toLocaleString()} messages`
-            )
+            setPreviewData(data)
+            setPhase('preview')
+            setStage(null)
           } catch (err) {
             if (runIdRef.current !== runId) return
             setErrorMsg(
@@ -347,6 +350,55 @@ export function ImportPanel({
       })()
     },
     [reset, includeAudio, mode]
+  )
+
+  /** Idea #13 — commit the previewed import with the chosen selection. */
+  const commitImport = useCallback(
+    (selection: ImportSelection) => {
+      if (!previewData || phase === 'running') return
+      setPhase('running')
+      setStage('media')
+      const runId = runIdRef.current
+      void (async () => {
+        try {
+          const result = await commitDeviceImport(previewData, selection, {
+            includeAudio,
+            onProgress: (p) => {
+              if (runIdRef.current !== runId) return
+              setStage(p.phase)
+              if (p.phase === 'media') {
+                setTotal(p.total)
+                setParsed(p.processed)
+              } else {
+                setTotal(null)
+                setParsed(0)
+              }
+            },
+          })
+          if (runIdRef.current !== runId) return
+          setChatIds([result.chatId])
+          setImportedCount(result.messages)
+          setChatTitle(result.title)
+          setStage('done')
+          setPhase('success')
+          setPreviewData(null)
+          toast.success(
+            `Imported ${result.messages.toLocaleString()} messages`
+          )
+        } catch (err) {
+          if (runIdRef.current !== runId) return
+          setErrorMsg(
+            err instanceof LocalImportError
+              ? err.message
+              : err instanceof Error
+                ? err.message
+                : 'Import to this device failed. Please check the file and try again.'
+          )
+          setPhase('error')
+        }
+      })()
+    },
+    [previewData, phase, includeAudio]
   )
 
   const onPickFile = () => {
@@ -499,6 +551,15 @@ export function ImportPanel({
               aria-label="Include audio files"
             />
           </div>
+        )}
+
+        {phase === 'preview' && previewData && (
+          <ImportPreviewStep
+            data={previewData}
+            busy={false}
+            onCommit={commitImport}
+            onCancel={reset}
+          />
         )}
 
         {phase === 'running' && (

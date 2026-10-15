@@ -36,7 +36,13 @@ export { LocalDataClient, getLocalClient } from './local/client'
 export { ServerDataClient, serverDataClient } from './server'
 export {
   importFileToDevice,
+  previewDeviceImport,
+  commitDeviceImport,
+  applyImportSelection,
   LocalImportError,
+  type ImportPreviewData,
+  type ImportPreviewSummary,
+  type ImportSelection,
   type LocalImportProgress,
   type LocalImportResult,
 } from './local/import'
