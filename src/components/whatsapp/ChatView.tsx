@@ -17,6 +17,7 @@ import {
   ArrowLeft,
   ArrowUpToLine,
   Bot,
+  BookOpenText,
   Braces,
   CalendarClock,
   CalendarDays,
@@ -64,6 +65,7 @@ import { PollDialog } from './PollDialog'
 import { WallpaperPicker } from './WallpaperPicker'
 import { AIToolsDialog } from './AIToolsDialog'
 import { MovieMode } from './MovieMode'
+import { ReadingMode } from './ReadingMode'
 import { TimelineScrubber, type ScrubMonth } from './TimelineScrubber'
 import { WordCloudDialog } from './WordCloudDialog'
 import { TldrDialog } from './TldrDialog'
@@ -621,6 +623,8 @@ export function ChatView({
   /* ---- 10-i: word cloud / movie mode / accent theme / link previews ---- */
   const [wordCloudOpen, setWordCloudOpen] = useState(false)
   const [movieMode, setMovieMode] = useState(false)
+  /** Idea #18 — distraction-free reading mode overlay. */
+  const [readingOpen, setReadingOpen] = useState(false)
   /** Per-chat accent override — null = app default (vars cascade everywhere). */
   const [accentVars, setAccentVars] = useState<React.CSSProperties | null>(null)
   /** messageId → fetched preview (null = fetched, none found). */
@@ -2502,6 +2506,17 @@ export function ChatView({
           >
             <Images className="h-5 w-5 text-(--wa-text-2)" />
           </Button>
+          {/* Idea #18 — distraction-free reading mode */}
+          <Button
+            variant="ghost"
+            size="icon"
+            className="wa-iconbtn hidden h-9 w-9 sm:inline-flex"
+            onClick={() => setReadingOpen(true)}
+            aria-label="Reading mode"
+            title="Reading mode — clean, adjustable transcript view"
+          >
+            <BookOpenText className="h-5 w-5 text-(--wa-text-2)" />
+          </Button>
           <Button
             variant="ghost"
             size="icon"
@@ -3253,6 +3268,16 @@ export function ChatView({
         enabled={movieMode}
         onEnabledChange={setMovieMode}
       />
+
+      {/* Reading mode (idea #18) — full-screen clean transcript overlay */}
+      {readingOpen && (
+        <ReadingMode
+          onClose={() => setReadingOpen(false)}
+          chatTitle={chat.title}
+          isGroup={chat.isGroup}
+          messages={messages}
+        />
+      )}
 
       {/* Multi-select floating action bar (10-b) — slides up over the composer
           slot, safe-area aware; all buttons ≥44px. */}

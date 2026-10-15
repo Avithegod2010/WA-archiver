@@ -40,9 +40,12 @@ export interface SqlQueryResult {
 }
 
 interface SqlJsStatic {
-  (config?: { locateFile?: (file: string) => string }): Promise<{
-    Database: new (data?: Uint8Array | null) => SqlJsDatabase
-  }>
+  (config?: { locateFile?: (file: string) => string }): Promise<SqlJsModule>
+}
+
+/** The resolved sql.js module (what initSqlJs resolves to). */
+export interface SqlJsModule {
+  Database: new (data?: Uint8Array | null) => SqlJsDatabase
 }
 
 declare global {
@@ -184,6 +187,7 @@ async function opfsDelete(): Promise<void> {
 
 export class LocalEngine {
   private db: SqlJsDatabase | null = null
+  private sql: SqlJsModule | null = null
   private persistence: PersistenceKind | null = null
   private readyPromise: Promise<void> | null = null
   private saveTimer: ReturnType<typeof setTimeout> | null = null
@@ -212,6 +216,7 @@ export class LocalEngine {
       locateFile: (file: string) =>
         file.endsWith('.wasm') ? '/sql-wasm.wasm' : `/${file}`,
     })
+    this.sql = SQL
 
     // Restore the last persisted snapshot: OPFS first, IndexedDB fallback.
     let bytes: Uint8Array | null = null
@@ -368,6 +373,36 @@ export class LocalEngine {
     // Re-open from scratch (readyPromise cleared → full init runs again)
     this.readyPromise = null
     await this.ready()
+  }
+
+  /** Raw database image (snapshot/backup use). Copy of the whole file. */
+  exportDb(): Uint8Array {
+    return this.assertDb().export()
+  }
+
+  /**
+   * Swap the live database for the given image (rolling snapshot restore,
+   * idea #14). The image is validated by opening it BEFORE the swap so a
+   * corrupt snapshot never destroys the live database. The restored image
+   * is persisted immediately.
+   */
+  async restoreFromBytes(bytes: Uint8Array): Promise<void> {
+    await this.ready()
+    if (!this.db || !this.sql) throw new Error('Engine not initialised')
+    let next: SqlJsDatabase
+    try {
+      next = new this.sql.Database(bytes)
+      next.run('SELECT COUNT(*) FROM sqlite_master')
+    } catch {
+      throw new Error('Not a valid database snapshot')
+    }
+    this.db.close()
+    this.db = next
+    this.db.run('PRAGMA foreign_keys = ON;')
+    // Idempotent schema guard (older snapshots migrate forward) + persist.
+    this.migrate()
+    this.dirty = true
+    await this.flush()
   }
 
   async deletePersistedFile(): Promise<void> {

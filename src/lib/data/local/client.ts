@@ -34,6 +34,10 @@ import {
   type StarredItem,
 } from '../types'
 import { getEngine, type LocalEngine } from './engine'
+// Post-import rolling snapshots (idea #14) — fire-and-forget, never breaks
+// the import flow. Component-scoped store, safe to import here (no cycle:
+// rolling-backups imports the ENGINE, not this client).
+import { maybeAutoSnapshot } from '@/components/whatsapp/rolling-backups'
 import {
   clearAllMedia,
   deleteMediaBlobs,
@@ -660,6 +664,8 @@ export class LocalDataClient implements DataClient {
       ]
     )
     await this.engine.flush()
+    // Idea #14: rolling on-device snapshot after every import (throttled).
+    maybeAutoSnapshot()
     return { chatId }
   }
 
@@ -1509,6 +1515,8 @@ export class LocalDataClient implements DataClient {
       await this.refreshAggregates(e, chatId)
     }
     if (chatsCreated > 0) await this.engine.flush()
+    // Idea #14: rolling on-device snapshot after backup restores too.
+    if (chatsCreated > 0) maybeAutoSnapshot()
     return { chats: chatsCreated, messages: messagesImported }
   }
 }

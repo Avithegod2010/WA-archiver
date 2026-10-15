@@ -36,6 +36,8 @@ import {
 } from '@/lib/whisper-asr'
 import { GettingStartedDialog, openGettingStarted } from './GettingStartedDialog'
 import { StorageDialog } from './StorageDialog'
+import { SnapshotsCard } from './SnapshotsCard'
+import { SyncVaultCard } from './SyncVaultCard'
 import {
   Dialog,
   DialogContent,
@@ -881,6 +883,12 @@ export function SettingsDialog({
             </div>
           )}
         </section>
+
+        {/* Idea #14 — rolling on-device snapshots */}
+        <SnapshotsCard />
+
+        {/* Idea #11 — encrypted portable sync file (E2E) */}
+        <SyncVaultCard onRefreshChats={onRefreshChats} />
 
         <div className="h-px bg-black/10 dark:bg-white/10" />
 
