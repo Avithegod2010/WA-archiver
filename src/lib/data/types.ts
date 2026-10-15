@@ -176,9 +176,9 @@ export interface BackupImportResult {
 export interface DeviceStatus {
   ready: boolean
   /** null until the engine finished loading. */
-  engine: 'sqlite-wasm' | null
+  engine: 'sqlite-wasm' | 'sqlite-native' | null
   /** Where the SQLite file itself is persisted. */
-  persistence: 'opfs' | 'indexeddb' | null
+  persistence: 'opfs' | 'indexeddb' | 'native' | null
   /** Size of the SQLite database file in bytes (0 when fresh). */
   dbBytes: number
   /** Row counts from the local database. */

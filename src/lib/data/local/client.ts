@@ -296,11 +296,11 @@ export class LocalDataClient implements DataClient {
 
   /** Port of ensureSavedMessagesChat(). */
   private async ensureSavedMessages(e: LocalEngine): Promise<void> {
-    const existing = e.first('SELECT id FROM "Chat" WHERE id = ?', [
+    const existing = await e.first('SELECT id FROM "Chat" WHERE id = ?', [
       SAVED_CHAT_ID,
     ])
     if (existing) return
-    e.runNoSave(
+    await e.runNoSave(
       `INSERT INTO "Chat"
         (id, title, isGroup, lastPreview, sourceFile, pinned, createdAt)
        VALUES (?, ?, 0, ?, 'local', 1, ?)`,
@@ -311,7 +311,7 @@ export class LocalDataClient implements DataClient {
   async listChats(): Promise<ChatSummary[]> {
     const e = await this.db()
     this.ensureSavedMessages(e)
-    const rows = e.all(
+    const rows = await e.all(
       `SELECT id, title, isGroup, messageCount, mediaCount, firstAt, lastAt,
               lastPreview, lastSender, lastType, sourceFile, pinned, archived
          FROM "Chat"
@@ -322,14 +322,14 @@ export class LocalDataClient implements DataClient {
 
   async getChatDetail(id: string): Promise<ChatDetail> {
     const e = await this.db()
-    const chat = e.first(
+    const chat = await e.first(
       `SELECT id, title, isGroup, messageCount, mediaCount, firstAt, lastAt,
               sourceFile
          FROM "Chat" WHERE id = ?`,
       [id]
     )
     if (!chat) throw new DataError('Chat not found')
-    const rows = e.all(
+    const rows = await e.all(
       `SELECT id, chatId, idx, ts, sender, body, type, mediaPath, mediaName,
               starred, edited, forwardedFrom, pollOptions, pinned, reactions,
               replyToId
@@ -337,7 +337,7 @@ export class LocalDataClient implements DataClient {
         ORDER BY idx ASC LIMIT ${MAX_MESSAGES}`,
       [id]
     )
-    const messages = this.withReplyTos(
+    const messages = await this.withReplyTos(
       e,
       rows.map((r) => r as unknown as MessageRowLike)
     )
@@ -357,10 +357,10 @@ export class LocalDataClient implements DataClient {
   }
 
   /** Port of withReplyTos(): batch-resolve quoted messages. */
-  private withReplyTos(
+  private async withReplyTos(
     e: LocalEngine,
     rows: MessageRowLike[]
-  ): ChatMessage[] {
+  ): Promise<ChatMessage[]> {
     const ids = [
       ...new Set(
         rows
@@ -372,7 +372,7 @@ export class LocalDataClient implements DataClient {
       return rows.map((r) => serializeMessage(r))
     }
     const placeholders = ids.map(() => '?').join(',')
-    const targets = e.all(
+    const targets = await e.all(
       `SELECT id, sender, body, type FROM "Message" WHERE id IN (${placeholders})`,
       ids
     )
@@ -400,7 +400,7 @@ export class LocalDataClient implements DataClient {
     const e = await this.db()
     const id = newId()
     const now = new Date().toISOString()
-    e.run(
+    await e.run(
       `INSERT INTO "Chat"
          (id, title, isGroup, lastPreview, sourceFile, pinned, createdAt)
        VALUES (?, ?, ?, ?, ?, ?, ?)`,
@@ -414,16 +414,16 @@ export class LocalDataClient implements DataClient {
         now,
       ]
     )
-    const row = e.first('SELECT * FROM "Chat" WHERE id = ?', [id])
+    const row = await e.first('SELECT * FROM "Chat" WHERE id = ?', [id])
     if (!row) throw new DataError('Could not create chat')
     return serializeChat(row as unknown as ChatRowLike)
   }
 
   async deleteChat(id: string): Promise<void> {
     const e = await this.db()
-    e.run('DELETE FROM "Message" WHERE chatId = ?', [id])
-    e.run('DELETE FROM "ScheduledMessage" WHERE chatId = ?', [id])
-    e.run('DELETE FROM "Chat" WHERE id = ?', [id])
+    await e.run('DELETE FROM "Message" WHERE chatId = ?', [id])
+    await e.run('DELETE FROM "ScheduledMessage" WHERE chatId = ?', [id])
+    await e.run('DELETE FROM "Chat" WHERE id = ?', [id])
     await deleteMediaForChat(id).catch(() => undefined)
     await this.engine.flush()
   }
@@ -434,10 +434,10 @@ export class LocalDataClient implements DataClient {
   ): Promise<void> {
     const e = await this.db()
     if (flags.pinned !== undefined) {
-      e.run('UPDATE "Chat" SET pinned = ? WHERE id = ?', [flags.pinned ? 1 : 0, id])
+      await e.run('UPDATE "Chat" SET pinned = ? WHERE id = ?', [flags.pinned ? 1 : 0, id])
     }
     if (flags.archived !== undefined) {
-      e.run('UPDATE "Chat" SET archived = ? WHERE id = ?', [
+      await e.run('UPDATE "Chat" SET archived = ? WHERE id = ?', [
         flags.archived ? 1 : 0,
         id,
       ])
@@ -449,26 +449,26 @@ export class LocalDataClient implements DataClient {
 
   private async refreshAggregates(e: LocalEngine, chatId: string): Promise<void> {
     const messageCount = num(
-      e.scalar('SELECT COUNT(*) FROM "Message" WHERE chatId = ?', [chatId])
+      await e.scalar('SELECT COUNT(*) FROM "Message" WHERE chatId = ?', [chatId])
     )
     const typePlaceholders = [...MEDIA_TYPES].map(() => '?').join(',')
     const mediaCount = num(
-      e.scalar(
+      await e.scalar(
         `SELECT COUNT(*) FROM "Message"
           WHERE chatId = ? AND type IN (${typePlaceholders}) AND mediaPath IS NOT NULL`,
         [chatId, ...MEDIA_TYPES]
       )
     )
-    const first = e.first(
+    const first = await e.first(
       'SELECT ts, sender, type FROM "Message" WHERE chatId = ? ORDER BY idx ASC LIMIT 1',
       [chatId]
     )
-    const last = e.first(
+    const last = await e.first(
       'SELECT body, mediaName, sender, type, ts FROM "Message" WHERE chatId = ? ORDER BY idx DESC LIMIT 1',
       [chatId]
     )
     const saved = chatId === SAVED_CHAT_ID
-    e.run(
+    await e.run(
       `UPDATE "Chat" SET messageCount = ?, mediaCount = ?, firstAt = ?,
               lastAt = ?, lastPreview = ?, lastSender = ?, lastType = ?
         WHERE id = ?`,
@@ -494,7 +494,7 @@ export class LocalDataClient implements DataClient {
     input: SendMessageInput
   ): Promise<ChatMessage> {
     const e = await this.db()
-    const chat = e.first('SELECT id FROM "Chat" WHERE id = ?', [chatId])
+    const chat = await e.first('SELECT id FROM "Chat" WHERE id = ?', [chatId])
     if (!chat) throw new DataError('Chat not found')
 
     // Media attachment: store the blob first (mirrors the server's multipart
@@ -515,7 +515,7 @@ export class LocalDataClient implements DataClient {
 
     const idx =
       num(
-        e.scalar(
+        await e.scalar(
           'SELECT MAX(idx) FROM "Message" WHERE chatId = ?',
           [chatId]
         )
@@ -528,14 +528,14 @@ export class LocalDataClient implements DataClient {
     // mirrors the server route).
     let replyToId: string | null = null
     if (typeof input.replyToId === 'string' && input.replyToId.trim()) {
-      const target = e.first(
+      const target = await e.first(
         'SELECT id FROM "Message" WHERE id = ? AND chatId = ?',
         [input.replyToId.trim(), chatId]
       )
       if (target) replyToId = str(target.id)
     }
 
-    e.run(
+    await e.run(
       `INSERT INTO "Message"
          (id, chatId, idx, ts, sender, body, type, mediaPath, mediaName,
           forwardedFrom, pollOptions, replyToId)
@@ -558,14 +558,15 @@ export class LocalDataClient implements DataClient {
     await this.refreshAggregates(e, chatId)
     await this.engine.flush()
 
-    const row = e.first(
+    const row = await e.first(
       `SELECT id, chatId, idx, ts, sender, body, type, mediaPath, mediaName,
               starred, edited, forwardedFrom, pollOptions, pinned, reactions,
               replyToId
          FROM "Message" WHERE id = ?`,
       [id]
     )
-    return this.withReplyTos(e, [row as unknown as MessageRowLike])[0]
+    const hydrated = await this.withReplyTos(e, [row as unknown as MessageRowLike])
+    return hydrated[0]
   }
 
   async importParsed(input: ImportParsedInput): Promise<{ chatId: string }> {
@@ -577,7 +578,7 @@ export class LocalDataClient implements DataClient {
     // media to that id first); otherwise create a fresh chat.
     const chatId = input.chatId ?? newId()
     if (!input.chatId) {
-      e.runNoSave(
+      await e.runNoSave(
         `INSERT INTO "Chat" (id, title, isGroup, sourceFile, createdAt)
          VALUES (?, ?, ?, ?, ?)`,
         [chatId, input.title.trim() || 'Imported Chat', input.isGroup ? 1 : 0, input.sourceFile, now]
@@ -632,7 +633,7 @@ export class LocalDataClient implements DataClient {
           r.pollOptions
         )
       }
-      e.runNoSave(
+      await e.runNoSave(
         `INSERT INTO "Message" ${cols} VALUES ${valuesSql}`,
         params
       )
@@ -642,7 +643,7 @@ export class LocalDataClient implements DataClient {
     // parser's buildPreview (label style), counts from the parsed rows.
     const last = input.messages.at(-1) ?? null
     const first = input.messages[0] ?? null
-    e.runNoSave(
+    await e.runNoSave(
       `UPDATE "Chat" SET title = ?, isGroup = ?, sourceFile = ?,
               messageCount = ?, mediaCount = ?, firstAt = ?, lastAt = ?,
               lastPreview = ?, lastSender = ?, lastType = ?
@@ -671,9 +672,9 @@ export class LocalDataClient implements DataClient {
 
   async deleteMessage(id: string): Promise<void> {
     const e = await this.db()
-    const row = e.first('SELECT chatId FROM "Message" WHERE id = ?', [id])
+    const row = await e.first('SELECT chatId FROM "Message" WHERE id = ?', [id])
     if (!row) return
-    e.run('DELETE FROM "Message" WHERE id = ?', [id])
+    await e.run('DELETE FROM "Message" WHERE id = ?', [id])
     await this.refreshAggregates(e, str(row.chatId))
     await this.engine.flush()
   }
@@ -691,7 +692,7 @@ export class LocalDataClient implements DataClient {
       .slice(0, 500)
     if (clean.length === 0) return 0
     const ph = clean.map(() => '?').join(',')
-    const rows = e.all(
+    const rows = await e.all(
       `SELECT id, chatId, mediaPath, mediaName FROM "Message"
        WHERE id IN (${ph}) AND mediaPath IS NOT NULL`,
       clean
@@ -715,7 +716,7 @@ export class LocalDataClient implements DataClient {
     )
 
     for (const r of rows) {
-      e.run(
+      await e.run(
         `UPDATE "Message" SET type = 'deleted', body = ?, mediaPath = NULL,
          mediaName = NULL WHERE id = ?`,
         [`Media deleted: ${r.mediaName || r.mediaPath}`, r.id]
@@ -729,17 +730,17 @@ export class LocalDataClient implements DataClient {
 
   async toggleStar(id: string, starred?: boolean): Promise<boolean> {
     const e = await this.db()
-    const row = e.first('SELECT starred FROM "Message" WHERE id = ?', [id])
+    const row = await e.first('SELECT starred FROM "Message" WHERE id = ?', [id])
     if (!row) throw new DataError('Message not found')
     const next = starred === undefined ? !bool(row.starred) : Boolean(starred)
-    e.run('UPDATE "Message" SET starred = ? WHERE id = ?', [next ? 1 : 0, id])
+    await e.run('UPDATE "Message" SET starred = ? WHERE id = ?', [next ? 1 : 0, id])
     await this.engine.flush()
     return next
   }
 
   async setMessagePinned(id: string, pinned: boolean): Promise<void> {
     const e = await this.db()
-    e.run('UPDATE "Message" SET pinned = ? WHERE id = ?', [pinned ? 1 : 0, id])
+    await e.run('UPDATE "Message" SET pinned = ? WHERE id = ?', [pinned ? 1 : 0, id])
     await this.engine.flush()
   }
 
@@ -747,7 +748,7 @@ export class LocalDataClient implements DataClient {
     e: LocalEngine,
     id: string
   ): Promise<ChatMessage | null> {
-    const row = e.first(
+    const row = await e.first(
       `SELECT id, chatId, idx, ts, sender, body, type, mediaPath, mediaName,
               starred, edited, forwardedFrom, pollOptions, pinned, reactions,
               replyToId
@@ -763,7 +764,7 @@ export class LocalDataClient implements DataClient {
     reactions: Record<string, string[]> | null
   ): Promise<ChatMessage | null> {
     const e = await this.db()
-    e.run('UPDATE "Message" SET reactions = ? WHERE id = ?', [
+    await e.run('UPDATE "Message" SET reactions = ? WHERE id = ?', [
       reactions && Object.keys(reactions).length > 0
         ? JSON.stringify(reactions)
         : null,
@@ -775,9 +776,9 @@ export class LocalDataClient implements DataClient {
 
   async markMessageEdited(id: string, body: string): Promise<ChatMessage | null> {
     const e = await this.db()
-    const row = e.first('SELECT chatId FROM "Message" WHERE id = ?', [id])
+    const row = await e.first('SELECT chatId FROM "Message" WHERE id = ?', [id])
     if (!row) return null
-    e.run('UPDATE "Message" SET body = ?, edited = 1 WHERE id = ?', [
+    await e.run('UPDATE "Message" SET body = ?, edited = 1 WHERE id = ?', [
       body.slice(0, 8000),
       id,
     ])
@@ -835,11 +836,11 @@ export class LocalDataClient implements DataClient {
   async listScheduled(chatId?: string): Promise<ScheduledItem[]> {
     const e = await this.db()
     const rows = chatId
-      ? e.all(
+      ? await e.all(
           'SELECT * FROM "ScheduledMessage" WHERE chatId = ? ORDER BY deliverAt ASC',
           [chatId]
         )
-      : e.all('SELECT * FROM "ScheduledMessage" ORDER BY deliverAt ASC')
+      : await e.all('SELECT * FROM "ScheduledMessage" ORDER BY deliverAt ASC')
     return rows.map((r) => this.serializeScheduled(r))
   }
 
@@ -850,11 +851,11 @@ export class LocalDataClient implements DataClient {
     deliverAt: Date | string
   }): Promise<ScheduledItem> {
     const e = await this.db()
-    const chat = e.first('SELECT id FROM "Chat" WHERE id = ?', [input.chatId])
+    const chat = await e.first('SELECT id FROM "Chat" WHERE id = ?', [input.chatId])
     if (!chat) throw new DataError('Chat not found')
     const id = newId()
     const now = new Date().toISOString()
-    e.run(
+    await e.run(
       `INSERT INTO "ScheduledMessage" (id, chatId, body, sender, deliverAt, createdAt, status)
        VALUES (?, ?, ?, ?, ?, ?, 'pending')`,
       [
@@ -867,19 +868,19 @@ export class LocalDataClient implements DataClient {
       ]
     )
     await this.engine.flush()
-    const row = e.first('SELECT * FROM "ScheduledMessage" WHERE id = ?', [id])
+    const row = await e.first('SELECT * FROM "ScheduledMessage" WHERE id = ?', [id])
     return this.serializeScheduled(row!)
   }
 
   async cancelScheduled(id: string): Promise<void> {
     const e = await this.db()
-    e.run("DELETE FROM \"ScheduledMessage\" WHERE id = ? AND status = 'pending'", [id])
+    await e.run("DELETE FROM \"ScheduledMessage\" WHERE id = ? AND status = 'pending'", [id])
     await this.engine.flush()
   }
 
   async setScheduledStatus(id: string, status: string): Promise<void> {
     const e = await this.db()
-    e.run('UPDATE "ScheduledMessage" SET status = ? WHERE id = ?', [status, id])
+    await e.run('UPDATE "ScheduledMessage" SET status = ? WHERE id = ?', [status, id])
     await this.engine.flush()
   }
 
@@ -887,13 +888,13 @@ export class LocalDataClient implements DataClient {
 
   async getSetting(key: string): Promise<string | null> {
     const e = await this.db()
-    const row = e.first('SELECT value FROM "AppSetting" WHERE key = ?', [key])
+    const row = await e.first('SELECT value FROM "AppSetting" WHERE key = ?', [key])
     return row ? str(row.value) : null
   }
 
   async setSetting(key: string, value: string): Promise<void> {
     const e = await this.db()
-    e.run(
+    await e.run(
       `INSERT INTO "AppSetting" (key, value, updatedAt) VALUES (?, ?, ?)
        ON CONFLICT(key) DO UPDATE SET value = excluded.value,
          updatedAt = excluded.updatedAt`,
@@ -904,7 +905,7 @@ export class LocalDataClient implements DataClient {
 
   async deleteSetting(key: string): Promise<void> {
     const e = await this.db()
-    e.run('DELETE FROM "AppSetting" WHERE key = ?', [key])
+    await e.run('DELETE FROM "AppSetting" WHERE key = ?', [key])
     await this.engine.flush()
   }
 
@@ -916,12 +917,12 @@ export class LocalDataClient implements DataClient {
     const media = await mediaStats().catch(() => ({ files: 0, bytes: 0 }))
     return {
       ready: true,
-      engine: 'sqlite-wasm',
+      engine: e.getPersistence() === 'native' ? 'sqlite-native' : 'sqlite-wasm',
       persistence: e.getPersistence(),
-      dbBytes: e.dbBytes(),
-      chats: num(e.scalar('SELECT COUNT(*) FROM "Chat"')),
-      messages: num(e.scalar('SELECT COUNT(*) FROM "Message"')),
-      scheduled: num(e.scalar('SELECT COUNT(*) FROM "ScheduledMessage"')),
+      dbBytes: await e.dbBytes(),
+      chats: num(await e.scalar('SELECT COUNT(*) FROM "Chat"')),
+      messages: num(await e.scalar('SELECT COUNT(*) FROM "Message"')),
+      scheduled: num(await e.scalar('SELECT COUNT(*) FROM "ScheduledMessage"')),
       mediaFiles: media.files,
       mediaBytes: media.bytes,
       lastSavedAt: e.getLastSavedAt(),
@@ -948,14 +949,14 @@ export class LocalDataClient implements DataClient {
 
   async forwardMessage(id: string, targetChatId: string): Promise<ChatMessage | null> {
     const e = await this.db()
-    const source = e.first(
+    const source = await e.first(
       `SELECT id, chatId, sender, body, type, mediaPath, mediaName, forwardedFrom, pollOptions
          FROM "Message" WHERE id = ?`,
       [id]
     )
     if (!source) throw new DataError('Message not found')
 
-    const target = e.first('SELECT id FROM "Chat" WHERE id = ?', [targetChatId])
+    const target = await e.first('SELECT id FROM "Chat" WHERE id = ?', [targetChatId])
     if (!target) throw new DataError('Target chat not found')
 
     // Copy media into the target chat's store when present.
@@ -978,7 +979,7 @@ export class LocalDataClient implements DataClient {
 
     const idx =
       num(
-        e.scalar('SELECT MAX(idx) FROM "Message" WHERE chatId = ?', [targetChatId])
+        await e.scalar('SELECT MAX(idx) FROM "Message" WHERE chatId = ?', [targetChatId])
       ) + 1
     const newMsgId = newId()
     const forwardedFrom =
@@ -986,7 +987,7 @@ export class LocalDataClient implements DataClient {
         ? nstr(source.forwardedFrom) ?? nstr(source.sender)
         : nstr(source.sender)
 
-    e.run(
+    await e.run(
       `INSERT INTO "Message"
          (id, chatId, idx, ts, sender, body, type, mediaPath, mediaName,
           forwardedFrom, pollOptions)
@@ -1015,7 +1016,7 @@ export class LocalDataClient implements DataClient {
 
   async dispatchScheduled(): Promise<{ delivered: number; chatIds: string[] }> {
     const e = await this.db()
-    const due = e.all(
+    const due = await e.all(
       `SELECT id, chatId, body, sender, deliverAt FROM "ScheduledMessage"
         WHERE status = 'pending' AND deliverAt <= ?
         ORDER BY deliverAt ASC LIMIT 50`,
@@ -1025,30 +1026,30 @@ export class LocalDataClient implements DataClient {
     const chatIds = new Set<string>()
     let delivered = 0
     for (const item of due) {
-      e.run(
+      await e.run(
         `UPDATE "ScheduledMessage" SET status = 'sent'
           WHERE id = ? AND status = 'pending'`,
         [str(item.id)]
       )
       // Claim check — a row already claimed by another tick is skipped.
-      const claimed = num(e.scalar('SELECT changes()'))
+      const claimed = num(await e.scalar('SELECT changes()'))
       if (claimed !== 1) continue
 
-      const chat = e.first('SELECT id FROM "Chat" WHERE id = ?', [str(item.chatId)])
+      const chat = await e.first('SELECT id FROM "Chat" WHERE id = ?', [str(item.chatId)])
       if (!chat) {
         // Chat vanished since scheduling — drop the item instead of delivering.
-        e.run(`UPDATE "ScheduledMessage" SET status = 'cancelled' WHERE id = ?`, [
+        await e.run(`UPDATE "ScheduledMessage" SET status = 'cancelled' WHERE id = ?`, [
           str(item.id),
         ])
         continue
       }
       const idx =
         num(
-          e.scalar('SELECT MAX(idx) FROM "Message" WHERE chatId = ?', [
+          await e.scalar('SELECT MAX(idx) FROM "Message" WHERE chatId = ?', [
             str(item.chatId),
           ])
         ) + 1
-      e.run(
+      await e.run(
         `INSERT INTO "Message" (id, chatId, idx, ts, sender, body, type)
          VALUES (?, ?, ?, ?, ?, ?, 'text')`,
         [
@@ -1077,7 +1078,7 @@ export class LocalDataClient implements DataClient {
       return { query: '', totalChats: 0, totalHits: 0, truncated: false, chats: [] }
     }
     const like = `%${q}%`
-    const rows = e.all(
+    const rows = await e.all(
       `SELECT m.id, m.idx, m.ts, m.sender, m.body, m.type, m.chatId,
               c.title AS chatTitle, c.isGroup AS isGroup
          FROM "Message" m JOIN "Chat" c ON c.id = m.chatId
@@ -1086,7 +1087,7 @@ export class LocalDataClient implements DataClient {
         LIMIT 200`,
       [like]
     )
-    const countRows = e.all(
+    const countRows = await e.all(
       `SELECT chatId, COUNT(*) AS n FROM "Message" WHERE body LIKE ? GROUP BY chatId`,
       [like]
     )
@@ -1138,7 +1139,7 @@ export class LocalDataClient implements DataClient {
 
   async listStarred(chatId: string): Promise<{ items: StarredItem[] }> {
     const e = await this.db()
-    const rows = e.all(
+    const rows = await e.all(
       `SELECT id, idx, ts, sender, body, type, mediaPath, mediaName
          FROM "Message" WHERE chatId = ? AND starred = 1
         ORDER BY idx ASC`,
@@ -1161,7 +1162,7 @@ export class LocalDataClient implements DataClient {
   async listChatMedia(chatId: string): Promise<{ items: MediaItem[] }> {
     const e = await this.db()
     const placeholders = [...MEDIA_TYPES].map(() => '?').join(',')
-    const rows = e.all(
+    const rows = await e.all(
       `SELECT id, idx, ts, sender, body, type, mediaPath, mediaName
          FROM "Message"
         WHERE chatId = ? AND type IN (${placeholders}) AND mediaPath IS NOT NULL
@@ -1191,7 +1192,7 @@ export class LocalDataClient implements DataClient {
   async listAllMedia(): Promise<{ items: AllMediaItem[]; truncated?: boolean }> {
     const e = await this.db()
     const placeholders = [...MEDIA_TYPES].map(() => '?').join(',')
-    const rows = e.all(
+    const rows = await e.all(
       `SELECT m.id, m.idx, m.ts, m.sender, m.body, m.type,
               m.mediaPath, m.mediaName, m.starred, m.chatId, c.title AS chatTitle
          FROM "Message" m
@@ -1242,7 +1243,7 @@ export class LocalDataClient implements DataClient {
   async chatMediaZip(chatId: string): Promise<Blob | null> {
     const e = await this.db()
     const placeholders = [...MEDIA_TYPES].map(() => '?').join(',')
-    const rows = e.all(
+    const rows = await e.all(
       `SELECT mediaPath FROM "Message"
         WHERE chatId = ? AND type IN (${placeholders}) AND mediaPath IS NOT NULL`,
       [chatId, ...MEDIA_TYPES]
@@ -1282,7 +1283,7 @@ export class LocalDataClient implements DataClient {
 
     // Local rows store ts as ISO text — substr gives the calendar parts the
     // same way the server route's strftime('%m-%d') does on epoch ms.
-    const rows = e.all(
+    const rows = await e.all(
       `SELECT m.id, m.chatId, m.ts, m.sender, m.body, m.type,
               m.mediaPath, m.mediaName,
               c.title AS chatTitle, c.isGroup AS isGroup
@@ -1340,12 +1341,12 @@ export class LocalDataClient implements DataClient {
 
   async exportBackup(): Promise<Blob> {
     const e = await this.db()
-    const chats = e.all(
+    const chats = await e.all(
       `SELECT id, title, isGroup, messageCount, mediaCount, firstAt, lastAt,
               lastPreview, lastSender, lastType, sourceFile, pinned, archived, createdAt
          FROM "Chat" ORDER BY createdAt ASC`
     )
-    const messages = e.all(
+    const messages = await e.all(
       `SELECT id, chatId, idx, ts, sender, body, type, mediaPath, mediaName,
               starred, edited, forwardedFrom, pollOptions, pinned, reactions
          FROM "Message" ORDER BY chatId ASC, idx ASC`
@@ -1424,11 +1425,11 @@ export class LocalDataClient implements DataClient {
       const sourceFile = typeof c.sourceFile === 'string' ? c.sourceFile : ''
       // Duplicate guard: same id OR same title+sourceFile (server parity).
       const dup = candidateId
-        ? e.first(
+        ? await e.first(
             'SELECT id FROM "Chat" WHERE id = ? OR (title = ? AND sourceFile = ?)',
             [candidateId, c.title.trim(), sourceFile]
           )
-        : e.first('SELECT id FROM "Chat" WHERE title = ? AND sourceFile = ?', [
+        : await e.first('SELECT id FROM "Chat" WHERE title = ? AND sourceFile = ?', [
             c.title.trim(),
             sourceFile,
           ])
@@ -1436,9 +1437,9 @@ export class LocalDataClient implements DataClient {
 
       let chatId: string | null = null
       if (candidateId) {
-        const taken = e.first('SELECT id FROM "Chat" WHERE id = ?', [candidateId])
+        const taken = await e.first('SELECT id FROM "Chat" WHERE id = ?', [candidateId])
         if (!taken) {
-          e.runNoSave(
+          await e.runNoSave(
             `INSERT INTO "Chat" (id, title, isGroup, sourceFile, pinned, archived, createdAt)
              VALUES (?, ?, ?, ?, ?, ?, ?)`,
             [
@@ -1456,7 +1457,7 @@ export class LocalDataClient implements DataClient {
       }
       if (!chatId) {
         chatId = newId()
-        e.runNoSave(
+        await e.runNoSave(
           `INSERT INTO "Chat" (id, title, isGroup, sourceFile, pinned, archived, createdAt)
            VALUES (?, ?, ?, ?, ?, ?, ?)`,
           [
@@ -1477,7 +1478,7 @@ export class LocalDataClient implements DataClient {
         if (!rawMsg || typeof rawMsg !== 'object' || Array.isArray(rawMsg)) continue
         const m = rawMsg as Record<string, unknown>
         const msgId = strOrNull(m.id)
-        if (msgId && e.first('SELECT id FROM "Message" WHERE id = ?', [msgId])) continue
+        if (msgId && await e.first('SELECT id FROM "Message" WHERE id = ?', [msgId])) continue
         const ts = isoDate(m.ts)
         if (!ts) continue // invalid dates are dropped (server parity)
         // Media references from a backup are untrusted — basename only.
@@ -1487,7 +1488,7 @@ export class LocalDataClient implements DataClient {
           mediaPath = base && base !== '.' && base !== '..' ? base.slice(0, 255) : null
         }
         const finalId = msgId ?? newId()
-        e.runNoSave(
+        await e.runNoSave(
           `INSERT INTO "Message"
              (id, chatId, idx, ts, sender, body, type, mediaPath, mediaName,
               starred, edited, forwardedFrom, pollOptions, pinned, reactions)
