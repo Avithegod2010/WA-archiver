@@ -29,6 +29,7 @@ import {
   FileArchive,
   FileCode2,
   FileText,
+  HeartHandshake,
   Forward,
   Hash,
   Images,
@@ -66,6 +67,7 @@ import { WallpaperPicker } from './WallpaperPicker'
 import { AIToolsDialog } from './AIToolsDialog'
 import { MovieMode } from './MovieMode'
 import { ReadingMode } from './ReadingMode'
+import { RelationshipPanel } from './RelationshipPanel'
 import { TimelineScrubber, type ScrubMonth } from './TimelineScrubber'
 import { WordCloudDialog } from './WordCloudDialog'
 import { TldrDialog } from './TldrDialog'
@@ -625,6 +627,7 @@ export function ChatView({
   const [movieMode, setMovieMode] = useState(false)
   /** Idea #18 — distraction-free reading mode overlay. */
   const [readingOpen, setReadingOpen] = useState(false)
+  const [insightsOpen, setInsightsOpen] = useState(false)
   /** Per-chat accent override — null = app default (vars cascade everywhere). */
   const [accentVars, setAccentVars] = useState<React.CSSProperties | null>(null)
   /** messageId → fetched preview (null = fetched, none found). */
@@ -2517,6 +2520,17 @@ export function ChatView({
           >
             <BookOpenText className="h-5 w-5 text-(--wa-text-2)" />
           </Button>
+          {/* Idea #2 — relationship insights (1:1 chats; groups get a variant) */}
+          <Button
+            variant="ghost"
+            size="icon"
+            className="wa-iconbtn hidden h-9 w-9 sm:inline-flex"
+            onClick={() => setInsightsOpen(true)}
+            aria-label="Relationship insights"
+            title="Relationship insights — who initiates, reply speed, silences"
+          >
+            <HeartHandshake className="h-5 w-5 text-(--wa-text-2)" />
+          </Button>
           <Button
             variant="ghost"
             size="icon"
@@ -3278,6 +3292,15 @@ export function ChatView({
           messages={messages}
         />
       )}
+
+      {/* Relationship insights (idea #2) — on-device friendship dashboard */}
+      <RelationshipPanel
+        open={insightsOpen}
+        onOpenChange={setInsightsOpen}
+        chatTitle={chat.title}
+        isGroup={chat.isGroup}
+        messages={messages}
+      />
 
       {/* Multi-select floating action bar (10-b) — slides up over the composer
           slot, safe-area aware; all buttons ≥44px. */}
