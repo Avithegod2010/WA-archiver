@@ -71,12 +71,12 @@ function available(): boolean {
 }
 
 /** Live counts (chats/messages) read straight from the local engine. */
-function liveCounts(): { chats: number; messages: number } {
+async function liveCounts(): Promise<{ chats: number; messages: number }> {
   try {
     const e = getEngine()
     if (!e.isReady()) return { chats: 0, messages: 0 }
-    const chats = Number(e.scalar('SELECT COUNT(*) FROM "Chat"') ?? 0)
-    const messages = Number(e.scalar('SELECT COUNT(*) FROM "Message"') ?? 0)
+    const chats = Number((await e.scalar('SELECT COUNT(*) FROM "Chat"')) ?? 0)
+    const messages = Number((await e.scalar('SELECT COUNT(*) FROM "Message"')) ?? 0)
     return { chats, messages }
   } catch {
     return { chats: 0, messages: 0 }
@@ -129,8 +129,8 @@ export async function takeSnapshot(
     }
   }
 
-  const bytes = e.exportDb()
-  const { chats, messages } = liveCounts()
+  const bytes = await e.exportDb()
+  const { chats, messages } = await liveCounts()
   const snap: Snapshot = {
     id: `snap-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
     at: Date.now(),
@@ -192,8 +192,8 @@ export async function restoreSnapshot(
   // Safety net: the pre-restore state is itself snapshotted.
   const e = getEngine()
   if (e.isReady()) {
-    const current = e.exportDb()
-    const { chats, messages } = liveCounts()
+    const current = await e.exportDb()
+    const { chats, messages } = await liveCounts()
     const db = await openDb()
     const tx = db.transaction(STORE, 'readwrite')
     tx.objectStore(STORE).put({

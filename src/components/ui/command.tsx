@@ -44,10 +44,18 @@ function CommandDialog({
 }) {
   return (
     <Dialog {...props}>
-      <DialogHeader className="sr-only">
-        <DialogTitle>{title}</DialogTitle>
-        <DialogDescription>{description}</DialogDescription>
-      </DialogHeader>
+      {/* Accessibility header for the dialog. Rendered only while open:
+          Radix generates `id`s for the title/description, and when the
+          dialog is closed those SSR-only elements hydrated with different
+          useId values → React hydration attribute mismatches on every
+          load (this tree renders nothing else while closed, so gating
+          costs nothing and removes the mismatch at the source). */}
+      {props.open && (
+        <DialogHeader className="sr-only">
+          <DialogTitle>{title}</DialogTitle>
+          <DialogDescription>{description}</DialogDescription>
+        </DialogHeader>
+      )}
       <DialogContent
         className={cn("overflow-hidden p-0", className)}
         showCloseButton={showCloseButton}
