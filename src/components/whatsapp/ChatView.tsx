@@ -39,7 +39,6 @@ import {
   Lock,
   MoreVertical,
   Palette,
-  Pencil,
   Pin,
   PinOff,
   Printer,
@@ -120,6 +119,7 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuLabel,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
@@ -578,6 +578,12 @@ export function ChatView({
   const [jumpDate, setJumpDate] = useState<Date | undefined>(undefined)
   const [jumpOpen, setJumpOpen] = useState(false)
   const [wallpaperOpen, setWallpaperOpen] = useState(false)
+  // Invisible Popover anchor for the wallpaper picker (opened from the More
+  // menu — see the Customize section of the chat menu).
+  const wallpaperAnchorRef = useRef<HTMLSpanElement>(null)
+  // Set when the wallpaper entry is picked from the More menu so
+  // onCloseAutoFocus knows to open the popover instead of restoring focus.
+  const wallpaperFromMenu = useRef(false)
   const [starredOnly, setStarredOnly] = useState(false)
   const [regexMode, setRegexMode] = useState(false)
   const [matchIdx, setMatchIdx] = useState(0)
@@ -2463,77 +2469,6 @@ export function ChatView({
           <Button
             variant="ghost"
             size="icon"
-            className={cn(
-              'wa-iconbtn hidden h-9 w-9 sm:inline-flex',
-              readOnly &&
-                'bg-(--wa-accent)/15 text-(--wa-accent-strong) dark:text-(--wa-accent)'
-            )}
-            onClick={toggleReadOnly}
-            aria-label={readOnly ? 'Switch to editing view' : 'Switch to read-only view'}
-            aria-pressed={readOnly}
-            title={
-              readOnly
-                ? 'Back to editing — the default for every chat'
-                : 'Read-only view — hide composer & message interactions'
-            }
-          >
-            <Pencil className="h-5 w-5" />
-          </Button>
-          {/* Multi-select entry point (10-b): enter/exit selection mode */}
-          <Button
-            variant="ghost"
-            size="icon"
-            className={cn(
-              'wa-iconbtn hidden h-9 w-9 sm:inline-flex',
-              selecting &&
-                'bg-(--wa-accent)/15 text-(--wa-accent-strong) dark:text-(--wa-accent)'
-            )}
-            onClick={() => (selecting ? exitSelection() : enterSelection())}
-            aria-label="Select messages"
-            aria-pressed={selecting}
-            title={
-              selecting
-                ? 'Exit selection'
-                : 'Select messages — star, forward or delete in bulk'
-            }
-          >
-            <ListChecks className="h-5 w-5" />
-          </Button>
-          <Button
-            variant="ghost"
-            size="icon"
-            className="wa-iconbtn hidden h-9 w-9 sm:inline-flex"
-            onClick={() => setGalleryOpen(true)}
-            aria-label="Media gallery"
-            title="Media gallery"
-          >
-            <Images className="h-5 w-5 text-(--wa-text-2)" />
-          </Button>
-          {/* Idea #18 — distraction-free reading mode */}
-          <Button
-            variant="ghost"
-            size="icon"
-            className="wa-iconbtn hidden h-9 w-9 sm:inline-flex"
-            onClick={() => setReadingOpen(true)}
-            aria-label="Reading mode"
-            title="Reading mode — clean, adjustable transcript view"
-          >
-            <BookOpenText className="h-5 w-5 text-(--wa-text-2)" />
-          </Button>
-          {/* Idea #2 — relationship insights (1:1 chats; groups get a variant) */}
-          <Button
-            variant="ghost"
-            size="icon"
-            className="wa-iconbtn hidden h-9 w-9 sm:inline-flex"
-            onClick={() => setInsightsOpen(true)}
-            aria-label="Relationship insights"
-            title="Relationship insights — who initiates, reply speed, silences"
-          >
-            <HeartHandshake className="h-5 w-5 text-(--wa-text-2)" />
-          </Button>
-          <Button
-            variant="ghost"
-            size="icon"
             className="wa-iconbtn h-9 w-9"
             onClick={() => setSearchOpen((v) => !v)}
             aria-label="Search in chat"
@@ -2563,51 +2498,40 @@ export function ChatView({
               </span>
             )}
           </Button>
-          {!isNarrow && (
-            <Popover open={jumpOpen} onOpenChange={setJumpOpen}>
-              <PopoverTrigger asChild>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="wa-iconbtn h-9 w-9"
-                  aria-label="Jump to date"
-                  title="Jump to date"
-                >
-                  <CalendarDays className="h-5 w-5 text-(--wa-text-2)" />
-                </Button>
-              </PopoverTrigger>
-              <PopoverContent align="end" className="w-auto p-0">
-                {jumpPopoverBody}
-              </PopoverContent>
-            </Popover>
-          )}
+          {/* Jump to date — visible at every width now (was ≥sm only) */}
+          <Popover open={jumpOpen} onOpenChange={setJumpOpen}>
+            <PopoverTrigger asChild>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="wa-iconbtn h-9 w-9"
+                aria-label="Jump to date"
+                title="Jump to date"
+              >
+                <CalendarDays className="h-5 w-5 text-(--wa-text-2)" />
+              </Button>
+            </PopoverTrigger>
+            <PopoverContent align="end" className="w-auto p-0">
+              {jumpPopoverBody}
+            </PopoverContent>
+          </Popover>
+          {/* Wallpaper dialog is controlled from the More menu now. The picker
+              renders a Radix Popover that needs a trigger anchor to position
+              against, so we give it an invisible 1px sliver in the icon row
+              and click it programmatically from the menu. */}
           <WallpaperPicker
             chatId={chatId}
             chatTitle={chat.title}
             open={wallpaperOpen}
             onOpenChange={setWallpaperOpen}
           >
-            <Button
-              variant="ghost"
-              size="icon"
-              className="wa-iconbtn hidden h-9 w-9 sm:inline-flex"
-              aria-label="Chat wallpaper"
-              title="Chat wallpaper & photo"
-            >
-              <Palette className="h-5 w-5 text-(--wa-text-2)" />
-            </Button>
+            <span
+              ref={wallpaperAnchorRef}
+              aria-hidden
+              tabIndex={-1}
+              className="h-9 w-px shrink-0"
+            />
           </WallpaperPicker>
-          {/* Word cloud (10-i) — most used words, ≥sm header icon */}
-          <Button
-            variant="ghost"
-            size="icon"
-            className="wa-iconbtn hidden h-9 w-9 sm:inline-flex"
-            onClick={() => setWordCloudOpen(true)}
-            aria-label="Word cloud — most used words"
-            title="Word cloud — most used words"
-          >
-            <Hash className="h-5 w-5 text-(--wa-text-2)" />
-          </Button>
           {/* Export / print menu (#10): .txt, .zip, .html, .json, .csv, print/PDF */}
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
@@ -2655,32 +2579,74 @@ export function ChatView({
               </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
-          {/* Narrow screens: tools whose buttons hide below sm (edit / gallery /
-              wallpaper) collapse into this overflow menu so nothing is lost. */}
+          {/* Consolidated chat menu — the tools that used to crowd the header
+              live here as labelled sections (Modes / Browse / Tools /
+              Customize). Rendered at every width so desktop and mobile share
+              one predictable layout. */}
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <Button
                 variant="ghost"
                 size="icon"
-                className="wa-iconbtn h-9 w-9 sm:hidden"
+                className="wa-iconbtn h-9 w-9"
                 aria-label="More chat tools"
                 title="More"
               >
                 <MoreVertical className="h-5 w-5 text-(--wa-text-2)" />
               </Button>
             </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" className="w-52">
-              <DropdownMenuItem onClick={toggleReadOnly} className="gap-2">
-                <Eye className="h-4 w-4 text-(--wa-text-2)" />
-                {readOnly ? 'Editing view' : 'Read-only view'}
-              </DropdownMenuItem>
+            <DropdownMenuContent
+              align="end"
+              className="w-56"
+              onCloseAutoFocus={(e) => {
+                if (wallpaperFromMenu.current) {
+                  e.preventDefault()
+                  wallpaperFromMenu.current = false
+                  requestAnimationFrame(() =>
+                    wallpaperAnchorRef.current?.click()
+                  )
+                }
+              }}
+            >
+              {/* Modes */}
               <DropdownMenuItem
                 onClick={() => (selecting ? exitSelection() : enterSelection())}
                 className="gap-2"
               >
-                <ListChecks className="h-4 w-4 text-(--wa-text-2)" />
+                <ListChecks
+                  className={cn(
+                    'h-4 w-4',
+                    selecting ? 'text-(--wa-accent)' : 'text-(--wa-text-2)'
+                  )}
+                />
                 {selecting ? 'Exit selection' : 'Select messages'}
+                {selecting && (
+                  <span
+                    className="ml-auto h-1.5 w-1.5 shrink-0 rounded-full bg-(--wa-accent)"
+                    aria-hidden
+                  />
+                )}
               </DropdownMenuItem>
+              <DropdownMenuItem onClick={toggleReadOnly} className="gap-2">
+                <Eye
+                  className={cn(
+                    'h-4 w-4',
+                    readOnly ? 'text-(--wa-accent)' : 'text-(--wa-text-2)'
+                  )}
+                />
+                {readOnly ? 'Editing view' : 'Read-only view'}
+                {readOnly && (
+                  <span
+                    className="ml-auto h-1.5 w-1.5 shrink-0 rounded-full bg-(--wa-accent)"
+                    aria-hidden
+                  />
+                )}
+              </DropdownMenuItem>
+
+              <DropdownMenuSeparator />
+              <DropdownMenuLabel className="px-2 py-1 text-[10.5px] font-semibold uppercase tracking-wider text-(--wa-text-2)">
+                Browse
+              </DropdownMenuLabel>
               <DropdownMenuItem
                 onClick={() => setGalleryOpen(true)}
                 className="gap-2"
@@ -2688,13 +2654,60 @@ export function ChatView({
                 <Images className="h-4 w-4 text-(--wa-text-2)" />
                 Media gallery
               </DropdownMenuItem>
+
+              <DropdownMenuLabel className="px-2 py-1 text-[10.5px] font-semibold uppercase tracking-wider text-(--wa-text-2)">
+                Tools
+              </DropdownMenuLabel>
+              {/* Idea #18 — distraction-free reading mode */}
               <DropdownMenuItem
-                onClick={() => setWallpaperOpen(true)}
+                onClick={() => setReadingOpen(true)}
+                className="gap-2"
+              >
+                <BookOpenText className="h-4 w-4 text-(--wa-text-2)" />
+                Reading mode
+              </DropdownMenuItem>
+              {/* Idea #2 — relationship insights (1:1 chats; groups get a variant) */}
+              <DropdownMenuItem
+                onClick={() => setInsightsOpen(true)}
+                className="gap-2"
+              >
+                <HeartHandshake className="h-4 w-4 text-(--wa-text-2)" />
+                Relationship insights
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                onClick={() => setWordCloudOpen(true)}
+                className="gap-2"
+              >
+                <Hash className="h-4 w-4 text-(--wa-text-2)" />
+                Word cloud
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                onClick={() => setTldrOpen(true)}
+                className="gap-2"
+              >
+                <Sparkles className="h-4 w-4 text-(--wa-text-2)" />
+                Summarize with AI
+              </DropdownMenuItem>
+
+              <DropdownMenuLabel className="px-2 py-1 text-[10.5px] font-semibold uppercase tracking-wider text-(--wa-text-2)">
+                Customize
+              </DropdownMenuLabel>
+              {/* Opening a Radix Popover from a DropdownMenu item races the
+                  menu's own close: the post-close focus restore lands outside
+                  the freshly-mounted popover and Radix dismisses it. So we
+                  flag the item, block the focus restore just for it, and
+                  click the hidden wallpaper anchor in onCloseAutoFocus (after
+                  the menu has fully finished tearing down). */}
+              <DropdownMenuItem
+                onClick={() => {
+                  wallpaperFromMenu.current = true
+                }}
                 className="gap-2"
               >
                 <Palette className="h-4 w-4 text-(--wa-text-2)" />
                 Chat wallpaper
               </DropdownMenuItem>
+
               {/* 14-b: demo-only toggle — personas answer your texts here.
                   onSelect preventDefault keeps the menu open so the Switch
                   visibly flips; onClick does the actual toggling (exactly
@@ -2730,32 +2743,17 @@ export function ChatView({
                   </DropdownMenuItem>
                 </>
               )}
+
+              {/* Chat info button is ≥lg only — keep it reachable below lg. */}
               <DropdownMenuItem
-                onClick={() => setWordCloudOpen(true)}
-                className="gap-2"
+                onClick={() => setInfoOpen(true)}
+                className="gap-2 lg:hidden"
               >
-                <Hash className="h-4 w-4 text-(--wa-text-2)" />
-                Word cloud
-              </DropdownMenuItem>
-              <DropdownMenuItem
-                onClick={() => setTldrOpen(true)}
-                className="gap-2"
-              >
-                <Sparkles className="h-4 w-4 text-(--wa-text-2)" />
-                Summarize with AI
+                <Info className="h-4 w-4 text-(--wa-text-2)" />
+                Chat info
               </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
-          <Button
-            variant="ghost"
-            size="icon"
-            className="wa-iconbtn hidden h-9 w-9 sm:inline-flex"
-            onClick={() => setTldrOpen(true)}
-            aria-label="Summarize this chat with AI"
-            title="Summarize with AI (TL;DR)"
-          >
-            <Sparkles className="h-5 w-5 text-(--wa-text-2)" />
-          </Button>
           <Button
             variant="ghost"
             size="icon"

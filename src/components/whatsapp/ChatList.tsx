@@ -28,6 +28,7 @@ import {
   MapPin,
   MessagesSquare,
   Mic,
+  MoreVertical,
   PhoneMissed,
   Pin,
   PinOff,
@@ -58,6 +59,14 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu'
 import { FolderManagerDialog } from './FolderManagerDialog'
 import { SAVED_CHAT_ID, type ChatSummary } from './types'
 import { cn } from '@/lib/utils'
@@ -885,49 +894,65 @@ export function ChatList({
             >
               <Command className="h-4 w-4" />
             </Button>
-            <Button
-              size="icon"
-              variant="ghost"
-              className="wa-iconbtn h-9 w-9 rounded-full bg-white/10 text-white hover:bg-white/20 dark:text-(--wa-text)"
-              onClick={onOpenInsights}
-              disabled={importing}
-              title="Insights across all chats"
-              aria-label="Insights across all chats"
-            >
-              <BarChart3 className="h-4 w-4" />
-            </Button>
-            <Button
-              size="icon"
-              variant="ghost"
-              className="wa-iconbtn h-9 w-9 rounded-full bg-white/10 text-white hover:bg-white/20 dark:text-(--wa-text)"
-              onClick={onOpenMemories}
-              disabled={importing}
-              title="On this day memories"
-              aria-label="On this day memories"
-            >
-              <CalendarHeart className="h-4 w-4" />
-            </Button>
-            <Button
-              size="icon"
-              variant="ghost"
-              className="wa-iconbtn h-9 w-9 rounded-full bg-white/10 text-white hover:bg-white/20 dark:text-(--wa-text)"
-              onClick={onOpenMediaHub}
-              disabled={importing}
-              title="Media hub — all photos, videos, voice notes and documents"
-              aria-label="Open media hub"
-            >
-              <Images className="h-4 w-4" />
-            </Button>
-            <Button
-              size="sm"
-              variant="ghost"
-              className="wa-iconbtn h-9 gap-1.5 rounded-full bg-white/10 px-3 text-[12.5px] font-medium text-white hover:bg-white/20 dark:text-(--wa-text)"
-              onClick={onDemo}
-              disabled={importing}
-            >
-              <Sparkles className="h-3.5 w-3.5" />
-              Demo
-            </Button>
+            {/* Consolidated sidebar menu — insights / memories / media hub /
+                demo live here as labelled sections instead of crowding the
+                header row on every width. */}
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button
+                  id="wa-more-sidebar"
+                  size="icon"
+                  variant="ghost"
+                  className="wa-iconbtn h-9 w-9 rounded-full bg-white/10 text-white hover:bg-white/20 dark:text-(--wa-text)"
+                  disabled={importing}
+                  title="More — insights, memories, media hub, demo"
+                  aria-label="More sidebar tools"
+                >
+                  <MoreVertical className="h-4 w-4" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="w-56">
+                <DropdownMenuLabel className="px-2 py-1 text-[10.5px] font-semibold uppercase tracking-wider text-(--wa-text-2)">
+                  Explore
+                </DropdownMenuLabel>
+                <DropdownMenuItem
+                  onClick={onOpenInsights}
+                  className="gap-2"
+                  disabled={importing}
+                >
+                  <BarChart3 className="h-4 w-4 text-(--wa-text-2)" />
+                  Insights across all chats
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  onClick={onOpenMemories}
+                  className="gap-2"
+                  disabled={importing}
+                >
+                  <CalendarHeart className="h-4 w-4 text-(--wa-text-2)" />
+                  On this day memories
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  onClick={onOpenMediaHub}
+                  className="gap-2"
+                  disabled={importing}
+                >
+                  <Images className="h-4 w-4 text-(--wa-text-2)" />
+                  Media hub
+                </DropdownMenuItem>
+                <DropdownMenuSeparator />
+                <DropdownMenuLabel className="px-2 py-1 text-[10.5px] font-semibold uppercase tracking-wider text-(--wa-text-2)">
+                  Try
+                </DropdownMenuLabel>
+                <DropdownMenuItem
+                  onClick={onDemo}
+                  className="gap-2"
+                  disabled={importing}
+                >
+                  <Sparkles className="h-4 w-4 text-(--wa-text-2)" />
+                  Demo chats
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
             <Button
               size="sm"
               variant="ghost"
