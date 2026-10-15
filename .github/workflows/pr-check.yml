@@ -28,6 +28,9 @@ jobs:
       - name: Generate Prisma client
         run: bun run db:generate
 
+      - name: Secret-pattern scan (#21)
+        run: node scripts/security-check.mjs
+
       - name: TypeScript check
         run: bunx tsc --noEmit
 

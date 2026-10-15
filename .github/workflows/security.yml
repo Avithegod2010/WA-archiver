@@ -1,0 +1,52 @@
+name: Security gate
+
+# Idea #21 — hardening pass. Two independent checks on every push to the
+# release/development branches, on every PR, and weekly (fresh advisories
+# land even when the code does not move):
+#   1. secrets — secret-pattern scan over every git-tracked file
+#   2. audit   — dependency audit of PRODUCTION deps, gating on critical
+#                (high/dev-tooling findings are triaged in the worklog and
+#                tracked, but do not block builds)
+
+on:
+  push:
+    branches: [beta, main, stable]
+  pull_request:
+    branches: [beta, main, stable]
+  schedule:
+    - cron: '0 3 * * 1' # Mondays 03:00 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: security-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  secrets:
+    name: Secret-pattern scan
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Scan tracked files for credentials
+        run: node scripts/security-check.mjs
+
+  audit:
+    name: Production dependency audit
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@v2
+
+      - name: Resolve a lockfile for npm audit (bun.lock is not npm-shaped)
+        run: npm install --package-lock-only --ignore-scripts
+
+      - name: Audit production dependencies (fail on critical)
+        run: npm audit --omit=dev --audit-level=critical

@@ -1028,6 +1028,13 @@ function WhatsAppAppInner() {
       className="flex h-dvh min-h-0 flex-col bg-(--wa-chat-bg)"
       style={{ fontFamily: FONT_FAMILIES[fontKey].stack }}
     >
+      {/* #21 — skip link: first tab stop jumps straight to the conversation */}
+      <a
+        href="#wa-main"
+        className="sr-only focus:not-sr-only focus:absolute focus:left-2 focus:top-2 focus:z-50 focus:rounded-lg focus:bg-(--wa-accent) focus:px-3 focus:py-2 focus:text-[13px] focus:font-semibold focus:text-white focus:shadow-lg"
+      >
+        Skip to conversation
+      </a>
       {/* Top app bar */}
       <div className="flex items-center justify-between bg-(--wa-appbar) px-4 py-2">
         <div className="anim-fade-up flex min-w-0 items-center gap-2.5">
@@ -1270,7 +1277,11 @@ function WhatsAppAppInner() {
 
       {/* Main area */}
       <div className="relative flex min-h-0 min-w-0 flex-1">
-        <div className={cn('relative flex min-h-0 w-full md:w-auto', activeId ? 'hidden md:flex' : 'flex')}>
+        <div
+          role="navigation"
+          aria-label="Chats"
+          className={cn('relative flex min-h-0 w-full md:w-auto', activeId ? 'hidden md:flex' : 'flex')}
+        >
           <ChatList
             chats={chats}
             activeId={activeId}
@@ -1292,7 +1303,10 @@ function WhatsAppAppInner() {
             }}
           />
         </div>
-        <div className={cn('flex min-h-0 min-w-0 flex-1 flex-col', activeId ? 'flex' : 'hidden md:flex')}>
+        <main
+          id="wa-main"
+          className={cn('flex min-h-0 min-w-0 flex-1 flex-col', activeId ? 'flex' : 'hidden md:flex')}
+        >
           <ChatView
             key={activeId ?? 'empty'}
             detail={detail}
@@ -1313,7 +1327,7 @@ function WhatsAppAppInner() {
             initialJumpMessageId={pendingJumpId}
             onChatChanged={refreshChats}
           />
-        </div>
+        </main>
         {importing && (
           <div className="animate-in fade-in absolute inset-0 z-30 flex items-center justify-center bg-black/20 backdrop-blur-[2px] duration-200">
             <div className="anim-pop flex items-center gap-3 rounded-xl bg-white px-5 py-4 shadow-xl dark:bg-(--wa-panel-2)">
