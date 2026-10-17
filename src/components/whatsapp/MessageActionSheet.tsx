@@ -2,6 +2,7 @@
 
 import { useState, type ReactNode } from 'react'
 import {
+  Bookmark,
   BookmarkPlus,
   Copy,
   Download,
@@ -150,6 +151,7 @@ interface MessageActionSheetProps {
   onReact?: (msgId: string, emoji: string) => void
   onToggleStar?: (id: string, starred: boolean) => void
   onForwardSaved?: (msg: ChatMessage) => void
+  onBookmark?: (msg: ChatMessage) => void
   onPinMessage?: (msg: ChatMessage) => void
   onTranslate?: (msg: ChatMessage) => void
   onToggleSelect?: (id: string) => void
@@ -167,6 +169,7 @@ export function MessageActionSheet({
   onReact,
   onToggleStar,
   onForwardSaved,
+  onBookmark,
   onPinMessage,
   onTranslate,
   onToggleSelect,
@@ -339,6 +342,16 @@ export function MessageActionSheet({
               label="Forward to Saved Messages"
               onClick={() => {
                 onForwardSaved(msg)
+                close()
+              }}
+            />
+          )}
+          {onBookmark && (
+            <SheetRow
+              icon={<Bookmark className="h-5 w-5 text-(--wa-accent)" />}
+              label="Bookmark message"
+              onClick={() => {
+                onBookmark(msg)
                 close()
               }}
             />

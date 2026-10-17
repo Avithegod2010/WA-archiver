@@ -13,6 +13,7 @@ import {
 import {
   Ban,
   BarChart3,
+  Bookmark,
   BookmarkPlus,
   Check,
   Copy,
@@ -1048,6 +1049,7 @@ interface BubbleMenuProps {
   src: string | null
   onToggleStar?: (id: string, starred: boolean) => void
   onForwardSaved?: (msg: ChatMessage) => void
+  onBookmark?: (msg: ChatMessage) => void
   onEditMessage?: (msg: ChatMessage) => void
   /** Inline-edit starter (bubble-local composer, outgoing text only). */
   onStartInlineEdit?: (msg: ChatMessage) => void
@@ -1063,6 +1065,7 @@ function BubbleMenu({
   src,
   onToggleStar,
   onForwardSaved,
+  onBookmark,
   onEditMessage,
   onStartInlineEdit,
   onReply,
@@ -1167,6 +1170,14 @@ function BubbleMenu({
           )}
         </ContextMenuItem>
       )}
+      {onBookmark && (
+        <ContextMenuItem
+          onClick={() => onBookmark(msg)}
+          className="gap-2"
+        >
+          <Bookmark className="h-4 w-4 text-(--wa-accent)" /> Bookmark message
+        </ContextMenuItem>
+      )}
       <ContextMenuItem onClick={() => copyMessage(msg)} className="gap-2">
         <Copy className="h-4 w-4" /> Copy message
       </ContextMenuItem>
@@ -1188,6 +1199,7 @@ interface HoverActionsProps {
   msg: ChatMessage
   onToggleStar?: (id: string, starred: boolean) => void
   onForwardSaved?: (msg: ChatMessage) => void
+  onBookmark?: (msg: ChatMessage) => void
   onReact?: (msgId: string, emoji: string) => void
   /** Which side of the bubble the actions sit on — drives slide direction. */
   side: 'in' | 'out'
@@ -1204,6 +1216,7 @@ function HoverActions({
   msg,
   onToggleStar,
   onForwardSaved,
+  onBookmark,
   onReact,
   side,
 }: HoverActionsProps) {
@@ -1308,6 +1321,19 @@ function HoverActions({
           />
         </button>
       )}
+      {onBookmark && (
+        <button
+          onClick={(e) => {
+            e.stopPropagation()
+            onBookmark(msg)
+          }}
+          aria-label="Bookmark message"
+          title="Bookmark message"
+          className={btn(nextStagger())}
+        >
+          <Bookmark className="h-3.5 w-3.5 transition-[color,transform] duration-150 hover:scale-125 hover:text-(--wa-accent)" />
+        </button>
+      )}
       <button
         onClick={(e) => {
           e.stopPropagation()
@@ -1356,6 +1382,7 @@ export function MessageBubble({
   anySelected,
   onToggleSelect,
   onForwardSaved,
+  onBookmark,
   onEditMessage,
   onEditSave,
   onReply,
@@ -1381,6 +1408,7 @@ export function MessageBubble({
   anySelected?: boolean
   onToggleSelect?: (id: string) => void
   onForwardSaved?: (msg: ChatMessage) => void
+  onBookmark?: (msg: ChatMessage) => void
   onEditMessage?: (msg: ChatMessage) => void
   /** Inline edit saver — resolves true when the edit was persisted. */
   onEditSave?: (id: string, body: string) => Promise<boolean>
@@ -1467,6 +1495,7 @@ export function MessageBubble({
         anySelected={anySelected}
         onToggleSelect={onToggleSelect}
         onForwardSaved={onForwardSaved}
+        onBookmark={onBookmark}
         onEditMessage={onEditMessage}
         onEditSave={onEditSave}
         onReply={onReply}
@@ -1674,6 +1703,7 @@ export function MessageBubble({
               src={src}
               onToggleStar={onToggleStar}
               onForwardSaved={onForwardSaved}
+              onBookmark={onBookmark}
               onEditMessage={onEditMessage}
               onStartInlineEdit={canInlineEdit ? startEdit : undefined}
               onReply={swipeEnabled ? onReply : undefined}
@@ -1689,6 +1719,7 @@ export function MessageBubble({
         side="in"
         onToggleStar={onToggleStar}
         onForwardSaved={onForwardSaved}
+        onBookmark={onBookmark}
         onReact={onReact}
       />
       {extras.heartsNode}
@@ -1709,6 +1740,7 @@ export function MessageBubble({
         onReact={onReact}
         onToggleStar={onToggleStar}
         onForwardSaved={onForwardSaved}
+        onBookmark={onBookmark}
         onPinMessage={onPinMessage}
         onTranslate={onTranslate}
         onToggleSelect={onToggleSelect}
@@ -1731,6 +1763,7 @@ function OutgoingBubble({
   anySelected,
   onToggleSelect,
   onForwardSaved,
+  onBookmark,
   onEditMessage,
   onEditSave,
   onReply,
@@ -1752,6 +1785,7 @@ function OutgoingBubble({
   anySelected?: boolean
   onToggleSelect?: (id: string) => void
   onForwardSaved?: (msg: ChatMessage) => void
+  onBookmark?: (msg: ChatMessage) => void
   onEditMessage?: (msg: ChatMessage) => void
   onEditSave?: (id: string, body: string) => Promise<boolean>
   onReply?: (m: ChatMessage) => void
@@ -1946,6 +1980,7 @@ function OutgoingBubble({
         side="out"
         onToggleStar={onToggleStar}
         onForwardSaved={onForwardSaved}
+        onBookmark={onBookmark}
         onReact={onReact}
       />
       <div className="flex min-w-0 max-w-[78%] flex-col items-end gap-1 sm:max-w-[65%]">
@@ -1959,6 +1994,7 @@ function OutgoingBubble({
               src={src}
               onToggleStar={onToggleStar}
               onForwardSaved={onForwardSaved}
+              onBookmark={onBookmark}
               onEditMessage={onEditMessage}
               onStartInlineEdit={canInlineEdit ? startEdit : undefined}
               onReply={swipeEnabled ? onReply : undefined}
@@ -1987,6 +2023,7 @@ function OutgoingBubble({
         onReact={onReact}
         onToggleStar={onToggleStar}
         onForwardSaved={onForwardSaved}
+        onBookmark={onBookmark}
         onPinMessage={onPinMessage}
         onTranslate={onTranslate}
         onToggleSelect={onToggleSelect}

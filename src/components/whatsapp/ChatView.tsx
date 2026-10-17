@@ -18,9 +18,11 @@ import {
   ArrowUpToLine,
   Bot,
   BookOpenText,
+  Bookmark,
   Braces,
   CalendarClock,
   CalendarDays,
+  CalendarRange,
   ChevronDown,
   ChevronUp,
   Copy,
@@ -39,6 +41,7 @@ import {
   Lock,
   MoreVertical,
   Palette,
+  PartyPopper,
   Pin,
   PinOff,
   Printer,
@@ -59,6 +62,8 @@ import { MessageBubble } from './MessageBubble'
 import { ChatInfo } from './ChatInfo'
 import { MediaGallery } from './MediaGallery'
 import { StarredMessages } from './StarredMessages'
+import { BookmarksDialog } from './BookmarksDialog'
+import { YearInReviewDialog } from './YearInReviewDialog'
 import { Composer } from './Composer'
 import { ForwardDialog } from './ForwardDialog'
 import { PollDialog } from './PollDialog'
@@ -100,11 +105,20 @@ type SchedItem = {
   deliverAt: string
 }
 import { cn } from '@/lib/utils'
+import {
+  bookmarkFor,
+  getBookmarksSnapshot,
+  removeBookmark,
+  saveBookmark,
+  subscribeBookmarks,
+  type BookmarkEntry,
+} from '@/lib/bookmarks'
 import { Button } from '@/components/ui/button'
 import { Switch } from '@/components/ui/switch'
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
 import { Calendar, CalendarDayButton } from '@/components/ui/calendar'
+import type { DateRange } from 'react-day-picker'
 import {
   AlertDialog,
   AlertDialogAction,
@@ -416,6 +430,17 @@ function dayKey(iso: string): string {
   return `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`
 }
 
+/** Local-timezone YYYY-MM-DD (matches <input type="date"> filter values). */
+function ymdLocal(d: Date): string {
+  const p = (n: number) => String(n).padStart(2, '0')
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`
+}
+
+/** Compact "8 Oct" label for the range footer. */
+function fmtShortDay(d: Date): string {
+  return d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })
+}
+
 /* ------------------- 7-d helpers (pins / print / AI) ------------------- */
 
 /** Deterministic string hash (same recipe as colorForName in types.ts). */
@@ -589,6 +614,14 @@ export function ChatView({
   const [galleryOpen, setGalleryOpen] = useState(false)
   const [infoOpen, setInfoOpen] = useState(false)
   const [starredOpen, setStarredOpen] = useState(false)
+  const [bookmarksOpen, setBookmarksOpen] = useState(false)
+  /** Message being named for a bookmark (null = naming dialog closed). */
+  const [bookmarkDraft, setBookmarkDraft] = useState<ChatMessage | null>(null)
+  const [bookmarkLabel, setBookmarkLabel] = useState('')
+  const [rewindOpen, setRewindOpen] = useState(false)
+  /** Jump calendar mode — single-day jump or date-range explorer (idea #2). */
+  const [jumpMode, setJumpMode] = useState<'day' | 'range'>('day')
+  const [jumpRange, setJumpRange] = useState<DateRange>({ from: undefined })
   const [showFab, setShowFab] = useState(false)
   const [jumpedId, setJumpedId] = useState<string | null>(null)
   const [jumpDate, setJumpDate] = useState<Date | undefined>(undefined)
@@ -666,6 +699,13 @@ export function ChatView({
   )
 
   const chatId = detail?.chat.id ?? ''
+
+  // Live bookmark list for the open chat (localStorage-backed store, idea #3).
+  const bookmarks = useSyncExternalStore(
+    subscribeBookmarks,
+    () => getBookmarksSnapshot(chatId),
+    () => getBookmarksSnapshot('')
+  )
   const [tldrOpen, setTldrOpen] = useState(false)
   const [schedItems, setSchedItems] = useState<SchedItem[]>([])
   const [schedExpanded, setSchedExpanded] = useState(false)
@@ -1198,7 +1238,7 @@ export function ChatView({
       })
       return () => cancelAnimationFrame(raf)
     }
-  }, [visibleCount, messages.length, initialJumpMessageId, messages])
+  }, [visibleCount, messages.length, initialJumpMessageId, messages, filtered])
 
   /* ---- 14-f: auto-scroll once so the unread divider sits ~25% from the top
      of the viewport (clamped to the bottom when too few messages sit below
@@ -2148,6 +2188,79 @@ export function ChatView({
     setJumpOpen(false)
   }
 
+  /* --------------------------- Bookmarks (idea #3) -------------------------- */
+
+  /** Body preview used as the default bookmark name. */
+  function bookmarkPreview(msg: ChatMessage): string {
+    const t = (msg.body ?? '').trim()
+    return (t || `[${msg.type}]`).slice(0, 80)
+  }
+
+  /** Open the naming dialog for a new (or existing) bookmark on `msg`. */
+  function openBookmarkDraft(msg: ChatMessage) {
+    setBookmarkDraft(msg)
+    setBookmarkLabel(bookmarkFor(chatId, msg.id)?.label ?? bookmarkPreview(msg))
+  }
+
+  /** Upsert the draft bookmark and close the naming dialog. */
+  function commitBookmark() {
+    if (!bookmarkDraft) return
+    const existed = !!bookmarkFor(chatId, bookmarkDraft.id)
+    saveBookmark(chatId, {
+      messageId: bookmarkDraft.id,
+      label: bookmarkLabel.trim() || bookmarkPreview(bookmarkDraft),
+      excerpt: ((bookmarkDraft.body ?? '').trim() || `[${bookmarkDraft.type}]`).slice(
+        0,
+        140
+      ),
+      ts: bookmarkDraft.ts,
+    })
+    toast.success(
+      existed ? 'Bookmark updated' : 'Bookmark added — More ▸ Bookmarks'
+    )
+    setBookmarkDraft(null)
+  }
+
+  /** Jump to a bookmark; lifts any active filter hiding the target. */
+  function jumpToBookmark(b: BookmarkEntry) {
+    setBookmarksOpen(false)
+    if (filtered && !filtered.some((m) => m.id === b.messageId)) {
+      setQuery('')
+      setFromDate('')
+      setToDate('')
+      setStarredOnly(false)
+    }
+    jumpToMessageId(b.messageId)
+  }
+
+  /* --------------------- Date-range explorer (idea #2) ---------------------- */
+
+  /** Message count inside the drafted jump range (live footer stat). */
+  const rangeMsgCount = useMemo(() => {
+    if (!jumpRange?.from || !jumpRange?.to) return 0
+    const from = new Date(`${ymdLocal(jumpRange.from)}T00:00:00`).getTime()
+    const to = new Date(`${ymdLocal(jumpRange.to)}T23:59:59.999`).getTime()
+    let n = 0
+    for (const m of messages) {
+      const t = new Date(m.ts).getTime()
+      if (t >= from && t <= to) n++
+    }
+    return n
+  }, [messages, jumpRange])
+
+  /** Apply the drafted range to the chat's date filter and jump to its start. */
+  function applyJumpRange() {
+    if (!jumpRange?.from || !jumpRange?.to) return
+    setFromDate(ymdLocal(jumpRange.from))
+    setToDate(ymdLocal(jumpRange.to))
+    // Reveal the search bar so the result count, the from/to inputs and the
+    // clear affordance are all visible — the explorer reads as one surface.
+    setSearchOpen(true)
+    setDateFilterOpen(true)
+    setJumpOpen(false)
+    jumpToDate(jumpRange.from)
+  }
+
   const starredCount = useMemo(
     () => messages.reduce((s, m) => s + (m.starred ? 1 : 0), 0),
     [messages]
@@ -2245,9 +2358,58 @@ export function ChatView({
   /** Shared calendar body for the jump-to-date popovers (desktop + mobile). */
   const jumpPopoverBody = (
     <div className="flex flex-col items-center">
-      <p className="w-full px-3 pt-2 text-center text-[11px] leading-snug text-(--wa-text-2)">
-        Tap a highlighted date to jump there — bigger dots mean busier days.
+      {/* Mode toggle — single-day jump vs date-range explorer (idea #2) */}
+      <div
+        role="tablist"
+        aria-label="Calendar mode"
+        className="flex w-[272px] gap-1 px-2 pt-2"
+      >
+        <Button
+          variant="ghost"
+          size="sm"
+          role="tab"
+          aria-selected={jumpMode === 'day'}
+          className={cn(
+            'h-7 flex-1 gap-1 rounded-full text-[12px]',
+            jumpMode === 'day'
+              ? 'bg-(--wa-accent)/10 font-medium text-(--wa-accent)'
+              : 'text-(--wa-text-2)'
+          )}
+          onClick={() => setJumpMode('day')}
+        >
+          <CalendarDays className="h-3.5 w-3.5" /> Single day
+        </Button>
+        <Button
+          variant="ghost"
+          size="sm"
+          role="tab"
+          aria-selected={jumpMode === 'range'}
+          className={cn(
+            'h-7 flex-1 gap-1 rounded-full text-[12px]',
+            jumpMode === 'range'
+              ? 'bg-(--wa-accent)/10 font-medium text-(--wa-accent)'
+              : 'text-(--wa-text-2)'
+          )}
+          onClick={() => {
+            setJumpMode('range')
+            // Prefill from the active date filter (once) so refining is quick.
+            if (!jumpRange?.from && (fromDate || toDate)) {
+              setJumpRange({
+                from: fromDate ? new Date(`${fromDate}T00:00:00`) : undefined,
+                to: toDate ? new Date(`${toDate}T00:00:00`) : undefined,
+              })
+            }
+          }}
+        >
+          <CalendarRange className="h-3.5 w-3.5" /> Date range
+        </Button>
+      </div>
+      <p className="w-full px-3 pb-1 pt-1.5 text-center text-[11px] leading-snug text-(--wa-text-2)">
+        {jumpMode === 'day'
+          ? 'Tap a highlighted date to jump there — bigger dots mean busier days.'
+          : 'Pick two dates to explore just that stretch of the chat.'}
       </p>
+      {jumpMode === 'day' ? (
       <Calendar
         mode="single"
         selected={jumpDate}
@@ -2291,6 +2453,49 @@ export function ChatView({
         components={{ DayButton: countedDayButton }}
         className="w-[272px] rounded-xl p-2 pb-1.5 [&_[data-selected-single=true]]:bg-(--wa-accent) [&_[data-selected-single=true]]:text-white"
       />
+      ) : (
+        <Calendar
+          mode="range"
+          selected={jumpRange}
+          onSelect={(r) => setJumpRange(r ?? { from: undefined })}
+          defaultMonth={
+            lastMsgDay
+              ? new Date(lastMsgDay.getFullYear(), lastMsgDay.getMonth(), 1)
+              : undefined
+          }
+          startMonth={
+            firstMsgDay
+              ? new Date(firstMsgDay.getFullYear(), firstMsgDay.getMonth(), 1)
+              : undefined
+          }
+          endMonth={
+            lastMsgDay
+              ? new Date(lastMsgDay.getFullYear(), lastMsgDay.getMonth(), 1)
+              : undefined
+          }
+          disabled={
+            firstMsgDay && lastMsgDay
+              ? [
+                  { before: firstMsgDay, after: lastMsgDay },
+                  (date: Date) =>
+                    !chatDaySet.has(
+                      `${date.getFullYear()}-${date.getMonth()}-${date.getDate()}`
+                    ),
+                ]
+              : undefined
+          }
+          modifiers={{
+            hasMsg: (date: Date) =>
+              chatDaySet.has(
+                `${date.getFullYear()}-${date.getMonth()}-${date.getDate()}`
+              ),
+          }}
+          components={{ DayButton: countedDayButton }}
+          className="w-[272px] rounded-xl p-2 pb-1.5"
+        />
+      )}
+      {jumpMode === 'day' ? (
+        <>
       {/* Per-day activity footer (#4): active days + busiest day */}
       {chatPeakDay && chatDayCounts.size > 0 && (
         <p className="w-full px-3 pb-1.5 text-center text-[11px] leading-snug text-(--wa-text-2)">
@@ -2335,6 +2540,42 @@ export function ChatView({
           </Button>
         )}
       </div>
+        </>
+      ) : (
+        <div className="w-full border-t px-3 pb-2 pt-2">
+          <p className="text-center text-[11px] leading-snug text-(--wa-text-2)">
+            {jumpRange?.from && jumpRange?.to
+              ? `${fmtShortDay(jumpRange.from)} – ${fmtShortDay(jumpRange.to)} · ${rangeMsgCount.toLocaleString()} message${rangeMsgCount === 1 ? '' : 's'}`
+              : jumpRange?.from
+                ? `From ${fmtShortDay(jumpRange.from)} — pick an end date`
+                : 'Pick a start date'}
+          </p>
+          <div className="mt-1.5 flex gap-1.5">
+            {hasDateFilter && (
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-7 gap-1 rounded-full px-2.5 text-[12px] text-(--wa-text-2)"
+                onClick={() => {
+                  setFromDate('')
+                  setToDate('')
+                  setJumpRange({ from: undefined })
+                }}
+              >
+                <X className="h-3.5 w-3.5" /> Clear
+              </Button>
+            )}
+            <Button
+              size="sm"
+              className="h-7 flex-1 gap-1 rounded-full text-[12px] font-medium"
+              disabled={!jumpRange?.from || !jumpRange?.to}
+              onClick={applyJumpRange}
+            >
+              <CalendarRange className="h-3.5 w-3.5" /> Explore range
+            </Button>
+          </div>
+        </div>
+      )}
     </div>
   )
 
@@ -2706,6 +2947,19 @@ export function ChatView({
                 <CalendarDays className="h-4 w-4 text-(--wa-text-2)" />
                 Jump to date
               </DropdownMenuItem>
+              {/* Bookmarks (idea #3): named message shortcuts with a live count. */}
+              <DropdownMenuItem
+                onClick={() => setBookmarksOpen(true)}
+                className="gap-2"
+              >
+                <Bookmark className="h-4 w-4 text-(--wa-text-2)" />
+                Bookmarks
+                {bookmarks.length > 0 && (
+                  <span className="ml-auto rounded-full bg-(--wa-accent) px-1.5 text-[10px] font-bold leading-4 text-white">
+                    {bookmarks.length}
+                  </span>
+                )}
+              </DropdownMenuItem>
 
               <DropdownMenuLabel className="px-2 py-1 text-[10.5px] font-semibold uppercase tracking-wider text-(--wa-text-2)">
                 Tools
@@ -2739,6 +2993,14 @@ export function ChatView({
               >
                 <Sparkles className="h-4 w-4 text-(--wa-text-2)" />
                 Summarize with AI
+              </DropdownMenuItem>
+              {/* Idea #1 — wrapped-style per-chat rewind. */}
+              <DropdownMenuItem
+                onClick={() => setRewindOpen(true)}
+                className="gap-2"
+              >
+                <PartyPopper className="h-4 w-4 text-(--wa-text-2)" />
+                Year in review
               </DropdownMenuItem>
 
               <DropdownMenuLabel className="px-2 py-1 text-[10.5px] font-semibold uppercase tracking-wider text-(--wa-text-2)">
@@ -3236,6 +3498,9 @@ export function ChatView({
                 onTranslate={readOnly || selecting ? undefined : handleTranslate}
                 onReply={readOnly || selecting ? undefined : handleReplyTo}
                 onForwardSaved={readOnly || selecting ? undefined : forwardOne}
+                onBookmark={
+                  readOnly || selecting ? undefined : openBookmarkDraft
+                }
                 onEditMessage={readOnly || selecting ? undefined : openEdit}
                 onEditSave={readOnly || selecting ? undefined : saveEditApi}
                 highlight={query.trim() || undefined}
@@ -3477,6 +3742,79 @@ export function ChatView({
         onJumpToMessage={jumpToMessageId}
         onUnstar={(id) => onStarMessage?.(id, false)}
       />
+
+      {/* Bookmarks list (idea #3) */}
+      <BookmarksDialog
+        open={bookmarksOpen}
+        onOpenChange={setBookmarksOpen}
+        bookmarks={bookmarks}
+        onJump={jumpToBookmark}
+        onDelete={(b) => {
+          removeBookmark(chatId, b.id)
+          toast.success('Bookmark removed')
+        }}
+      />
+
+      {/* Year in review (idea #1) — wrapped-style rewind */}
+      <YearInReviewDialog
+        open={rewindOpen}
+        onOpenChange={setRewindOpen}
+        chatTitle={chat.title}
+        isGroup={chat.isGroup}
+        messages={messages}
+      />
+
+      {/* Bookmark naming (add/edit) */}
+      <Dialog
+        open={!!bookmarkDraft}
+        onOpenChange={(o) => {
+          if (!o) setBookmarkDraft(null)
+        }}
+      >
+        <DialogContent className="max-w-sm rounded-2xl">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-[16px]">
+              <Bookmark className="h-4 w-4 text-(--wa-accent)" />
+              Bookmark message
+            </DialogTitle>
+            <DialogDescription className="text-[12.5px]">
+              Name it so you can find it later under More ▸ Bookmarks.
+            </DialogDescription>
+          </DialogHeader>
+          {bookmarkDraft && (
+            <p className="max-h-20 overflow-y-auto rounded-lg bg-(--wa-in) px-3 py-2 text-[12.5px] leading-snug text-(--wa-text-2)">
+              {(bookmarkDraft.body ?? '').trim().slice(0, 200) ||
+                `[${bookmarkDraft.type}]`}
+            </p>
+          )}
+          <Input
+            value={bookmarkLabel}
+            onChange={(e) => setBookmarkLabel(e.target.value)}
+            placeholder="Bookmark name"
+            maxLength={80}
+            autoFocus
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') {
+                e.preventDefault()
+                commitBookmark()
+              }
+            }}
+          />
+          <DialogFooter className="gap-2">
+            <Button
+              variant="ghost"
+              size="sm"
+              className="rounded-full"
+              onClick={() => setBookmarkDraft(null)}
+            >
+              Cancel
+            </Button>
+            <Button size="sm" className="rounded-full" onClick={commitBookmark}>
+              Save bookmark
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* Full media gallery (mounted per open for fresh state) */}
       {galleryOpen && (
