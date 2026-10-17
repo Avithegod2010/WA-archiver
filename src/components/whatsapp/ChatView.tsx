@@ -521,17 +521,33 @@ function unwrapQuoted(text: string): string {
   return t
 }
 
-/** Day-cell factory: shows "N messages" as the native tooltip per day. */
-function makeDayButton(counts: Map<string, number>) {
+/**
+ * Day-cell factory: per-day message count as a native tooltip + a heat dot
+ * whose size/opacity scale with how busy that day was relative to the chat's
+ * peak day — the calendar doubles as an activity heatmap at a glance.
+ */
+function makeDayButton(counts: Map<string, number>, maxCount: number) {
   return function CountedDayButton(props: React.ComponentProps<typeof CalendarDayButton>) {
     const d = props.day.date
     const key = `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`
     const count = counts.get(key)
+    const ratio = count && maxCount > 0 ? count / maxCount : 0
+    const size = count ? 3 + Math.round(ratio * 3) : 0 // dot grows 3px → 6px
     return (
       <CalendarDayButton
         {...props}
         title={count ? `${count} message${count === 1 ? '' : 's'}` : undefined}
-      />
+        className={cn('relative', props.className)}
+      >
+        {props.children}
+        {count && !props.modifiers.selected ? (
+          <span
+            aria-hidden
+            style={{ width: size, height: size, opacity: 0.5 + 0.5 * ratio }}
+            className="pointer-events-none absolute bottom-[3px] left-1/2 -translate-x-1/2 rounded-full bg-(--wa-accent)"
+          />
+        ) : null}
+      </CalendarDayButton>
     )
   }
 }
@@ -584,6 +600,11 @@ export function ChatView({
   // Set when the wallpaper entry is picked from the More menu so
   // onCloseAutoFocus knows to open the popover instead of restoring focus.
   const wallpaperFromMenu = useRef(false)
+  // Same race-guard as above but for the jump-to-date popover: the More menu
+  // item flips this flag, and onCloseAutoFocus opens the popover in a rAF
+  // after the menu has fully torn down (a direct setJumpOpen(true) during
+  // close races Radix's focus restore and gets dismissed).
+  const jumpFromMenu = useRef(false)
   const [starredOnly, setStarredOnly] = useState(false)
   const [regexMode, setRegexMode] = useState(false)
   const [matchIdx, setMatchIdx] = useState(0)
@@ -2178,13 +2199,20 @@ export function ChatView({
     }
     return best
   }, [chatDayCounts])
-  const countedDayButton = useMemo(() => makeDayButton(chatDayCounts), [chatDayCounts])
+  const countedDayButton = useMemo(
+    () => makeDayButton(chatDayCounts, chatPeakDay?.count ?? 0),
+    [chatDayCounts, chatPeakDay]
+  )
 
   const chatDaySet = useMemo(() => {
     const s = new Set<string>()
     for (const m of messages) s.add(dayKey(m.ts))
     return s
   }, [messages])
+  const todayHasMsg = useMemo(
+    () => chatDaySet.has(dayKey(new Date().toISOString())),
+    [chatDaySet]
+  )
 
   /* -------- 10-i: month buckets for the timeline scrubber -------- */
   const scrubMonths = useMemo<ScrubMonth[]>(() => {
@@ -2217,6 +2245,9 @@ export function ChatView({
   /** Shared calendar body for the jump-to-date popovers (desktop + mobile). */
   const jumpPopoverBody = (
     <div className="flex flex-col items-center">
+      <p className="w-full px-3 pt-2 text-center text-[11px] leading-snug text-(--wa-text-2)">
+        Tap a highlighted date to jump there — bigger dots mean busier days.
+      </p>
       <Calendar
         mode="single"
         selected={jumpDate}
@@ -2258,11 +2289,7 @@ export function ChatView({
             ),
         }}
         components={{ DayButton: countedDayButton }}
-        modifiersClassNames={{
-          hasMsg:
-            'relative after:absolute after:bottom-[3px] after:left-1/2 after:h-[3px] after:w-[3px] after:-translate-x-1/2 after:rounded-full after:bg-(--wa-accent) after:content-[""]',
-        }}
-        className="w-[272px] rounded-xl p-2 [&_[data-selected-single=true]]:bg-(--wa-accent) [&_[data-selected-single=true]]:text-white"
+        className="w-[272px] rounded-xl p-2 pb-1.5 [&_[data-selected-single=true]]:bg-(--wa-accent) [&_[data-selected-single=true]]:text-white"
       />
       {/* Per-day activity footer (#4): active days + busiest day */}
       {chatPeakDay && chatDayCounts.size > 0 && (
@@ -2297,6 +2324,16 @@ export function ChatView({
         >
           <ArrowDownToLine className="h-3.5 w-3.5" /> Latest
         </Button>
+        {todayHasMsg && (
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-7 flex-1 gap-1 rounded-full text-[12px] font-medium text-(--wa-accent)"
+            onClick={() => jumpToDate(new Date())}
+          >
+            <CalendarDays className="h-3.5 w-3.5" /> Today
+          </Button>
+        )}
       </div>
     </div>
   )
@@ -2605,6 +2642,10 @@ export function ChatView({
                   requestAnimationFrame(() =>
                     wallpaperAnchorRef.current?.click()
                   )
+                } else if (jumpFromMenu.current) {
+                  e.preventDefault()
+                  jumpFromMenu.current = false
+                  requestAnimationFrame(() => setJumpOpen(true))
                 }
               }}
             >
@@ -2653,6 +2694,17 @@ export function ChatView({
               >
                 <Images className="h-4 w-4 text-(--wa-text-2)" />
                 Media gallery
+              </DropdownMenuItem>
+              {/* Calendar (#4): second, discoverable entry point — opens the
+                  same jump-to-date popover as the header button. */}
+              <DropdownMenuItem
+                onClick={() => {
+                  jumpFromMenu.current = true
+                }}
+                className="gap-2"
+              >
+                <CalendarDays className="h-4 w-4 text-(--wa-text-2)" />
+                Jump to date
               </DropdownMenuItem>
 
               <DropdownMenuLabel className="px-2 py-1 text-[10.5px] font-semibold uppercase tracking-wider text-(--wa-text-2)">
