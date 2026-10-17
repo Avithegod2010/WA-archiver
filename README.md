@@ -39,13 +39,13 @@ Three bullet points, honestly:
 | 💬 | **Reading** | Authentic chat UI · day separators · replies · reactions · starred messages · unread divider |
 | 🖼️ | **Media** | Photos, videos, documents, locations, contact cards · lightbox viewer · media gallery grid · media ZIP export |
 | 🎙️ | **Voice notes** | Waveform player · speed control · floating mini-player across chats · **on-device transcription** (offline Whisper) |
-| 🔍 | **Finding** | Global search (`Ctrl+K`) · per-chat search with date/starred/regex filters · jump to date · word cloud |
-| 📊 | **Understanding** | Cross-chat Insights dashboard · per-chat stats · storage breakdown · "On this day" memories |
+| 🔍 | **Finding** | Global search (`Ctrl+K`) · per-chat search with date/starred/regex filters · **heat-dot activity calendar & date-range explorer** · **bookmarks** · word cloud |
+| 📊 | **Understanding** | Cross-chat Insights dashboard · per-chat stats · **Year in Review rewind** · storage breakdown · "On this day" memories |
 | ✍️ | **Messaging** | Send messages, photos, audio, docs & polls · scheduled messages · simulated replies in demo chats |
 | 🤖 | **AI toolbox** | Translate · explain slang & context · ask AI about the chat · chat TL;DR · AI-generated wallpapers |
 | 🔐 | **Privacy** | Server-verified **PIN App Lock** (4–8 digits) · local SQLite storage · nothing phones home |
 | 📦 | **Getting data out** | Export to `.txt` / `.zip` / standalone offline `.html` · full JSON backup · print |
-| 📱 | **Experience** | Installable PWA · dark & light mode · wallpapers · text size & font settings · keyboard shortcuts |
+| 📱 | **Experience** | Installable PWA · **17 themes with matched light/dark palettes** · bubble styles & density · wallpapers studio · text size & font settings · keyboard shortcuts |
 
 <details>
 <summary><b>🗒️ The full feature list</b> (click to expand)</summary>
@@ -185,12 +185,15 @@ intermediary server. No key? Everything else keeps working.
 |---|---|
 | `main` | Release line — stable, tagged releases, APK builds |
 | `stable` | Mirror of the latest release for pinning |
-| `beta` | Active development (v1.1 ideas) — may be bumpy |
+| `beta` | Active development — may be bumpy |
 
 ---
 
 ## 🗺️ Roadmap
 
+- [x] ~~Personalization: 17 themes, bubble styles, wallpapers~~ *(v1.1)*
+- [x] ~~Year in Review, date-range explorer, bookmarks~~ *(v1.1)*
+- [x] ~~Custom accent color & appearance (auto/light/dark)~~ *(v1.1)*
 - [ ] Message editing / unsend with "edited" tags
 - [ ] Export round-trip for location & contact cards, scheduled messages
 - [ ] Cloud-ready persistence mode (one-click deploy to free hosts)
@@ -216,9 +219,10 @@ files produced by WhatsApp. It is not endorsed by, affiliated with, or connected
 to WhatsApp LLC or Meta Platforms in any way. *WhatsApp* is a trademark of its
 respective owner.
 
-**Why a debug APK?**
-The project is single-maintainer and pre-play-store. Debug builds keep the
-pipeline simple; signed release builds are on the roadmap.
+**Are the APK builds signed?**
+Yes — every `v*` tag triggers a signed release APK in GitHub Actions
+(see [Releases](https://github.com/Avithegod2010/WA-archiver/releases));
+pushes to `main` publish a rolling pre-release build.
 
 **Does it work on iPhone?**
 Not as an app — iOS doesn't allow sideloading APKs. The PWA runs in any mobile

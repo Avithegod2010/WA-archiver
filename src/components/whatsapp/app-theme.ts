@@ -139,3 +139,80 @@ export function getThemeAccent(): string {
 export function applyThemeAttribute(k: AppThemeKey) {
   document.documentElement.setAttribute('data-wa-theme', k)
 }
+
+/* ------------------------------------------------------------------ */
+/* Custom accent override — any hex color on top of the active theme    */
+/* ------------------------------------------------------------------ */
+
+export const ACCENT_EVENT = 'wa-accent'
+const ACCENT_STORAGE_KEY = 'wa-viewer:accent'
+const HEX6_RE = /^#[0-9a-f]{6}$/i
+
+/** Curated accent swatches offered in the picker (theme-independent). */
+export const ACCENT_PRESETS: { label: string; hex: string }[] = [
+  { label: 'WhatsApp', hex: '#00a884' },
+  { label: 'Sky', hex: '#3390ec' },
+  { label: 'Violet', hex: '#8b5cf6' },
+  { label: 'Rose', hex: '#e11d48' },
+  { label: 'Tangerine', hex: '#ea580c' },
+  { label: 'Teal', hex: '#14b8a6' },
+  { label: 'Honey', hex: '#d97706' },
+  { label: 'Slate', hex: '#64748b' },
+]
+
+export function subscribeAccent(cb: () => void) {
+  window.addEventListener(ACCENT_EVENT, cb)
+  window.addEventListener('storage', cb)
+  return () => {
+    window.removeEventListener(ACCENT_EVENT, cb)
+    window.removeEventListener('storage', cb)
+  }
+}
+
+/** null = follow the active theme's accent. */
+export function getAccentOverride(): string | null {
+  try {
+    const v = localStorage.getItem(ACCENT_STORAGE_KEY)
+    return v && HEX6_RE.test(v) ? v.toLowerCase() : null
+  } catch {
+    return null
+  }
+}
+
+export function setAccentOverride(hex: string | null) {
+  try {
+    if (hex && HEX6_RE.test(hex)) localStorage.setItem(ACCENT_STORAGE_KEY, hex.toLowerCase())
+    else localStorage.removeItem(ACCENT_STORAGE_KEY)
+  } catch {
+    /* storage unavailable */
+  }
+  window.dispatchEvent(new Event(ACCENT_EVENT))
+}
+
+/** Darken a #rrggbb color by `amt` (0..1) — used for --wa-accent-strong. */
+export function darkenHex(hex: string, amt = 0.14): string {
+  if (!HEX6_RE.test(hex)) return hex
+  const n = parseInt(hex.slice(1), 16)
+  const ch = (shift: number) => {
+    const v = Math.round(((n >> shift) & 0xff) * (1 - amt))
+    return Math.max(0, Math.min(255, v)).toString(16).padStart(2, '0')
+  }
+  return `#${ch(16)}${ch(8)}${ch(0)}`
+}
+
+/**
+ * Apply (or clear) the accent override as inline style on <html>. Inline
+ * style wins over every [data-wa-theme] variable block, so the override
+ * survives theme switches until cleared.
+ */
+export function applyAccentOverride(hex: string | null) {
+  if (typeof document === 'undefined') return
+  const root = document.documentElement
+  if (!hex || !HEX6_RE.test(hex)) {
+    root.style.removeProperty('--wa-accent')
+    root.style.removeProperty('--wa-accent-strong')
+    return
+  }
+  root.style.setProperty('--wa-accent', hex)
+  root.style.setProperty('--wa-accent-strong', darkenHex(hex))
+}

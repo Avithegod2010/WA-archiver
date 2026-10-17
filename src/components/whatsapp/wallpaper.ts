@@ -191,6 +191,35 @@ export const WALLPAPER_PRESETS: WallpaperPreset[] = [
     bg: 'wp-dunes',
     swatch: 'wp-dunes',
   },
+  {
+    key: 'nordic',
+    label: 'Nordic',
+    bg: 'bg-[linear-gradient(150deg,#dfe7ee_0%,#d5e1ea_55%,#cfdde8_100%)] dark:bg-[linear-gradient(150deg,#0d141a_0%,#101a22_55%,#0f1d26_100%)]',
+    swatch:
+      'bg-[linear-gradient(150deg,#dfe7ee_0%,#d5e1ea_55%,#cfdde8_100%)] dark:bg-[linear-gradient(150deg,#0d141a_0%,#101a22_55%,#0f1d26_100%)]',
+  },
+  {
+    key: 'matcha',
+    label: 'Matcha',
+    bg: 'bg-[linear-gradient(150deg,#e8f0dc_0%,#ddebd2_60%,#d3e6c8_100%)] dark:bg-[linear-gradient(150deg,#111a0d_0%,#152010_60%,#0f1c0c_100%)]',
+    swatch:
+      'bg-[linear-gradient(150deg,#e8f0dc_0%,#ddebd2_60%,#d3e6c8_100%)] dark:bg-[linear-gradient(150deg,#111a0d_0%,#152010_60%,#0f1c0c_100%)]',
+  },
+  {
+    key: 'coral',
+    label: 'Coral',
+    bg: 'bg-[linear-gradient(150deg,#fdeae2_0%,#fbdfd8_55%,#f9d9e4_100%)] dark:bg-[linear-gradient(150deg,#1f0e0a_0%,#240e12_55%,#220b17_100%)]',
+    swatch:
+      'bg-[linear-gradient(150deg,#fdeae2_0%,#fbdfd8_55%,#f9d9e4_100%)] dark:bg-[linear-gradient(150deg,#1f0e0a_0%,#240e12_55%,#220b17_100%)]',
+  },
+  {
+    key: 'galaxy',
+    label: 'Galaxy',
+    bg: 'bg-[linear-gradient(150deg,#e4dcf6_0%,#dcd6f2_50%,#d3d2f0_100%)] dark:bg-[linear-gradient(150deg,#120c22_0%,#171030_50%,#100a20_100%)]',
+    doodle: 'text-[#6d5bb8]/[0.09] dark:text-[#a996f0]/[0.05]',
+    swatch:
+      'bg-[linear-gradient(150deg,#e4dcf6_0%,#dcd6f2_50%,#d3d2f0_100%)] dark:bg-[linear-gradient(150deg,#120c22_0%,#171030_50%,#100a20_100%)]',
+  },
 ]
 
 export function presetByKey(k: string): WallpaperPreset {

@@ -159,6 +159,8 @@ import {
 import { formatChatTime } from './display'
 
 const PAGE_SIZE = 300
+/** Must match the transports' MAX_MESSAGES cap (server route + local client). */
+const MAX_RENDER_MESSAGES = 12000
 
 /* ---------- 14-f: unread boundary (pre-open seen capture) ---------- */
 
@@ -3381,6 +3383,17 @@ export function ChatView({
         role="log"
         aria-label={`Messages in ${chat.title}`}
       >
+        {chat.messageCount > messages.length && (
+          <div className="mx-auto mb-3 flex max-w-fit items-center gap-1.5 rounded-full bg-(--wa-in) px-3.5 py-1.5 text-[11.5px] font-medium text-(--wa-text-2) shadow-sm dark:bg-(--wa-panel-2)">
+            <Info className="h-3.5 w-3.5 shrink-0 text-(--wa-accent)" />
+            <span>
+              Showing the latest {messages.length.toLocaleString()} of{' '}
+              {chat.messageCount.toLocaleString()} messages — older history is
+              beyond the viewer's {MAX_RENDER_MESSAGES.toLocaleString()}-
+              message window.
+            </span>
+          </div>
+        )}
         {!filtered && messages.length > visibleCount && (
           <div className="mb-3 flex justify-center">
             <Button

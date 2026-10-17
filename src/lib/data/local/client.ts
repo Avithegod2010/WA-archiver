@@ -329,14 +329,17 @@ export class LocalDataClient implements DataClient {
       [id]
     )
     if (!chat) throw new DataError('Chat not found')
+    // Newest window wins when the chat exceeds the cap (mirrors the server
+    // route) — reversed to ascending so the caller sees chronological order.
     const rows = await e.all(
       `SELECT id, chatId, idx, ts, sender, body, type, mediaPath, mediaName,
               starred, edited, forwardedFrom, pollOptions, pinned, reactions,
               replyToId
          FROM "Message" WHERE chatId = ?
-        ORDER BY idx ASC LIMIT ${MAX_MESSAGES}`,
+        ORDER BY idx DESC LIMIT ${MAX_MESSAGES}`,
       [id]
     )
+    rows.reverse()
     const messages = await this.withReplyTos(
       e,
       rows.map((r) => r as unknown as MessageRowLike)

@@ -57,6 +57,21 @@ interface Stats {
   activeDays: number
 }
 
+/** Zeroed stats used while the dialog is closed (compute is gated on open). */
+const EMPTY_STATS: Stats = {
+  count: 0,
+  busiest: null,
+  topMonth: null,
+  streak: null,
+  topEmoji: null,
+  topSpeaker: null,
+  words: 0,
+  activeDays: 0,
+}
+
+/** Stable empty array so the closed-dialog memos never churn identity. */
+const NO_MESSAGES: ChatMessage[] = []
+
 function computeStats(messages: ChatMessage[]): Stats {
   const perDay = new Map<string, { count: number; iso: string }>()
   const perMonth = new Map<string, number>()
@@ -154,19 +169,23 @@ export function YearInReviewDialog({
   messages: ChatMessage[]
 }) {
   const years = useMemo(() => {
+    // Compute only while the rewind is actually open — ChatView keeps this
+    // dialog mounted, so ungated work would rescan every message on each
+    // transcript change.
+    if (!open) return []
     const set = new Set<number>()
     for (const m of messages) {
       const d = new Date(m.ts)
       if (!Number.isNaN(d.getTime())) set.add(d.getFullYear())
     }
     return [...set].sort((a, b) => b - a)
-  }, [messages])
+  }, [open, messages])
 
   const [scopeChoice, setScopeChoice] = useState<number | 'all' | null>(null)
 
   // Default scope (no explicit choice yet): the busiest year, wrapped-style.
   const defaultScope = useMemo<number | 'all'>(() => {
-    if (years.length === 0) return 'all'
+    if (!open || years.length === 0) return 'all'
     const perYear = new Map<number, number>()
     for (const m of messages) {
       const d = new Date(m.ts)
@@ -179,16 +198,17 @@ export function YearInReviewDialog({
       if ((perYear.get(y) ?? 0) > (perYear.get(best) ?? 0)) best = y
     }
     return best
-  }, [messages, years])
+  }, [open, messages, years])
 
   const scope = scopeChoice ?? defaultScope
 
   const scoped = useMemo(() => {
+    if (!open) return NO_MESSAGES
     if (scope === 'all' || scope === null) return messages
     return messages.filter((m) => new Date(m.ts).getFullYear() === scope)
-  }, [messages, scope])
+  }, [open, messages, scope])
 
-  const stats = useMemo(() => computeStats(scoped), [scoped])
+  const stats = useMemo(() => (open ? computeStats(scoped) : EMPTY_STATS), [open, scoped])
   const avgPerDay =
     stats.activeDays > 0 ? Math.round(stats.count / stats.activeDays) : 0
 

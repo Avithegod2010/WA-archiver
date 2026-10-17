@@ -36,6 +36,7 @@ import {
   type AppThemeKey,
 } from './app-theme'
 import { cn } from '@/lib/utils'
+import { APP_VERSION, RELEASES_URL } from '@/lib/version'
 
 /**
  * Interactive, animated product tour: short crisp steps with live
@@ -568,6 +569,28 @@ export function GuideDialog({
               />
             ))}
           </div>
+        </div>
+
+        {/* Version footer — doubles as the About line */}
+        <div className="flex items-center justify-between gap-3 border-t border-black/5 bg-black/[0.02] px-6 py-2.5 dark:border-white/10 dark:bg-white/[0.03]">
+          <p className="text-[11.5px] text-(--wa-text-2)">
+            WhatsApp Viewer{' '}
+            <span className="font-semibold text-(--wa-text)">
+              v{APP_VERSION}
+            </span>{' '}
+            · local-first, private, offline
+          </p>
+          <a
+            href={RELEASES_URL}
+            target="_blank"
+            rel="noreferrer"
+            className="shrink-0 rounded-full bg-(--wa-accent)/10 px-2.5 py-1 text-[11.5px] font-medium text-(--wa-accent-strong) transition-colors hover:bg-(--wa-accent)/20 dark:text-(--wa-accent)"
+          >
+            What's new ↗
+          </a>
+        </div>
+
+        <div className="flex items-center justify-between px-6 pb-4 pt-2">
           <div className="flex items-center gap-2">
             <Button
               variant="ghost"

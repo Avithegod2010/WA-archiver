@@ -38,12 +38,16 @@ export async function GET(
     return NextResponse.json({ error: 'Chat not found' }, { status: 404 })
   }
 
+  // Take the NEWEST window when a chat exceeds the cap — reading an export is
+  // recent-history-first, so the newest messages must never be the ones that
+  // silently disappear. Reversed back to ascending order for the client.
   const rows = await db.message.findMany({
     where: { chatId: id },
-    orderBy: [{ idx: 'asc' }],
+    orderBy: [{ idx: 'desc' }],
     take: MAX_MESSAGES,
     select: MESSAGE_SELECT,
   })
+  rows.reverse()
 
   return NextResponse.json({ chat, messages: await withReplyTos(rows) })
 }

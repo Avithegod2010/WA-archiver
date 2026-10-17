@@ -17,20 +17,28 @@ import {
   Keyboard,
   Loader2,
   MessageSquareDot,
+  MonitorSmartphone,
   Moon,
   Paintbrush,
+  Pipette,
   Settings,
   Sparkles,
   Sun,
+  SunMoon,
   TextSearch,
   Upload,
   WifiOff,
 } from 'lucide-react'
 import {
+  ACCENT_PRESETS,
   APP_THEMES,
+  applyAccentOverride,
   applyThemeAttribute,
   getAppTheme,
+  getAccentOverride,
   setAppTheme,
+  setAccentOverride,
+  subscribeAccent,
   subscribeAppTheme,
   type AppThemeKey,
 } from './app-theme'
@@ -147,7 +155,7 @@ function cacheGet<T>(key: string): T | null {
 }
 
 function WhatsAppAppInner() {
-  const { resolvedTheme, setTheme } = useTheme()
+  const { theme, resolvedTheme, setTheme } = useTheme()
   // Active transport (Phase 2): 'server' = REST /api/*, 'device' = on-device
   // SQLite-WASM. Every data flow below goes through `data`.
   const { mode, data, modeResolved } = useData()
@@ -188,6 +196,11 @@ function WhatsAppAppInner() {
     subscribeAppTheme,
     getAppTheme,
     () => 'classic'
+  )
+  const accentKey: string | null = useSyncExternalStore(
+    subscribeAccent,
+    getAccentOverride,
+    () => null
   )
   const bubbleStyleKey: BubbleStyleKey = useSyncExternalStore(
     subscribeBubbleStyle,
@@ -310,6 +323,11 @@ function WhatsAppAppInner() {
     const t = setTimeout(() => root.classList.remove('theme-switching'), 320)
     return () => clearTimeout(t)
   }, [themeKey])
+
+  // Custom accent override rides on top of any theme (inline style on <html>)
+  useEffect(() => {
+    applyAccentOverride(accentKey)
+  }, [accentKey])
 
   const refreshChats = useCallback(async () => {
     try {
@@ -1209,6 +1227,104 @@ function WhatsAppAppInner() {
               <p className="mt-2 text-[11px] leading-snug text-(--wa-text-2)">
                 Recolors the whole app — header, bubbles, buttons and charts.
                 Works with light &amp; dark mode.
+              </p>
+
+              <div className="my-3 h-px bg-black/10 dark:bg-white/10" />
+
+              <p className="mb-2 flex items-center gap-1.5 text-[13px] font-medium text-(--wa-text)">
+                <Pipette className="h-3.5 w-3.5 text-(--wa-accent)" />
+                Accent color
+              </p>
+              <div className="flex flex-wrap items-center gap-1.5">
+                {ACCENT_PRESETS.map((a) => {
+                  const active = accentKey === a.hex.toLowerCase()
+                  return (
+                    <button
+                      key={a.hex}
+                      onClick={() => setAccentOverride(a.hex)}
+                      aria-pressed={active}
+                      title={a.label}
+                      className={cn(
+                        'flex h-7 w-7 items-center justify-center rounded-full ring-1 ring-black/15 transition-transform duration-150 hover:scale-110 active:scale-95 dark:ring-white/25',
+                        active && 'ring-2 ring-(--wa-text) ring-offset-2 ring-offset-(--wa-panel)'
+                      )}
+                      style={{ background: a.hex }}
+                    >
+                      {active && <Check className="h-3.5 w-3.5 text-white drop-shadow" />}
+                    </button>
+                  )
+                })}
+                <label
+                  className="relative flex h-7 w-7 cursor-pointer items-center justify-center rounded-full ring-1 ring-black/15 transition-transform duration-150 hover:scale-110 active:scale-95 dark:ring-white/25"
+                  title="Custom color"
+                  style={{
+                    background:
+                      'conic-gradient(#ef4444,#f59e0b,#84cc16,#14b8a6,#3b82f6,#8b5cf6,#ec4899,#ef4444)',
+                  }}
+                >
+                  <input
+                    type="color"
+                    aria-label="Custom accent color"
+                    className="absolute inset-0 h-full w-full cursor-pointer opacity-0"
+                    value={accentKey ?? '#00a884'}
+                    onChange={(e) => setAccentOverride(e.target.value)}
+                  />
+                </label>
+                <button
+                  onClick={() => setAccentOverride(null)}
+                  aria-pressed={accentKey === null}
+                  title="Follow the active theme"
+                  className={cn(
+                    'ml-auto rounded-full px-2.5 py-1 text-[11px] font-medium transition-colors',
+                    accentKey === null
+                      ? 'bg-(--wa-accent)/15 text-(--wa-accent-strong) dark:text-(--wa-accent)'
+                      : 'text-(--wa-text-2) hover:bg-black/5 dark:hover:bg-white/5'
+                  )}
+                >
+                  Theme default
+                </button>
+              </div>
+              <p className="mt-2 text-[11px] leading-snug text-(--wa-text-2)">
+                Tints buttons, highlights and heat dots — on top of any theme.
+              </p>
+
+              <div className="my-3 h-px bg-black/10 dark:bg-white/10" />
+
+              <p className="mb-2 flex items-center gap-1.5 text-[13px] font-medium text-(--wa-text)">
+                <SunMoon className="h-3.5 w-3.5 text-(--wa-accent)" />
+                Appearance
+              </p>
+              <div className="grid grid-cols-3 gap-1.5 rounded-xl bg-black/[0.04] p-1 dark:bg-white/[0.06]">
+                {(
+                  [
+                    ['system', 'Auto', MonitorSmartphone],
+                    ['light', 'Light', Sun],
+                    ['dark', 'Dark', Moon],
+                  ] as const
+                ).map(([val, label, Icon]) => {
+                  const active = (theme ?? 'system') === val
+                  return (
+                    <button
+                      key={val}
+                      onClick={() => setTheme(val)}
+                      aria-pressed={active}
+                      className={cn(
+                        'flex items-center justify-center gap-1.5 rounded-lg py-1.5 text-[12px] font-medium transition-colors',
+                        active
+                          ? 'bg-(--wa-panel) text-(--wa-text) shadow-sm'
+                          : 'text-(--wa-text-2) hover:text-(--wa-text)'
+                      )}
+                    >
+                      <Icon className="h-3.5 w-3.5" />
+                      {label}
+                    </button>
+                  )
+                })}
+              </div>
+              <p className="mt-2 text-[11px] leading-snug text-(--wa-text-2)">
+                {theme === 'system'
+                  ? `Following your device — currently ${resolvedTheme ?? '…'}.`
+                  : 'Auto follows your device setting.'}
               </p>
 
               <div className="my-3 h-px bg-black/10 dark:bg-white/10" />
