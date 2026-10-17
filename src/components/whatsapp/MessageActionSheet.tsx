@@ -21,6 +21,7 @@ import {
 import { toast } from 'sonner'
 import { Sheet, SheetContent, SheetDescription, SheetTitle } from '@/components/ui/sheet'
 import { colorForName, type ChatMessage } from './types'
+import { formatChatTime } from './display'
 import { cn } from '@/lib/utils'
 
 export type ReactionMap = Record<string, string[]>
@@ -107,10 +108,7 @@ function speechActive(): boolean {
 }
 
 function formatTime(iso: string): string {
-  return new Date(iso).toLocaleTimeString([], {
-    hour: '2-digit',
-    minute: '2-digit',
-  })
+  return formatChatTime(iso)
 }
 
 function SheetRow({

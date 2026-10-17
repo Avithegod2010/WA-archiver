@@ -61,14 +61,12 @@ import {
   QUICK_REACTIONS,
 } from './MessageActionSheet'
 import { displayMediaSrc } from './media-src'
+import { formatChatTime } from './display'
 import { colorForName, initialsForName, type ChatMessage } from './types'
 import { cn } from '@/lib/utils'
 
 function formatTime(iso: string): string {
-  return new Date(iso).toLocaleTimeString([], {
-    hour: '2-digit',
-    minute: '2-digit',
-  })
+  return formatChatTime(iso)
 }
 
 function extractUrl(text: string): string | null {
@@ -1546,7 +1544,7 @@ export function MessageBubble({
               chromelessSticker
                 ? 'wa-sticker-host'
                 : cn(
-                    'rounded-[7.5px] px-2.5 py-1.5',
+                    'rounded-(--wa-bubble-r,7.5px) px-2.5 py-(--wa-bubble-py,6px)',
                     'bg-(--wa-in) text-(--wa-text)',
                     // Sharp corner where the tail attaches — merges seamlessly
                     showTail && 'rounded-tl-none'
@@ -1633,7 +1631,7 @@ export function MessageBubble({
           chromelessSticker
             ? 'wa-sticker-host'
             : cn(
-                'rounded-[7.5px] px-2.5 py-1.5',
+                'rounded-(--wa-bubble-r,7.5px) px-2.5 py-(--wa-bubble-py,6px)',
                 'bg-(--wa-in) text-(--wa-text)',
                 // Sharp corner where the tail attaches — merges seamlessly
                 showTail && 'rounded-tl-none'
@@ -1893,7 +1891,7 @@ function OutgoingBubble({
           chromelessSticker
             ? 'wa-sticker-host'
             : cn(
-                'rounded-[7.5px] px-2.5 py-1.5',
+                'rounded-(--wa-bubble-r,7.5px) px-2.5 py-(--wa-bubble-py,6px)',
                 'bg-(--wa-out) text-(--wa-text) dark:text-(--wa-text)',
                 // Sharp corner where the tail attaches — merges seamlessly
                 showTail && 'rounded-tr-none'

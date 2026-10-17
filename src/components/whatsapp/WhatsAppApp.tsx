@@ -10,11 +10,13 @@ import {
   BarChart3,
   CalendarHeart,
   Check,
+  Clock3,
   Compass,
   HelpCircle,
   Images,
   Keyboard,
   Loader2,
+  MessageSquareDot,
   Moon,
   Paintbrush,
   Settings,
@@ -32,6 +34,24 @@ import {
   subscribeAppTheme,
   type AppThemeKey,
 } from './app-theme'
+import {
+  BUBBLE_STYLES,
+  DENSITIES,
+  TIME_FORMATS,
+  displayVars,
+  getBubbleStyle,
+  getDensity,
+  getTimeFormat,
+  setBubbleStyle,
+  setDensity,
+  setTimeFormat,
+  subscribeBubbleStyle,
+  subscribeDensity,
+  subscribeTimeFormat,
+  type BubbleStyleKey,
+  type DensityKey,
+  type TimeFormatKey,
+} from './display'
 import {
   FONT_FAMILIES,
   getFontFamily,
@@ -168,6 +188,21 @@ function WhatsAppAppInner() {
     subscribeAppTheme,
     getAppTheme,
     () => 'classic'
+  )
+  const bubbleStyleKey: BubbleStyleKey = useSyncExternalStore(
+    subscribeBubbleStyle,
+    getBubbleStyle,
+    () => 'classic'
+  )
+  const densityKey: DensityKey = useSyncExternalStore(
+    subscribeDensity,
+    getDensity,
+    () => 'cozy'
+  )
+  const timeFormatKey: TimeFormatKey = useSyncExternalStore(
+    subscribeTimeFormat,
+    getTimeFormat,
+    () => 'auto'
   )
 
   // Latest chats / activeId without stale closures (markChatSeen + shortcuts)
@@ -1026,7 +1061,10 @@ function WhatsAppAppInner() {
   return (
     <div
       className="flex h-dvh min-h-0 flex-col bg-(--wa-chat-bg)"
-      style={{ fontFamily: FONT_FAMILIES[fontKey].stack }}
+      style={{
+        fontFamily: FONT_FAMILIES[fontKey].stack,
+        ...displayVars(bubbleStyleKey, densityKey),
+      }}
     >
       {/* #21 — skip link: first tab stop jumps straight to the conversation */}
       <a
@@ -1072,7 +1110,7 @@ function WhatsAppAppInner() {
               <p className="mb-2 text-[13px] font-medium text-(--wa-text)">
                 Reading text size
               </p>
-              <div className="grid grid-cols-3 gap-2">
+              <div className="grid grid-cols-4 gap-2">
                 {(Object.keys(TEXT_SIZES) as TextSizeKey[]).map((k) => {
                   const active = textSizeKey === k
                   return (
@@ -1089,7 +1127,7 @@ function WhatsAppAppInner() {
                     >
                       <span
                         className="font-semibold leading-none text-(--wa-text)"
-                        style={{ fontSize: TEXT_SIZES[k].px + 3 }}
+                        style={{ fontSize: Math.min(TEXT_SIZES[k].px + 3, 19) }}
                       >
                         Aa
                       </span>
@@ -1220,6 +1258,124 @@ function WhatsAppAppInner() {
               <p className="mt-2 text-[11px] leading-snug text-(--wa-text-2)">
                 Changes the typeface across the chat list and every
                 conversation.
+              </p>
+
+              <div className="my-3 h-px bg-black/10 dark:bg-white/10" />
+
+              <p className="mb-2 flex items-center gap-1.5 text-[13px] font-medium text-(--wa-text)">
+                <MessageSquareDot className="h-3.5 w-3.5 text-(--wa-accent)" />
+                Bubble style
+              </p>
+              <div className="grid grid-cols-3 gap-2">
+                {(Object.keys(BUBBLE_STYLES) as BubbleStyleKey[]).map((k) => {
+                  const active = bubbleStyleKey === k
+                  return (
+                    <button
+                      key={k}
+                      onClick={() => setBubbleStyle(k)}
+                      aria-pressed={active}
+                      title={BUBBLE_STYLES[k].hint}
+                      className={cn(
+                        'flex flex-col items-center gap-1 rounded-lg py-2 transition-transform duration-150 hover:scale-[1.04] active:scale-95',
+                        active
+                          ? 'bg-(--wa-accent)/10 ring-1 ring-(--wa-accent)'
+                          : 'hover:bg-black/5 dark:hover:bg-white/5'
+                      )}
+                    >
+                      <span className="flex w-full items-end justify-center gap-1 px-2">
+                        <i
+                          className={cn(
+                            'block h-4 w-7 bg-(--wa-in) ring-1 ring-black/15 dark:ring-white/20',
+                            k === 'classic' && 'rounded-[7.5px] rounded-tl-none',
+                            k === 'round' && 'rounded-[14px] rounded-tl-none',
+                            k === 'sharp' && 'rounded-[2.5px]'
+                          )}
+                        />
+                      </span>
+                      <span className="flex items-center gap-0.5 text-[11px] font-medium text-(--wa-text)">
+                        {active && <Check className="h-3 w-3 text-(--wa-accent)" />}
+                        {BUBBLE_STYLES[k].label}
+                      </span>
+                    </button>
+                  )
+                })}
+              </div>
+
+              <div className="mt-2 grid grid-cols-2 gap-2">
+                {(Object.keys(DENSITIES) as DensityKey[]).map((k) => {
+                  const active = densityKey === k
+                  return (
+                    <button
+                      key={k}
+                      onClick={() => setDensity(k)}
+                      aria-pressed={active}
+                      title={DENSITIES[k].hint}
+                      className={cn(
+                        'flex flex-col items-start gap-1 rounded-lg px-2.5 py-2 text-left transition-transform duration-150 hover:scale-[1.03] active:scale-[0.97]',
+                        active
+                          ? 'bg-(--wa-accent)/10 ring-1 ring-(--wa-accent)'
+                          : 'hover:bg-black/5 dark:hover:bg-white/5'
+                      )}
+                    >
+                      <span className="flex w-full flex-col gap-[3px]">
+                        <i className="block h-1.5 w-4/5 rounded-full bg-(--wa-text)/20" />
+                        <i className="block h-1.5 w-full rounded-full bg-(--wa-text)/20" />
+                        <i
+                          className={cn(
+                            'block h-1.5 rounded-full bg-(--wa-accent)/50',
+                            k === 'cozy' ? 'w-3/5' : 'w-2/3'
+                          )}
+                        />
+                      </span>
+                      <span className="flex items-center gap-0.5 text-[11px] font-medium text-(--wa-text)">
+                        {active && <Check className="h-3 w-3 text-(--wa-accent)" />}
+                        {DENSITIES[k].label}
+                      </span>
+                    </button>
+                  )
+                })}
+              </div>
+              <p className="mt-2 text-[11px] leading-snug text-(--wa-text-2)">
+                Reshapes every message bubble — corners tighten or round, and
+                Compact fits more of the conversation on screen.
+              </p>
+
+              <div className="my-3 h-px bg-black/10 dark:bg-white/10" />
+
+              <p className="mb-2 flex items-center gap-1.5 text-[13px] font-medium text-(--wa-text)">
+                <Clock3 className="h-3.5 w-3.5 text-(--wa-accent)" />
+                Clock
+              </p>
+              <div className="grid grid-cols-3 gap-2">
+                {(Object.keys(TIME_FORMATS) as TimeFormatKey[]).map((k) => {
+                  const active = timeFormatKey === k
+                  return (
+                    <button
+                      key={k}
+                      onClick={() => setTimeFormat(k)}
+                      aria-pressed={active}
+                      title={TIME_FORMATS[k].hint}
+                      className={cn(
+                        'flex flex-col items-center gap-1 rounded-lg py-2 transition-transform duration-150 hover:scale-[1.04] active:scale-95',
+                        active
+                          ? 'bg-(--wa-accent)/10 ring-1 ring-(--wa-accent)'
+                          : 'hover:bg-black/5 dark:hover:bg-white/5'
+                      )}
+                    >
+                      <span className="text-[12px] font-semibold leading-none text-(--wa-text)">
+                        {k === 'h12' ? '3:45 PM' : k === 'h24' ? '15:45' : 'Aa'}
+                      </span>
+                      <span className="flex items-center gap-0.5 text-[11px] font-medium text-(--wa-text)">
+                        {active && <Check className="h-3 w-3 text-(--wa-accent)" />}
+                        {TIME_FORMATS[k].label}
+                      </span>
+                    </button>
+                  )
+                })}
+              </div>
+              <p className="mt-2 text-[11px] leading-snug text-(--wa-text-2)">
+                How message times read everywhere — bubbles, lists, media and
+                search results.
               </p>
             </PopoverContent>
           </Popover>

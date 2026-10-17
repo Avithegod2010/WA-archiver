@@ -69,6 +69,7 @@ import {
 } from '@/components/ui/dropdown-menu'
 import { FolderManagerDialog } from './FolderManagerDialog'
 import { SAVED_CHAT_ID, type ChatSummary } from './types'
+import { formatChatTime } from './display'
 import { cn } from '@/lib/utils'
 import {
   EMPTY_FAVS_SNAPSHOT,
@@ -116,8 +117,7 @@ function formatListTime(iso: string | null): string {
   const today = new Date(now.getFullYear(), now.getMonth(), now.getDate())
   const target = new Date(d.getFullYear(), d.getMonth(), d.getDate())
   const diffDays = Math.round((today.getTime() - target.getTime()) / 86400000)
-  if (diffDays === 0)
-    return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+  if (diffDays === 0) return formatChatTime(d)
   if (diffDays === 1) return 'Yesterday'
   if (diffDays < 7)
     return d.toLocaleDateString('en-GB', { weekday: 'long' })

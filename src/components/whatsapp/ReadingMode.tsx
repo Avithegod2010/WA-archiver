@@ -42,6 +42,7 @@ import {
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { cn } from '@/lib/utils'
+import { formatChatTime } from './display'
 import type { ChatMessage } from './types'
 import { colorForName } from './types'
 
@@ -128,7 +129,7 @@ function fmtDay(ts: string): string {
 function fmtTime(ts: string): string {
   const d = new Date(ts)
   if (isNaN(d.getTime())) return ''
-  return d.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })
+  return formatChatTime(d)
 }
 
 const MEDIA_ICON: Record<string, string> = {

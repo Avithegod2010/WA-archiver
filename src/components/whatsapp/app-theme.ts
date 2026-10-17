@@ -46,6 +46,51 @@ export const APP_THEMES = {
     hint: 'Dark neon',
     swatch: { appbar: '#1e293b', bubble: '#d8ecfa', accent: '#0ea5e9' },
   },
+  espresso: {
+    label: 'Espresso',
+    hint: 'Coffee brown',
+    swatch: { appbar: '#4e342e', bubble: '#f0e6dd', accent: '#795548' },
+  },
+  terracotta: {
+    label: 'Terracotta',
+    hint: 'Warm clay',
+    swatch: { appbar: '#a8552f', bubble: '#fdeadd', accent: '#c96f4a' },
+  },
+  wine: {
+    label: 'Wine',
+    hint: 'Deep burgundy',
+    swatch: { appbar: '#6b1230', bubble: '#fbe0e6', accent: '#a4133c' },
+  },
+  forest: {
+    label: 'Forest',
+    hint: 'Woodland green',
+    swatch: { appbar: '#1b4332', bubble: '#d8f3dc', accent: '#2d6a4f' },
+  },
+  amber: {
+    label: 'Amber',
+    hint: 'Golden honey',
+    swatch: { appbar: '#b45309', bubble: '#fef3c7', accent: '#d97706' },
+  },
+  citrus: {
+    label: 'Citrus',
+    hint: 'Fresh lime',
+    swatch: { appbar: '#4d7c0f', bubble: '#ecfccb', accent: '#65a30d' },
+  },
+  lavender: {
+    label: 'Lavender',
+    hint: 'Soft pastel',
+    swatch: { appbar: '#7c6bb0', bubble: '#efeafb', accent: '#8674c9' },
+  },
+  cyber: {
+    label: 'Cyber',
+    hint: 'Neon glow',
+    swatch: { appbar: '#3b0764', bubble: '#f5d0fe', accent: '#a21caf' },
+  },
+  mono: {
+    label: 'Mono',
+    hint: 'Pure grayscale',
+    swatch: { appbar: '#27272a', bubble: '#e4e4e7', accent: '#52525b' },
+  },
 } as const
 
 export type AppThemeKey = keyof typeof APP_THEMES

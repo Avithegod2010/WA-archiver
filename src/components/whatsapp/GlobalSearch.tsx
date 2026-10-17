@@ -20,6 +20,7 @@ import type { SearchChatGroup, SearchHit, SearchResult } from '@/lib/data'
 import { Avatar } from './Avatar'
 import { colorForName } from './types'
 import { useData } from './data-provider'
+import { formatChatTime } from './display'
 import {
   Dialog,
   DialogContent,
@@ -56,10 +57,7 @@ function formatHitTime(iso: string): string {
     month: 'short',
     ...(sameYear ? {} : { year: 'numeric' }),
   })
-  return `${date}, ${d.toLocaleTimeString([], {
-    hour: '2-digit',
-    minute: '2-digit',
-  })}`
+  return `${date}, ${formatChatTime(d)}`
 }
 
 function escapeRegExp(s: string): string {

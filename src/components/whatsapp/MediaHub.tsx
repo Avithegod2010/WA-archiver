@@ -62,6 +62,7 @@ import { displayMediaSrc } from './media-src'
 import { useData, useMessageNormalizer } from './data-provider'
 import { Lightbox } from './Lightbox'
 import { isAudioName, isVideoName } from '@/lib/media-kinds'
+import { formatChatTime } from './display'
 import type { AllMediaItem } from '@/lib/data/types'
 import type { ChatMessage } from './types'
 
@@ -107,12 +108,11 @@ function formatBytes(n: number | null): string {
 }
 
 function formatTime(iso: string): string {
-  return new Date(iso).toLocaleString([], {
+  const d = new Date(iso)
+  return `${d.toLocaleDateString([], {
     day: 'numeric',
     month: 'short',
-    hour: '2-digit',
-    minute: '2-digit',
-  })
+  })}, ${formatChatTime(d)}`
 }
 
 function monthKey(iso: string): string {

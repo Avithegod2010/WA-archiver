@@ -501,6 +501,323 @@
   --wa-link: #38bdf8;
 }
 
+/* ------- R8 theme pack — nine additional palettes (light & dark) ------- */
+
+[data-wa-theme='espresso'] {
+  --wa-appbar: #4e342e;
+  --wa-accent: #795548;
+  --wa-accent-strong: #5d4037;
+  --wa-out: #f0e6dd;
+  --wa-panel: #fffcfa;
+  --wa-panel-2: #f3ece6;
+  --wa-chat-bg: #eae0d6;
+  --wa-in: #fffdfb;
+  --wa-deep: #2b1d17;
+  --wa-text: #2b1f1a;
+  --wa-text-2: #8d7a6e;
+  --wa-line: rgba(90, 60, 40, 0.13);
+  --wa-row-hover: #f5eee8;
+  --wa-row-active: #efe4db;
+  --wa-link: #8d6e63;
+}
+.dark[data-wa-theme='espresso'] {
+  --wa-appbar: #241813;
+  --wa-accent: #bcaaa4;
+  --wa-accent-strong: #d7c4bc;
+  --wa-out: #4e342e;
+  --wa-panel: #191009;
+  --wa-panel-2: #2b1d15;
+  --wa-chat-bg: #120b07;
+  --wa-in: #2b1d15;
+  --wa-deep: #120b07;
+  --wa-text: #f2e9e4;
+  --wa-text-2: #b5a094;
+  --wa-line: rgba(255, 255, 255, 0.08);
+  --wa-row-hover: #31221a;
+  --wa-row-active: #3a2a20;
+  --wa-link: #bcaaa4;
+}
+
+[data-wa-theme='terracotta'] {
+  --wa-appbar: #a8552f;
+  --wa-accent: #c96f4a;
+  --wa-accent-strong: #9a4a28;
+  --wa-out: #fdeadd;
+  --wa-panel: #fffcf9;
+  --wa-panel-2: #f8ede3;
+  --wa-chat-bg: #f2e4d6;
+  --wa-in: #fff9f4;
+  --wa-deep: #33180c;
+  --wa-text: #33201a;
+  --wa-text-2: #96705d;
+  --wa-line: rgba(140, 70, 35, 0.14);
+  --wa-row-hover: #f8efe6;
+  --wa-row-active: #f3e6d9;
+  --wa-link: #b85c33;
+}
+.dark[data-wa-theme='terracotta'] {
+  --wa-appbar: #2e160c;
+  --wa-accent: #e29a77;
+  --wa-accent-strong: #f0b899;
+  --wa-out: #6e3a20;
+  --wa-panel: #1c0e06;
+  --wa-panel-2: #2d1810;
+  --wa-chat-bg: #140904;
+  --wa-in: #2d1810;
+  --wa-deep: #140904;
+  --wa-text: #f5eae2;
+  --wa-text-2: #c09a86;
+  --wa-line: rgba(255, 255, 255, 0.08);
+  --wa-row-hover: #352013;
+  --wa-row-active: #3f2718;
+  --wa-link: #e29a77;
+}
+
+[data-wa-theme='wine'] {
+  --wa-appbar: #6b1230;
+  --wa-accent: #a4133c;
+  --wa-accent-strong: #86102f;
+  --wa-out: #fbe0e6;
+  --wa-panel: #fffbfc;
+  --wa-panel-2: #f8e9ee;
+  --wa-chat-bg: #f1e2e7;
+  --wa-in: #fffbfc;
+  --wa-deep: #2a0713;
+  --wa-text: #2d0e18;
+  --wa-text-2: #8f5f6d;
+  --wa-line: rgba(130, 20, 55, 0.14);
+  --wa-row-hover: #f8ecf0;
+  --wa-row-active: #f2e1e8;
+  --wa-link: #97193a;
+}
+.dark[data-wa-theme='wine'] {
+  --wa-appbar: #230511;
+  --wa-accent: #d9567a;
+  --wa-accent-strong: #e98ba5;
+  --wa-out: #581427;
+  --wa-panel: #160409;
+  --wa-panel-2: #250a13;
+  --wa-chat-bg: #0e0206;
+  --wa-in: #250a13;
+  --wa-deep: #0e0206;
+  --wa-text: #f5e5ea;
+  --wa-text-2: #bb8494;
+  --wa-line: rgba(255, 255, 255, 0.08);
+  --wa-row-hover: #2d0f19;
+  --wa-row-active: #36141f;
+  --wa-link: #d9567a;
+}
+
+[data-wa-theme='forest'] {
+  --wa-appbar: #1b4332;
+  --wa-accent: #2d6a4f;
+  --wa-accent-strong: #1b4332;
+  --wa-out: #d8f3dc;
+  --wa-panel: #fafdfb;
+  --wa-panel-2: #e9f2ec;
+  --wa-chat-bg: #e0ebe3;
+  --wa-in: #fbfefc;
+  --wa-deep: #0d2418;
+  --wa-text: #12271c;
+  --wa-text-2: #5f7a6b;
+  --wa-line: rgba(20, 70, 45, 0.14);
+  --wa-row-hover: #edf4ef;
+  --wa-row-active: #e1ede4;
+  --wa-link: #2d6a4f;
+}
+.dark[data-wa-theme='forest'] {
+  --wa-appbar: #0b1f16;
+  --wa-accent: #74c69d;
+  --wa-accent-strong: #95d5b2;
+  --wa-out: #1b4332;
+  --wa-panel: #081410;
+  --wa-panel-2: #0f241b;
+  --wa-chat-bg: #050e0a;
+  --wa-in: #0f241b;
+  --wa-deep: #050e0a;
+  --wa-text: #e6f2ea;
+  --wa-text-2: #8fb3a0;
+  --wa-line: rgba(255, 255, 255, 0.08);
+  --wa-row-hover: #132b20;
+  --wa-row-active: #183527;
+  --wa-link: #74c69d;
+}
+
+[data-wa-theme='amber'] {
+  --wa-appbar: #b45309;
+  --wa-accent: #d97706;
+  --wa-accent-strong: #92400e;
+  --wa-out: #fef3c7;
+  --wa-panel: #fffdf8;
+  --wa-panel-2: #faf0dc;
+  --wa-chat-bg: #f6edda;
+  --wa-in: #fffef9;
+  --wa-deep: #342005;
+  --wa-text: #322107;
+  --wa-text-2: #977e50;
+  --wa-line: rgba(150, 100, 20, 0.15);
+  --wa-row-hover: #faf2e0;
+  --wa-row-active: #f5e9cf;
+  --wa-link: #b45309;
+}
+.dark[data-wa-theme='amber'] {
+  --wa-appbar: #241503;
+  --wa-accent: #fbbf24;
+  --wa-accent-strong: #fcd34d;
+  --wa-out: #78350f;
+  --wa-panel: #170e02;
+  --wa-panel-2: #271906;
+  --wa-chat-bg: #0e0801;
+  --wa-in: #271906;
+  --wa-deep: #0e0801;
+  --wa-text: #f8f0df;
+  --wa-text-2: #c2a678;
+  --wa-line: rgba(255, 255, 255, 0.08);
+  --wa-row-hover: #2e1e08;
+  --wa-row-active: #38250b;
+  --wa-link: #fbbf24;
+}
+
+[data-wa-theme='citrus'] {
+  --wa-appbar: #4d7c0f;
+  --wa-accent: #65a30d;
+  --wa-accent-strong: #3f6212;
+  --wa-out: #ecfccb;
+  --wa-panel: #fcfef8;
+  --wa-panel-2: #f2f7e6;
+  --wa-chat-bg: #ecf1dc;
+  --wa-in: #fdfff6;
+  --wa-deep: #1a2e05;
+  --wa-text: #1f2b10;
+  --wa-text-2: #75815c;
+  --wa-line: rgba(90, 120, 25, 0.14);
+  --wa-row-hover: #f2f6e6;
+  --wa-row-active: #eaf0d8;
+  --wa-link: #5e940e;
+}
+.dark[data-wa-theme='citrus'] {
+  --wa-appbar: #172a04;
+  --wa-accent: #a3e635;
+  --wa-accent-strong: #bef264;
+  --wa-out: #4d7c0f;
+  --wa-panel: #0d1703;
+  --wa-panel-2: #182a08;
+  --wa-chat-bg: #080f02;
+  --wa-in: #182a08;
+  --wa-deep: #080f02;
+  --wa-text: #eef5dd;
+  --wa-text-2: #a3b184;
+  --wa-line: rgba(255, 255, 255, 0.08);
+  --wa-row-hover: #1d3309;
+  --wa-row-active: #233d0c;
+  --wa-link: #a3e635;
+}
+
+[data-wa-theme='lavender'] {
+  --wa-appbar: #7c6bb0;
+  --wa-accent: #8674c9;
+  --wa-accent-strong: #6d5bae;
+  --wa-out: #efeafb;
+  --wa-panel: #fdfcff;
+  --wa-panel-2: #f2eff9;
+  --wa-chat-bg: #ebe8f3;
+  --wa-in: #ffffff;
+  --wa-deep: #241d3c;
+  --wa-text: #262040;
+  --wa-text-2: #7a719b;
+  --wa-line: rgba(110, 90, 170, 0.14);
+  --wa-row-hover: #f1eef8;
+  --wa-row-active: #e9e4f4;
+  --wa-link: #7f6ec4;
+}
+.dark[data-wa-theme='lavender'] {
+  --wa-appbar: #1e1830;
+  --wa-accent: #b3a5e8;
+  --wa-accent-strong: #c9bef0;
+  --wa-out: #453a6b;
+  --wa-panel: #141021;
+  --wa-panel-2: #201a35;
+  --wa-chat-bg: #0d0a18;
+  --wa-in: #201a35;
+  --wa-deep: #0d0a18;
+  --wa-text: #ebe7f5;
+  --wa-text-2: #a49bcb;
+  --wa-line: rgba(255, 255, 255, 0.08);
+  --wa-row-hover: #262041;
+  --wa-row-active: #2e2650;
+  --wa-link: #b3a5e8;
+}
+
+[data-wa-theme='cyber'] {
+  --wa-appbar: #3b0764;
+  --wa-accent: #a21caf;
+  --wa-accent-strong: #86198f;
+  --wa-out: #f5d0fe;
+  --wa-panel: #fefaff;
+  --wa-panel-2: #f6ecf9;
+  --wa-chat-bg: #efe4f2;
+  --wa-in: #fffdff;
+  --wa-deep: #2a0a3a;
+  --wa-text: #2b0f38;
+  --wa-text-2: #8f6f9c;
+  --wa-line: rgba(140, 30, 160, 0.14);
+  --wa-row-hover: #f4ebf7;
+  --wa-row-active: #ecdef3;
+  --wa-link: #a21caf;
+}
+.dark[data-wa-theme='cyber'] {
+  --wa-appbar: #0f0521;
+  --wa-accent: #e879f9;
+  --wa-accent-strong: #f0abfc;
+  --wa-out: #4a044e;
+  --wa-panel: #0a0416;
+  --wa-panel-2: #150a28;
+  --wa-chat-bg: #050110;
+  --wa-in: #150a28;
+  --wa-deep: #050110;
+  --wa-text: #f3e8fa;
+  --wa-text-2: #a98fb8;
+  --wa-line: rgba(255, 255, 255, 0.08);
+  --wa-row-hover: #1b0e33;
+  --wa-row-active: #221241;
+  --wa-link: #e879f9;
+}
+
+[data-wa-theme='mono'] {
+  --wa-appbar: #27272a;
+  --wa-accent: #52525b;
+  --wa-accent-strong: #3f3f46;
+  --wa-out: #e4e4e7;
+  --wa-panel: #ffffff;
+  --wa-panel-2: #f4f4f5;
+  --wa-chat-bg: #e8e8ea;
+  --wa-in: #ffffff;
+  --wa-deep: #18181b;
+  --wa-text: #18181b;
+  --wa-text-2: #71717a;
+  --wa-line: rgba(24, 24, 27, 0.12);
+  --wa-row-hover: #f4f4f5;
+  --wa-row-active: #e9e9ec;
+  --wa-link: #3f3f46;
+}
+.dark[data-wa-theme='mono'] {
+  --wa-appbar: #09090b;
+  --wa-accent: #a1a1aa;
+  --wa-accent-strong: #d4d4d8;
+  --wa-out: #27272a;
+  --wa-panel: #0c0c0e;
+  --wa-panel-2: #18181b;
+  --wa-chat-bg: #060607;
+  --wa-in: #18181b;
+  --wa-deep: #060607;
+  --wa-text: #f4f4f5;
+  --wa-text-2: #9d9da6;
+  --wa-line: rgba(255, 255, 255, 0.08);
+  --wa-row-hover: #1d1d20;
+  --wa-row-active: #242427;
+  --wa-link: #d4d4d8;
+}
+
 /* ---------------------------------------------------------------------------
    Wallpaper building blocks
    1) .wp-base   — user-chosen base color (light + optional dark variant via

@@ -400,8 +400,8 @@ export function GuideDialog({
       title: 'Make it yours',
       tagline: 'Themes recolor the whole app — try one, it applies live.',
       bullets: [
-        { icon: <Palette className="h-3.5 w-3.5" />, text: '8 themes × light & dark: headers, bubbles, wallpapers, charts' },
-        { icon: <Paintbrush className="h-3.5 w-3.5" />, text: 'The Aa menu also holds 7 chat fonts and reading text sizes' },
+        { icon: <Palette className="h-3.5 w-3.5" />, text: `${Object.keys(APP_THEMES).length} themes × light & dark: headers, bubbles, wallpapers, charts` },
+        { icon: <Paintbrush className="h-3.5 w-3.5" />, text: 'The Aa menu also holds chat fonts, bubble shapes, density & clock format' },
         { icon: <Moon className="h-3.5 w-3.5" />, text: 'Dark mode pairs with any theme — pick your vibe' },
       ],
       illustration: <ThemeIllustration />,

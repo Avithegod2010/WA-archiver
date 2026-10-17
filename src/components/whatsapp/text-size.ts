@@ -8,6 +8,7 @@ export const TEXT_SIZES = {
   sm: { label: 'Small', px: 13 },
   md: { label: 'Medium', px: 14.2 },
   lg: { label: 'Large', px: 15.6 },
+  xl: { label: 'XL', px: 17.5 },
 } as const
 
 export type TextSizeKey = keyof typeof TEXT_SIZES
@@ -27,7 +28,7 @@ export function subscribeTextSize(cb: () => void) {
 export function getTextSize(): TextSizeKey {
   try {
     const v = localStorage.getItem(STORAGE_KEY)
-    return v === 'sm' || v === 'lg' ? v : 'md'
+    return v === 'sm' || v === 'lg' || v === 'xl' ? v : 'md'
   } catch {
     return 'md'
   }

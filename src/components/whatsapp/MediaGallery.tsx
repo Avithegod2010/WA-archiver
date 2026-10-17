@@ -27,6 +27,7 @@ import { Avatar } from './Avatar'
 import { useData, useMessageNormalizer } from './data-provider'
 import type { ChatMessage } from './types'
 import { displayMediaSrc } from './media-src'
+import { formatChatTime } from './display'
 import { cn } from '@/lib/utils'
 
 /** Minimal message shape used to mine text bodies for links. */
@@ -55,12 +56,11 @@ const DOC_EXT_RE =
   /\.(pdf|docx?|pptx?|xlsx?|csv|tsv|txt|rtf|odt|ods|odp|pages|numbers|key|epub|zip|rar|7z|tar|gz|bz2|xz|dmg|iso|apk|exe|msi|deb|rpm|jar|json|xml|sql|ics|vcf)$/i
 
 function formatTime(iso: string): string {
-  return new Date(iso).toLocaleString([], {
+  const d = new Date(iso)
+  return `${d.toLocaleDateString([], {
     day: 'numeric',
     month: 'short',
-    hour: '2-digit',
-    minute: '2-digit',
-  })
+  })}, ${formatChatTime(d)}`
 }
 
 function formatBytes(n: number | null): string {

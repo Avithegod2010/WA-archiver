@@ -156,6 +156,7 @@ import {
   subscribeTextSize,
   type TextSizeKey,
 } from './text-size'
+import { formatChatTime } from './display'
 
 const PAGE_SIZE = 300
 
@@ -495,7 +496,7 @@ function printBody(m: ChatMessage): string {
 function hhmm(iso: string): string {
   const d = new Date(iso)
   if (Number.isNaN(d.getTime())) return '--:--'
-  return d.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', hour12: false })
+  return formatChatTime(d)
 }
 
 function dmy(iso: string): string {
@@ -3476,8 +3477,8 @@ export function ChatView({
               data-mid={item.msg.id}
               data-msg-id={item.msg.id}
               className={cn(
-                'animate-in fade-in slide-in-from-bottom-1 mt-0.5 rounded-lg duration-300 transition-colors',
-                item.showTail && 'mt-2.5',
+                'animate-in fade-in slide-in-from-bottom-1 mt-(--wa-gap,2px) rounded-lg duration-300 transition-colors',
+                item.showTail && 'mt-(--wa-gap-tail,10px)',
                 jumpedId === item.msg.id &&
                   'bg-amber-200/50 ring-1 ring-amber-400/60 dark:bg-amber-500/20',
                 selecting &&
