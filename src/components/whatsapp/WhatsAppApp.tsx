@@ -1598,6 +1598,9 @@ function WhatsAppAppInner() {
             onStarMessage={toggleStar}
             initialJumpMessageId={pendingJumpId}
             onChatChanged={refreshChats}
+            hasChats={chats.some((c) => c.id !== SAVED_CHAT_ID)}
+            onOpenDemo={() => setDemoPickerOpen(true)}
+            onOpenImport={() => setImportPanelOpen(true)}
           />
         </main>
         {importing && (

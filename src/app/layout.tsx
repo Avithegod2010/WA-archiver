@@ -4,6 +4,7 @@ import "./globals.css";
 import { Toaster } from "@/components/ui/sonner";
 import { ThemeProvider } from "@/components/theme-provider";
 import { PWARegister } from "@/components/pwa-register";
+import { ThemeColorSync } from "@/components/theme-color-sync";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -53,7 +54,20 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   // Apply the persisted app theme before first paint (no accent flash)
-  const themeScript = `try{var t=localStorage.getItem('wa-viewer:theme');if(t)document.documentElement.setAttribute('data-wa-theme',t)}catch(e){}`;
+  // Pre-paint: apply the persisted app theme AND the custom accent override
+  // (with its darkened strong variant) so there is never a color flash.
+  const themeScript = `try{
+    var t=localStorage.getItem('wa-viewer:theme');
+    if(t)document.documentElement.setAttribute('data-wa-theme',t);
+    var a=localStorage.getItem('wa-viewer:accent');
+    if(a&&/^#[0-9a-f]{6}$/i.test(a)){
+      var n=parseInt(a.slice(1),16);
+      var f=function(s){var v=Math.round(((n>>s)&255)*0.86).toString(16);return v.length<2?'0'+v:v};
+      var r=document.documentElement.style;
+      r.setProperty('--wa-accent',a);
+      r.setProperty('--wa-accent-strong','#'+f(16)+f(8)+f(0));
+    }
+  }catch(e){}`;
   return (
     <html lang="en" suppressHydrationWarning>
       <head>
@@ -66,6 +80,7 @@ export default function RootLayout({
           {children}
           <Toaster position="top-center" richColors />
           <PWARegister />
+      <ThemeColorSync />
         </ThemeProvider>
       </body>
     </html>

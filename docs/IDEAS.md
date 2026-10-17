@@ -3,6 +3,13 @@
 > Candidate pool for the `beta` branch, grouped by theme. Items marked
 > ⚡ = offline-capable (device transport), 🛡 = security/privacy relevant.
 
+> ✅ **Delivered in v1.1.0:** Year in Review rewind, date-range explorer,
+> bookmarks, heat-dot activity calendar, 17 themes + custom accent +
+> appearance control, bubble styles & density, wallpapers studio, data
+> portability (personal-data export/import), first-run welcome, dynamic
+> theme-color, huge-export newest-window fix. The lists below remain the
+> candidate pool for future rounds.
+
 ## AI & Smart Features
 
 1. **Smart reply chips** — three context-aware quick replies above each chat;

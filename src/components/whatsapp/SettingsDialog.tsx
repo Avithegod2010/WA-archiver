@@ -6,7 +6,10 @@ import {
   AudioLines,
   BookOpen,
   ChevronRight,
+  ArrowDownUp,
+  Check,
   Download,
+  FileJson,
   ExternalLink,
   Eye,
   EyeOff,
@@ -27,6 +30,14 @@ import {
 import { aiHeaders, getGeminiKey, setGeminiKey } from '@/lib/ai-client'
 import { runDeviceAi } from '@/lib/device-ai'
 import { isOnline, offlineAiMessage } from '@/lib/online'
+import {
+  downloadPersonalData,
+  parsePersonalData,
+  personalDataStats,
+  writePersonalData,
+  type PersonalDataFile,
+} from '@/lib/personal-data'
+import { APP_VERSION } from '@/lib/version'
 import {
   ASR_MODEL_MB,
   asrModelReady,
@@ -371,6 +382,47 @@ export function SettingsDialog({
     setRemindPref(next)
     writeBackupRemindPref(next)
   }
+
+  // Personal data (portable half): themes, bookmarks, wallpapers, prefs.
+  const personalInputRef = useRef<HTMLInputElement>(null)
+  const [pendingPersonal, setPendingPersonal] =
+    useState<PersonalDataFile | null>(null)
+  const [applyingPersonal, setApplyingPersonal] = useState(false)
+
+  const exportPersonal = useCallback(() => {
+    try {
+      const keys = downloadPersonalData(APP_VERSION)
+      toast.success(
+        keys > 0
+          ? `Personal data exported — ${keys} setting${keys === 1 ? '' : 's'}`
+          : 'Nothing to export yet — personalize something first'
+      )
+    } catch {
+      toast.error('Export failed — storage unavailable')
+    }
+  }, [])
+
+  const onPersonalFile = useCallback((file: File) => {
+    void file.text().then((raw) => {
+      const parsed = parsePersonalData(raw)
+      if (parsed === 'invalid') {
+        toast.error('Not a valid personal-data file')
+        return
+      }
+      setPendingPersonal(parsed)
+    })
+  }, [])
+
+  const applyPersonal = useCallback(() => {
+    if (!pendingPersonal) return
+    setApplyingPersonal(true)
+    // Small delay so the toast paints before the reload re-reads every store
+    setTimeout(() => {
+      const written = writePersonalData(pendingPersonal)
+      toast.success(`Applied ${written} setting${written === 1 ? '' : 's'} — reloading…`)
+      setTimeout(() => window.location.reload(), 900)
+    }, 150)
+  }, [pendingPersonal])
 
   // Shared backup flow — used by the "Download backup" button AND the
   // reminder toast's "Back up now" action (Task 14-j). useCallback keeps the
@@ -825,6 +877,7 @@ export function SettingsDialog({
             </p>
           )}
 
+
           {/* Task 14-j — backup reminder toggle */}
           <div className="flex items-center justify-between gap-3 rounded-lg bg-black/[0.03] p-3 dark:bg-white/[0.04]">
             <div className="min-w-0">
@@ -879,6 +932,100 @@ export function SettingsDialog({
                     </button>
                   )
                 })}
+              </div>
+            </div>
+          )}
+        </section>
+
+        <div className="h-px bg-black/10 dark:bg-white/10" />
+
+        {/* c) Personal data transfer — the portable half */}
+        <section aria-label="Personal data transfer" className="flex flex-col gap-2">
+          <h3 className="flex items-center gap-1.5 text-[13px] font-semibold text-(--wa-text)">
+            <ArrowDownUp className="h-3.5 w-3.5 text-(--wa-accent)" aria-hidden />
+            Personal data
+          </h3>
+          <p className="text-[12px] leading-snug text-(--wa-text-2)">
+            Move your themes, bookmarks, wallpapers and preferences to another
+            device. Chats ride with the full backup above; secrets (app-lock
+            PIN, AI key) never leave this device.
+          </p>
+          <div className="flex flex-wrap gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={exportPersonal}
+              disabled={busy}
+              className="gap-1.5"
+            >
+              <FileJson className="h-4 w-4" aria-hidden />
+              Export settings
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => personalInputRef.current?.click()}
+              disabled={busy || !!pendingPersonal}
+              className="gap-1.5"
+            >
+              <Upload className="h-4 w-4" aria-hidden />
+              Import settings
+            </Button>
+            <input
+              ref={personalInputRef}
+              type="file"
+              accept=".json,application/json"
+              className="hidden"
+              aria-label="Choose a personal-data file"
+              onChange={(e) => {
+                const file = e.target.files?.[0]
+                e.target.value = ''
+                if (file) onPersonalFile(file)
+              }}
+            />
+          </div>
+
+          {pendingPersonal && (
+            <div className="rounded-lg border border-(--wa-accent)/30 bg-(--wa-accent)/[0.06] p-3">
+              {(() => {
+                const stats = personalDataStats(pendingPersonal)
+                return (
+                  <>
+                    <p className="text-[12.5px] font-medium text-(--wa-text)">
+                      Apply {stats.keys} setting{stats.keys === 1 ? '' : 's'}?
+                    </p>
+                    <p className="mt-0.5 text-[11.5px] leading-snug text-(--wa-text-2)">
+                      {stats.bookmarks > 0 && `${stats.bookmarks} bookmark list${stats.bookmarks === 1 ? '' : 's'} · `}
+                      {stats.wallpapers > 0 && `${stats.wallpapers} wallpaper${stats.wallpapers === 1 ? '' : 's'} · `}
+                      exported {new Date(pendingPersonal.exportedAt).toLocaleDateString()}
+                      {' '}· overwrites matching settings on this device
+                    </p>
+                  </>
+                )
+              })()}
+              <div className="mt-2.5 flex gap-2">
+                <Button
+                  size="sm"
+                  className="h-7 gap-1 rounded-full bg-(--wa-accent) px-3 text-[12px] font-medium text-white hover:bg-(--wa-accent-strong)"
+                  onClick={applyPersonal}
+                  disabled={applyingPersonal}
+                >
+                  {applyingPersonal ? (
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden />
+                  ) : (
+                    <Check className="h-3.5 w-3.5" aria-hidden />
+                  )}
+                  Apply &amp; reload
+                </Button>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  className="h-7 rounded-full px-3 text-[12px] text-(--wa-text-2)"
+                  onClick={() => setPendingPersonal(null)}
+                  disabled={applyingPersonal}
+                >
+                  Cancel
+                </Button>
               </div>
             </div>
           )}

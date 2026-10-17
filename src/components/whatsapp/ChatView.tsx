@@ -17,6 +17,7 @@ import {
   ArrowLeft,
   ArrowUpToLine,
   Bot,
+  BarChart3,
   BookOpenText,
   Bookmark,
   Braces,
@@ -31,6 +32,7 @@ import {
   FileArchive,
   FileCode2,
   FileText,
+  FileUp,
   HeartHandshake,
   Forward,
   Hash,
@@ -47,6 +49,7 @@ import {
   Printer,
   Regex,
   Search,
+  ShieldCheck,
   Sheet,
   SlidersHorizontal,
   Sparkles,
@@ -590,6 +593,9 @@ export function ChatView({
   onStarMessage,
   initialJumpMessageId,
   onChatChanged,
+  hasChats,
+  onOpenDemo,
+  onOpenImport,
 }: {
   detail: ChatDetail | null
   setDetail: React.Dispatch<React.SetStateAction<ChatDetail | null>>
@@ -600,6 +606,10 @@ export function ChatView({
   onStarMessage?: (messageId: string, starred: boolean) => void
   initialJumpMessageId?: string | null
   onChatChanged?: () => void
+  /** False on a truly fresh install — drives the first-run welcome CTAs. */
+  hasChats?: boolean
+  onOpenDemo?: () => void
+  onOpenImport?: () => void
 }) {
   // Active transport (Phase 2): 'server' = REST /api/*, 'device' = on-device
   // SQLite-WASM. Every data flow below goes through `data`.
@@ -2615,9 +2625,52 @@ export function ChatView({
             here. Everything is stored locally in your own database — nothing leaves
             this device.
           </p>
-          <p className="mt-6 text-[12px] uppercase tracking-wide text-(--wa-text-2)">
-            Select a chat on the left to start reading
-          </p>
+
+          {hasChats === false && (onOpenDemo || onOpenImport) ? (
+            <div className="anim-fade-up mt-7 flex flex-col items-center gap-3" style={{ animationDelay: '120ms' }}>
+              <div className="flex flex-wrap items-center justify-center gap-2.5">
+                {onOpenDemo && (
+                  <Button
+                    size="lg"
+                    className="h-11 gap-2 rounded-full bg-(--wa-accent) px-6 text-[14px] font-medium text-white shadow-lg shadow-(--wa-accent)/25 hover:bg-(--wa-accent-strong)"
+                    onClick={onOpenDemo}
+                  >
+                    <Sparkles className="h-4.5 w-4.5" aria-hidden />
+                    Try demo chats
+                  </Button>
+                )}
+                {onOpenImport && (
+                  <Button
+                    size="lg"
+                    variant="outline"
+                    className="h-11 gap-2 rounded-full border-white/25 px-6 text-[14px] font-medium text-(--wa-text) hover:bg-white/10"
+                    onClick={onOpenImport}
+                  >
+                    <FileUp className="h-4.5 w-4.5" aria-hidden />
+                    Import a file
+                  </Button>
+                )}
+              </div>
+              <div className="mt-2 flex flex-wrap items-center justify-center gap-x-4 gap-y-1.5 text-[12px] text-(--wa-text-2)">
+                <span className="inline-flex items-center gap-1">
+                  <ShieldCheck className="h-3.5 w-3.5 text-(--wa-accent)" aria-hidden />
+                  100% offline
+                </span>
+                <span className="inline-flex items-center gap-1">
+                  <Palette className="h-3.5 w-3.5 text-(--wa-accent)" aria-hidden />
+                  17 themes
+                </span>
+                <span className="inline-flex items-center gap-1">
+                  <BarChart3 className="h-3.5 w-3.5 text-(--wa-accent)" aria-hidden />
+                  Stats &amp; rewind
+                </span>
+              </div>
+            </div>
+          ) : (
+            <p className="mt-6 text-[12px] uppercase tracking-wide text-(--wa-text-2)">
+              Select a chat on the left to start reading
+            </p>
+          )}
         </div>
       </div>
     )

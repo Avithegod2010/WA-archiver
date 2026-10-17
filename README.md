@@ -13,7 +13,7 @@ with AI superpowers, voice notes, reactions, stats and an app lock.**
 
 No account · No cloud · No tracking · Your data never leaves your device
 
-[Features](#-features) · [Quick start](#-quick-start) · [Android app](#-android-app-offline-apk) · [Privacy](#-privacy-model) · [FAQ](#-faq) · [Roadmap](#-roadmap)
+[Features](#-features) · [Quick start](#-quick-start) · [**User guide**](docs/user-guide.md) · [Android app](#-android-app-offline-apk) · [Privacy](#-privacy-model) · [FAQ](#-faq) · [Roadmap](#-roadmap)
 
 </div>
 
@@ -29,6 +29,9 @@ Three bullet points, honestly:
 
 > 💡 **No export at hand?** Click **Try demo chats** on first launch and explore a
 > fully-populated app in one second — no import needed.
+
+> 📖 **Step-by-step help** — exporting from WhatsApp (Android/iOS), importing,
+> troubleshooting and device migration live in the [User guide](docs/user-guide.md).
 
 ---
 
