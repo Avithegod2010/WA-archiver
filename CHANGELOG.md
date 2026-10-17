@@ -3,6 +3,27 @@
 All notable changes to WhatsApp Viewer are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [1.2.0] — 2026-10-17
+
+### Added — Data portability
+- **Personal data export/import** — Settings ▸ Personal data: one file
+  carries your themes, accent, bubble style, density, clock, text size,
+  font, wallpapers (including per-chat photos), bookmarks, folders,
+  favorites and read-state to another device. Chats ride with the full
+  backup; app-lock PIN and AI keys never leave the device.
+- Inline confirmation with export stats before anything is applied.
+
+### Added — First-run & PWA
+- Fresh installs get a welcome with **Try demo chats** and **Import a
+  file** CTAs plus trust chips; returning users keep the quiet hint.
+- Browser/PWA chrome color now **follows the active theme and accent**
+  (dynamic theme-color, incl. system-scheme flips in Auto mode).
+- Custom accent no longer flashes on reload (pre-paint boot script).
+- User guide: docs/user-guide.md (export steps, migration, troubleshooting).
+
+### Fixed
+- Removed a stale unreferenced manifest.json that could confuse PWA audits.
+
 ## [1.1.0] — 2026-10-17
 
 ### Added — Personalization
@@ -70,6 +91,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Android APK (offline, standalone) built by GitHub Actions; signed APKs on
   `v*` tags.
 
+[1.2.0]: https://github.com/Avithegod2010/WA-archiver/releases/tag/v1.2.0
 [1.1.0]: https://github.com/Avithegod2010/WA-archiver/releases/tag/v1.1.0
 [1.0.1]: https://github.com/Avithegod2010/WA-archiver/releases/tag/v1.0.1
 [1.0.0]: https://github.com/Avithegod2010/WA-archiver/releases/tag/v1.0
