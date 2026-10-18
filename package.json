@@ -6,6 +6,7 @@
     "dev": "node scripts/copy-sql-wasm.mjs && node scripts/copy-whisper.mjs && next dev -p 3000 2>&1 | tee dev.log",
     "build": "node scripts/copy-sql-wasm.mjs && node scripts/copy-whisper.mjs && next build && cp -r .next/static .next/standalone/.next/ && cp -r public .next/standalone/",
     "build:capacitor": "node scripts/build-capacitor.mjs",
+    "build:pages": "node scripts/build-pages.mjs",
     "start": "NODE_ENV=production bun .next/standalone/server.js 2>&1 | tee server.log",
     "lint": "eslint .",
     "db:push": "prisma db push --accept-data-loss",

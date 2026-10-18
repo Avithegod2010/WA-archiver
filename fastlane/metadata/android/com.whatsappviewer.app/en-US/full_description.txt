@@ -1,0 +1,24 @@
+WhatsApp Viewer turns your exported WhatsApp chats into a beautiful, private reading experience — no account, no cloud, no tracking.
+
+IMPORT IN SECONDS
+Export any chat from WhatsApp (chat → ⋮ → More → Export chat → with media) and drop the .zip or .txt into the app. Preview before import, multiple chats at once, media included.
+
+A FAMILIAR, POLISHED CHAT UI
+Bubbles, replies, reactions, photos, voice notes with waveforms, documents, locations, links and stickers — faithfully recreated, with light/dark themes, custom accents, wallpapers and bubble styles.
+
+FIND ANYTHING
+Global search (Ctrl/⌘+K), per-chat filters (date ranges, starred, regex), jump-to-date calendar, word clouds and an activity heatmap.
+
+UNDERSTAND YOUR CHATS
+Cross-chat Insights dashboard, per-chat statistics, year-in-review rewind, storage breakdown and "On this day" memories.
+
+VOICE NOTES, TRANSCRIBED ON-DEVICE
+Optional Whisper transcription runs fully offline — the model downloads once, then works in airplane mode.
+
+OPTIONAL AI TOOLBOX (YOUR KEY)
+Translate, explain slang, TL;DR a 10k-message group, ask AI about the chat or generate wallpapers — powered by your own Gemini API key, talking straight to Google.
+
+PRIVATE BY ARCHITECTURE
+Everything is stored in a local SQLite database on your device. No analytics, no trackers, no accounts. PIN app lock is verified locally. Export back out to txt/zip/standalone HTML/JSON at any time — your archive, your rules.
+
+100% free and open source (MIT).

@@ -5,6 +5,7 @@ import { Toaster } from "@/components/ui/sonner";
 import { ThemeProvider } from "@/components/theme-provider";
 import { PWARegister } from "@/components/pwa-register";
 import { ThemeColorSync } from "@/components/theme-color-sync";
+import { assetUrl } from "@/lib/asset-base";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -23,7 +24,7 @@ export const metadata: Metadata = {
   keywords: ["WhatsApp", "chat viewer", "export", "chat history", "PWA"],
   icons: {
     icon: {
-      url: "/icon.svg",
+      url: assetUrl("/icon.svg"),
       type: "image/svg+xml",
     },
   },
@@ -38,7 +39,7 @@ export const metadata: Metadata = {
     title: "WA Viewer",
     statusBarStyle: "black-translucent",
   },
-  manifest: "/manifest.webmanifest",
+  manifest: assetUrl("/manifest.webmanifest"),
 };
 
 export const viewport: Viewport = {

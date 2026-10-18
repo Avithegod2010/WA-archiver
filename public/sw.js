@@ -10,6 +10,14 @@ const CACHE = 'wa-viewer-media-v1'
 const SHARE_CACHE = 'wa-viewer-share-v1'
 const SHARE_MARKER = '/__shared-'
 
+/* Base path — derived from the SW's own registration scope, so this same
+ * file works at the origin root (dev, standalone server, APK WebView) and
+ * under a sub-path (GitHub Pages: /WA-archiver/app/). */
+const SCOPE_URL = new URL(self.registration.scope)
+const BASE = SCOPE_URL.pathname.endsWith('/')
+  ? SCOPE_URL.pathname
+  : `${SCOPE_URL.pathname}/`
+
 self.addEventListener('install', () => {
   self.skipWaiting()
 })
@@ -40,7 +48,7 @@ self.addEventListener('fetch', (event) => {
       return
     }
     if (url.origin !== self.location.origin) return
-    if (url.pathname !== '/' || url.searchParams.get('share-target') !== '1') {
+    if (url.pathname !== BASE || url.searchParams.get('share-target') !== '1') {
       return
     }
     event.respondWith(handleShareTarget(req))
@@ -58,18 +66,18 @@ self.addEventListener('fetch', (event) => {
   if (url.origin !== self.location.origin) return
 
   const cacheable =
-    url.pathname.startsWith('/api/media/') ||
-    url.pathname.startsWith('/icons/') ||
-    url.pathname === '/manifest.json' ||
-    url.pathname === '/manifest.webmanifest' ||
+    url.pathname.startsWith(`${BASE}api/media/`) ||
+    url.pathname.startsWith(`${BASE}icons/`) ||
+    url.pathname === `${BASE}manifest.json` ||
+    url.pathname === `${BASE}manifest.webmanifest` ||
     // On-device SQLite engine (local-first refactor, Phase 1) — cached so
     // the database engine itself also works with no network.
-    url.pathname === '/sql-wasm.js' ||
-    url.pathname === '/sql-wasm.wasm' ||
+    url.pathname === `${BASE}sql-wasm.js` ||
+    url.pathname === `${BASE}sql-wasm.wasm` ||
     // On-device voice-transcription runtime (Phase 4) — transformers.js
     // bundle + ONNX Runtime wasm binaries. The ASR MODEL files are cached
     // separately by transformers.js (its own Cache-API bucket).
-    url.pathname.startsWith('/whisper/')
+    url.pathname.startsWith(`${BASE}whisper/`)
 
   if (!cacheable) return
 
@@ -155,8 +163,8 @@ async function handleShareTarget(req) {
   }
 
   const dest = new URL(
-    hasPayload ? '/?shared=1' : '/',
-    self.location.origin
+    hasPayload ? '?shared=1' : '',
+    SCOPE_URL
   ).toString()
   return Response.redirect(dest, 303)
 }

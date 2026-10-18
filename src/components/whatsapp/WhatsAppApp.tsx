@@ -1,6 +1,7 @@
 'use client'
 
 import './app-extras.css'
+import { assetUrl } from '@/lib/asset-base'
 
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
 import { useTheme } from 'next-themes'
@@ -574,7 +575,7 @@ function WhatsAppAppInner() {
     if (typeof navigator === 'undefined' || !('serviceWorker' in navigator)) {
       return
     }
-    navigator.serviceWorker.register('/sw.js').catch(() => {
+    navigator.serviceWorker.register(assetUrl('/sw.js')).catch(() => {
       /* SW is a progressive enhancement — ignore failures */
     })
   }, [])

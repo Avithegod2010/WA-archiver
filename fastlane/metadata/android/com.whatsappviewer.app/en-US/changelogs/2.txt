@@ -1,0 +1,1 @@
+Themes, bookmarks & rewind — v1.1.0 adds 9 app themes, custom accent colors, message bookmarks with folders, a year-in-review rewind, date-range explorer, huge-export guardrails and settings export/import.

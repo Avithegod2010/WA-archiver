@@ -21,6 +21,7 @@
  */
 
 import { SCHEMA_SQL, SCHEMA_VERSION } from './schema'
+import { assetUrl } from '@/lib/asset-base'
 import {
   NativeDriver,
   nativeAvailable,
@@ -215,13 +216,13 @@ class WasmDriver implements EngineDriver {
   ) {}
 
   async init(): Promise<'opfs' | 'indexeddb'> {
-    await loadScriptOnce('/sql-wasm.js')
+    await loadScriptOnce(assetUrl('/sql-wasm.js'))
     if (!window.initSqlJs) {
       throw new Error('SQLite engine did not initialise')
     }
     const SQL = await window.initSqlJs({
       locateFile: (file: string) =>
-        file.endsWith('.wasm') ? '/sql-wasm.wasm' : `/${file}`,
+        file.endsWith('.wasm') ? assetUrl('/sql-wasm.wasm') : assetUrl(`/${file}`),
     })
     this.sql = SQL
 

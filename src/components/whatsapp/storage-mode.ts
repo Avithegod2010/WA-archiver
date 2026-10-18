@@ -50,6 +50,15 @@ function isValid(v: unknown): v is StorageMode {
   return v === 'server' || v === 'device'
 }
 
+/**
+ * True when the bundle was built for static hosting (PAGES_EXPORT build:
+ * GitHub Pages / any CDN). There is no server at the origin — /api/* does
+ * not exist — so the default transport must be the on-device one.
+ */
+export function isStaticHost(): boolean {
+  return process.env.NEXT_PUBLIC_STATIC_HOST === '1'
+}
+
 export function getStorageMode(): StorageMode {
   if (typeof window === 'undefined') return 'server'
   try {
@@ -58,8 +67,10 @@ export function getStorageMode(): StorageMode {
   } catch {
     /* storage unavailable — fall through to the platform default */
   }
-  // Standalone shell → on-device storage; hosted web → server (v1.0 default).
-  return isNativeApp() ? 'device' : 'server'
+  // Standalone shell (APK) or a statically-hosted build (GitHub Pages —
+  // no /api/* exists at the origin) → on-device storage; hosted web →
+  // server (v1.0 default).
+  return isNativeApp() || isStaticHost() ? 'device' : 'server'
 }
 
 export function setStorageMode(mode: StorageMode): void {

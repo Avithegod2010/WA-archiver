@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect } from 'react'
+import { assetUrl } from '@/lib/asset-base'
 
 /** Registers the service worker that caches chat media for offline viewing. */
 export function PWARegister() {
@@ -9,7 +10,8 @@ export function PWARegister() {
       return
     }
     const register = () => {
-      navigator.serviceWorker.register('/sw.js').catch(() => {
+      // assetUrl keeps this correct on sub-path hosts (GitHub Pages) too.
+      navigator.serviceWorker.register(assetUrl('/sw.js')).catch(() => {
         /* SW is a progressive enhancement — ignore failures */
       })
     }

@@ -1,5 +1,7 @@
 'use client'
 
+import { assetUrl } from '@/lib/asset-base'
+
 /**
  * On-device speech-to-text (Phase 4 — offline polish).
  *
@@ -161,8 +163,8 @@ const READY_KEY = 'wa-viewer:asr-ready'
 const TRANSCRIPT_PREFIX = 'wa-viewer:transcript:'
 const TRANSCRIPT_MAX_CHARS = 20_000
 const TRANSCRIPT_MAX_ENTRIES = 300
-const TRANSFORMERS_URL = '/whisper/transformers.min.js'
-const WASM_DIR = '/whisper/'
+const TRANSFORMERS_URL = assetUrl('/whisper/transformers.min.js')
+const WASM_DIR = assetUrl('/whisper/')
 
 /** Minimal typing of the vendored transformers.js surface we use. */
 interface TransformersModule {

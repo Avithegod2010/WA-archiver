@@ -1,16 +1,19 @@
-name: Deploy landing site
+name: Deploy site (landing + web app)
 
-# Deploys the static marketing page in website/ to GitHub Pages.
-# Pages must be enabled once: Settings → Pages → Source: "GitHub Actions"
-# (or via API — build_type: workflow).
+# Builds and deploys the GitHub Pages site in one workflow:
+#   • /                ← the landing page (website/)
+#   • /app/            ← the FULL app, statically exported (device transport:
+#                        SQLite-WASM + OPFS in the browser, no server needed)
+# Nothing to enable by hand — configure-pages flips Pages on automatically
+# (build_type: workflow). Deploys on every push to main.
+#
+# Data-safety: the hosted app is the same local-first bundle as the APK —
+# chat data lives in the visitor's browser (OPFS), never on a server.
 
 on:
   workflow_dispatch:
   push:
     branches: [main]
-    paths:
-      - 'website/**'
-      - '.github/workflows/pages.yml'
 
 permissions:
   contents: read
@@ -23,7 +26,7 @@ concurrency:
 
 jobs:
   deploy:
-    name: Deploy to GitHub Pages
+    name: Build & deploy to GitHub Pages
     runs-on: ubuntu-latest
     environment:
       name: github-pages
@@ -31,6 +34,15 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v7
+
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@v2
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Build landing + static app export
+        run: bun run build:pages
 
       - name: Configure Pages
         uses: actions/configure-pages@v6
@@ -40,7 +52,7 @@ jobs:
       - name: Upload site
         uses: actions/upload-pages-artifact@v5
         with:
-          path: website
+          path: pages-site
 
       - name: Deploy
         id: deployment

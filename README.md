@@ -7,13 +7,14 @@
 [![Platform](https://img.shields.io/badge/platform-Web%20%7C%20Android-075E54.svg)](#-android-app-offline-apk)
 [![Next.js](https://img.shields.io/badge/Next.js-16-black?logo=next.js)](https://nextjs.org)
 [![PRs welcome](https://img.shields.io/badge/PRs-welcome-25D366.svg)](#-contributing)
+[![Web app](https://img.shields.io/badge/web%20app-Open%20in%20browser-00A884.svg?logo=googlechrome)](https://avithegod2010.github.io/WA-archiver/app/)
 
 **Turn your exported WhatsApp chats into a beautiful, private chat experience —
 with AI superpowers, voice notes, reactions, stats and an app lock.**
 
 No account · No cloud · No tracking · Your data never leaves your device
 
-[Features](#-features) · [Quick start](#-quick-start) · [**User guide**](docs/user-guide.md) · [Android app](#-android-app-offline-apk) · [Privacy](#-privacy-model) · [FAQ](#-faq) · [Roadmap](#-roadmap)
+[**Web app**](https://avithegod2010.github.io/WA-archiver/app/) · [Features](#-features) · [Quick start](#-quick-start) · [**User guide**](docs/user-guide.md) · [Android app](#-android-app-offline-apk) · [Host it yourself](docs/hosting.md) · [Privacy](#-privacy-model) · [FAQ](#-faq) · [Roadmap](#-roadmap)
 
 </div>
 
@@ -74,6 +75,19 @@ Three bullet points, honestly:
 </details>
 
 ---
+
+## 🌐 Use it without installing anything
+
+The full app runs in your browser, free, thanks to GitHub Pages:
+
+**[avithegod2010.github.io/WA-archiver/app](https://avithegod2010.github.io/WA-archiver/app/)**
+
+Same local-first behavior as the APK — your chats live in your browser's
+own storage and never touch a server. Installable as a PWA (share-target
+included), or self-host it: see **[docs/hosting.md](docs/hosting.md)**
+(GitHub Pages · Vercel · any static host). Store-submission status
+(IzzyOnDroid ✅ / F-Droid roadmap) lives in
+**[docs/launch-checklist.md](docs/launch-checklist.md)**.
 
 ## 🚀 Quick start
 
