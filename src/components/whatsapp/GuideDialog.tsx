@@ -574,7 +574,7 @@ export function GuideDialog({
         {/* Version footer — doubles as the About line */}
         <div className="flex items-center justify-between gap-3 border-t border-black/5 bg-black/[0.02] px-6 py-2.5 dark:border-white/10 dark:bg-white/[0.03]">
           <p className="text-[11.5px] text-(--wa-text-2)">
-            WhatsApp Viewer{' '}
+            Chat Archiver{' '}
             <span className="font-semibold text-(--wa-text)">
               v{APP_VERSION}
             </span>{' '}

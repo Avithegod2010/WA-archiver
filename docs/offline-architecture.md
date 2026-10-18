@@ -1,6 +1,6 @@
 # Offline architecture — decision record
 
-**Goal:** WhatsApp Viewer should work with **no internet at all** — as an
+**Goal:** Chat Archiver should work with **no internet at all** — as an
 installed PWA *and* as a real Android APK — while keeping the entire v1.0 UI.
 
 ## Why the current app can't go fully offline
@@ -132,7 +132,7 @@ the device. Hosting cost stays $0.
   Gemini is a user-key network API (declare the `NonFreeNet` anti-feature).
 - ⚠️ Build must be reproducible from source with standard npm/node (keep an
   npm fallback for the bun-specific scripts) — F-Droid builds apps itself.
-- ⚠️ Trademark: "WhatsApp Viewer" may draw a Meta complaint; a
+- ⚠️ Trademark: "Chat Archiver" may draw a Meta complaint; a
   "… for WhatsApp"-style distinct name is safer for store listings.
 - ✅ IzzyOnDroid accepts MIT apps built from source; faster inclusion than
   main F-Droid.

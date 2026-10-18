@@ -1,0 +1,5 @@
+Chat Archiver v1.3 — the rebrand release.
+
+- Renamed to Chat Archiver (formerly WhatsApp Viewer) with a new application ID: io.github.avithegod2010.chatarchiver. This update installs as a new app — uninstall the old one first.
+- New app icon, adaptive launcher icons and splash screens (dark carbon + neon chat bubble).
+- Same app inside: local-first, offline, no tracking. Nothing else changed.

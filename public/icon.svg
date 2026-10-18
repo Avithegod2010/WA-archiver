@@ -1,9 +1,23 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
-  <!-- WhatsApp-style app icon: green rounded square + white chat bubble (Task 7-e) -->
-  <rect width="512" height="512" rx="112" fill="#008069"/>
-  <ellipse cx="256" cy="238" rx="152" ry="126" fill="#ffffff"/>
-  <path d="M148 318 L114 404 L216 352 Z" fill="#ffffff"/>
-  <circle cx="184" cy="238" r="19" fill="#008069"/>
-  <circle cx="256" cy="238" r="19" fill="#008069"/>
-  <circle cx="328" cy="238" r="19" fill="#008069"/>
+  <!-- Chat Archiver app icon: dark carbon tile + neon chat bubble (v1.3 rebrand) -->
+  <defs>
+    <linearGradient id="tile" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#262B2F"/>
+      <stop offset="1" stop-color="#121516"/>
+    </linearGradient>
+    <filter id="glow" x="-40%" y="-40%" width="180%" height="180%">
+      <feGaussianBlur stdDeviation="9" result="b"/>
+      <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+  </defs>
+  <rect width="512" height="512" rx="112" fill="url(#tile)"/>
+  <g filter="url(#glow)">
+    <path d="M204 118 H308 C381 118 438 170 438 236 C438 302 381 354 308 354 H266 L196 424 C188 432 175 425 177 414 L191 348 C127 332 74 288 74 236 C74 170 131 118 204 118 Z"
+          fill="none" stroke="#8CE68C" stroke-width="24" stroke-linejoin="round" stroke-linecap="round"/>
+    <g fill="#A3E635">
+      <circle cx="186" cy="236" r="16"/>
+      <circle cx="256" cy="236" r="16"/>
+      <circle cx="326" cy="236" r="16"/>
+    </g>
+  </g>
 </svg>

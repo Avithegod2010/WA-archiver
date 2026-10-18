@@ -1,7 +1,7 @@
 import type { CapacitorConfig } from '@capacitor/cli'
 
 /**
- * Android app configuration for WhatsApp Viewer — STANDALONE (Phase 3).
+ * Android app configuration for Chat Archiver — STANDALONE (Phase 3).
  *
  * The APK bundles the entire built frontend (scripts/build-capacitor.mjs →
  * capacitor-web/) and runs the on-device transport exclusively: SQLite WASM
@@ -12,8 +12,8 @@ import type { CapacitorConfig } from '@capacitor/cli'
  * GitHub Actions builds a fresh standalone APK on every push to main.
  */
 const config: CapacitorConfig = {
-  appId: 'com.whatsappviewer.app',
-  appName: 'WhatsApp Viewer',
+  appId: 'io.github.avithegod2010.chatarchiver',
+  appName: 'Chat Archiver',
   webDir: 'capacitor-web',
 }
 

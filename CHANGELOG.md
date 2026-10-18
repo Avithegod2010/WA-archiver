@@ -1,7 +1,22 @@
 # Changelog
 
-All notable changes to WhatsApp Viewer are documented here.
+All notable changes to Chat Archiver are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
+
+## [1.3.0] — 2026-10-19
+
+### Changed — Rebrand
+- **Renamed to Chat Archiver** (formerly WhatsApp Viewer). The "WhatsApp"
+  trademark stays out of the app name and package ID ahead of store
+  submissions (IzzyOnDroid / F-Droid); descriptions keep descriptive
+  "exported WhatsApp chats" wording.
+- **New application ID:** `io.github.avithegod2010.chatarchiver`
+  (was `com.whatsappviewer.app`). ⚠️ Updating installs side-loads as a
+  new app — uninstall the old one first.
+- **New app icon** — dark carbon tile with neon chat bubble; new adaptive
+  launcher icons, round icons and splash screens; refreshed PWA icons and
+  favicon.
+- versionCode 4.
 
 ## [1.2.0] — 2026-10-17
 

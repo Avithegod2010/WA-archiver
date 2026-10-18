@@ -1,4 +1,4 @@
-package com.whatsappviewer.app;
+package io.github.avithegod2010.chatarchiver;
 
 import com.getcapacitor.BridgeActivity;
 

@@ -478,7 +478,7 @@ export async function buildChatHtml(
 <main class="chat">
 ${rows.join('\n')}
 </main>
-<footer>Exported from WhatsApp Viewer · ${esc(`${dmy(new Date())}, ${fmtTime(new Date())}`)}</footer>
+<footer>Exported from Chat Archiver · ${esc(`${dmy(new Date())}, ${fmtTime(new Date())}`)}</footer>
 </body>
 </html>
 `

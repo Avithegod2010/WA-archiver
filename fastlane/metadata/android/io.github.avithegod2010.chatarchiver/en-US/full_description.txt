@@ -1,4 +1,4 @@
-WhatsApp Viewer turns your exported WhatsApp chats into a beautiful, private reading experience — no account, no cloud, no tracking.
+Chat Archiver turns your exported WhatsApp chats into a beautiful, private reading experience — no account, no cloud, no tracking.
 
 IMPORT IN SECONDS
 Export any chat from WhatsApp (chat → ⋮ → More → Export chat → with media) and drop the .zip or .txt into the app. Preview before import, multiple chats at once, media included.

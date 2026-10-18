@@ -1,4 +1,4 @@
-# User Guide — WhatsApp Viewer
+# User Guide — Chat Archiver
 
 Everything you need to go from "a chat on my phone" to "a beautiful, private
 archive I can actually read". Start to finish takes about two minutes.
@@ -7,7 +7,7 @@ archive I can actually read". Start to finish takes about two minutes.
 
 ## 1 · Export your chat from WhatsApp
 
-WhatsApp builds the export; WhatsApp Viewer just reads it. You can export any
+WhatsApp builds the export; Chat Archiver just reads it. You can export any
 chat (individual or group), with or without media.
 
 ### Android
@@ -28,11 +28,11 @@ chat (individual or group), with or without media.
 
 > 💡 **Big chats?** "Without media" exports are much faster and still give
 > you the full text history. You can always add media later with a second
-> export — WhatsApp Viewer merges imports into the same chat.
+> export — Chat Archiver merges imports into the same chat.
 
 ---
 
-## 2 · Import into WhatsApp Viewer
+## 2 · Import into Chat Archiver
 
 1. Open the app (web, PWA or the Android APK).
 2. Drag the `.zip` / `.txt` anywhere onto the window, or use

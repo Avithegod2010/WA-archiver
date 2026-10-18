@@ -204,7 +204,7 @@
 }
 
 /* ---------------------------------------------------------------------------
-   WhatsApp Viewer themes — CSS variables that drive the ENTIRE app surface:
+   Chat Archiver themes — CSS variables that drive the ENTIRE app surface:
    top bar, side panel, chat header, conversation wallpaper, incoming &
    outgoing bubbles, text tones, dividers, row states and link colors.
    The active theme is set as `data-wa-theme` on <html>; dark variants

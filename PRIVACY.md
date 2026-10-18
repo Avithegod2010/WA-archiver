@@ -1,6 +1,6 @@
 # Privacy Policy
 
-**WhatsApp Viewer** — https://github.com/Avithegod2010/WA-archiver
+**Chat Archiver** — https://github.com/Avithegod2010/WA-archiver
 **Effective date:** 2026-10-18 · **App version:** 1.2.0+
 
 ## The short version

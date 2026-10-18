@@ -1,6 +1,6 @@
 {
-  "name": "WhatsApp Viewer",
-  "short_name": "WA Viewer",
+  "name": "Chat Archiver",
+  "short_name": "Archiver",
   "description": "Import WhatsApp chat exports (.zip or .txt) and read them in a familiar WhatsApp-style interface. Private and local — your chats never leave this device.",
   "start_url": "./",
   "scope": "./",

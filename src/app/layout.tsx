@@ -18,7 +18,7 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "WhatsApp Viewer — Import & Read Your Chats",
+  title: "Chat Archiver — Import & Read Your Chats",
   description:
     "Import WhatsApp chat exports (.zip or .txt) and read them in a familiar WhatsApp-style interface. Private and local — your chats never leave this device.",
   keywords: ["WhatsApp", "chat viewer", "export", "chat history", "PWA"],
@@ -29,14 +29,14 @@ export const metadata: Metadata = {
     },
   },
   openGraph: {
-    title: "WhatsApp Viewer",
+    title: "Chat Archiver",
     description: "Read your exported WhatsApp chats in a familiar interface",
-    siteName: "WhatsApp Viewer",
+    siteName: "Chat Archiver",
     type: "website",
   },
   appleWebApp: {
     capable: true,
-    title: "WA Viewer",
+    title: "Chat Archiver",
     statusBarStyle: "black-translucent",
   },
   manifest: assetUrl("/manifest.webmanifest"),

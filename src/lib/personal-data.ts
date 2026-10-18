@@ -169,7 +169,7 @@ export function downloadPersonalData(appVersion?: string): number {
   const url = URL.createObjectURL(blob)
   const a = document.createElement('a')
   a.href = url
-  a.download = `whatsapp-viewer-personal-data-${new Date()
+  a.download = `chat-archiver-personal-data-${new Date()
     .toISOString()
     .slice(0, 10)}.json`
   document.body.appendChild(a)

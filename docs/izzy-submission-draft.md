@@ -11,7 +11,7 @@ You only need a (free) GitLab account and ~10 minutes.
 2. Go to <https://gitlab.com/IzzyOnDroid/repo/-/issues/new> and pick the
    **"App request"** (app inclusion) template.
 3. Paste the block below into the description (trim anything the template
-   already covers), title it: `App request: WhatsApp Viewer`.
+   already covers), title it: `App request: Chat Archiver`.
 4. Submit. Typical review time: a few days. Once accepted, Izzy indexes the
    **v1.2.0** release immediately and picks up every future release
    automatically (it watches your GitHub releases; versionCode must increase).
@@ -21,10 +21,10 @@ You only need a (free) GitLab account and ~10 minutes.
 ## Paste-ready issue text
 
 ```markdown
-### App request: WhatsApp Viewer
+### App request: Chat Archiver
 
-**App name:** WhatsApp Viewer
-**Package name:** com.whatsappviewer.app
+**App name:** Chat Archiver
+**Package name:** io.github.avithegod2010.chatarchiver
 **Source code:** https://github.com/Avithegod2010/WA-archiver
 **Issue tracker:** https://github.com/Avithegod2010/WA-archiver/issues
 **License:** MIT
@@ -32,7 +32,7 @@ You only need a (free) GitLab account and ~10 minutes.
 (latest: https://github.com/Avithegod2010/WA-archiver/releases/tag/v1.2.0 —
 WhatsApp-Viewer-v1.2.0-release.apk, versionCode 3, APK Signature v2)
 **Changelogs:** fastlane format, checked in at
-fastlane/metadata/android/com.whatsappviewer.app/en-US/ (title, short and
+fastlane/metadata/android/io.github.avithegod2010.chatarchiver/en-US/ (title, short and
 full descriptions, changelogs for versionCodes 1–3, icon + 5 phone
 screenshots)
 
@@ -41,7 +41,7 @@ included) and read them in a familiar, polished WhatsApp-style interface.
 
 **Full description:**
 
-WhatsApp Viewer turns your exported WhatsApp chats into a beautiful,
+Chat Archiver turns your exported WhatsApp chats into a beautiful,
 private reading experience — no account, no cloud, no tracking.
 
 - Import in seconds: drop the export zip you already have; preview before

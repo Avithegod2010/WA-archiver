@@ -87,7 +87,7 @@ export function GettingStartedDialog() {
                 What this app does
               </h3>
               <p className="mt-0.5 text-[12.5px] leading-snug text-(--wa-text-2)">
-                WhatsApp Viewer opens your exported WhatsApp chats right in the
+                Chat Archiver opens your exported WhatsApp chats right in the
                 browser — private, offline and fully interactive.
               </p>
             </div>

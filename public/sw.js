@@ -1,4 +1,4 @@
-/* WhatsApp Viewer service worker.
+/* Chat Archiver service worker.
  * 1. Caches only immutable content: chat media, app icons and the manifest.
  *    Everything else (HTML, API data) always goes to the network so imported
  *    chats and chat lists are always fresh.
@@ -6,7 +6,7 @@
  *    (manifest share_target → /?share-target=1), stashes the shared text and
  *    files in the Cache API, then 303-redirects to /?shared=1 where the app
  *    picks the payload up and files it into Saved Messages. */
-const CACHE = 'wa-viewer-media-v1'
+const CACHE = 'wa-viewer-media-v2'
 const SHARE_CACHE = 'wa-viewer-share-v1'
 const SHARE_MARKER = '/__shared-'
 
