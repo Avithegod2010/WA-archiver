@@ -14,6 +14,14 @@ with AI superpowers, voice notes, reactions, stats and an app lock.**
 
 No account · No cloud · No tracking · Your data never leaves your device
 
+<div align="center">
+
+### 🌐 **[→ OPEN THE WEB APP: avithegod2010.github.io/WA-archiver/app ←](https://avithegod2010.github.io/WA-archiver/app/)**
+
+*The full app, live on GitHub Pages — nothing to install, nothing to configure.*
+
+</div>
+
 [**Web app**](https://avithegod2010.github.io/WA-archiver/app/) · [Features](#-features) · [Quick start](#-quick-start) · [**User guide**](docs/user-guide.md) · [Android app](#-android-app-offline-apk) · [Host it yourself](docs/hosting.md) · [Privacy](#-privacy-model) · [Policy](PRIVACY.md) · [FAQ](#-faq) · [Roadmap](#-roadmap)
 
 </div>
