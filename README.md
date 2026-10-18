@@ -14,7 +14,7 @@ with AI superpowers, voice notes, reactions, stats and an app lock.**
 
 No account · No cloud · No tracking · Your data never leaves your device
 
-[**Web app**](https://avithegod2010.github.io/WA-archiver/app/) · [Features](#-features) · [Quick start](#-quick-start) · [**User guide**](docs/user-guide.md) · [Android app](#-android-app-offline-apk) · [Host it yourself](docs/hosting.md) · [Privacy](#-privacy-model) · [FAQ](#-faq) · [Roadmap](#-roadmap)
+[**Web app**](https://avithegod2010.github.io/WA-archiver/app/) · [Features](#-features) · [Quick start](#-quick-start) · [**User guide**](docs/user-guide.md) · [Android app](#-android-app-offline-apk) · [Host it yourself](docs/hosting.md) · [Privacy](#-privacy-model) · [Policy](PRIVACY.md) · [FAQ](#-faq) · [Roadmap](#-roadmap)
 
 </div>
 
@@ -30,6 +30,15 @@ Three bullet points, honestly:
 
 > 💡 **No export at hand?** Click **Try demo chats** on first launch and explore a
 > fully-populated app in one second — no import needed.
+
+## 📸 Screenshots
+
+| | |
+|---|---|
+| ![Chat list](docs/screenshots/01-chat-list.png) | ![Chat view](docs/screenshots/02-chat-view-light.png) |
+| ![Insights](docs/screenshots/03-insights.png) | ![Dark mode](docs/screenshots/04-chat-view-dark.png) |
+
+*Chat list · chat view with voice notes & media · cross-chat Insights dashboard · dark mode.*
 
 > 📖 **Step-by-step help** — exporting from WhatsApp (Android/iOS), importing,
 > troubleshooting and device migration live in the [User guide](docs/user-guide.md).

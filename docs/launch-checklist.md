@@ -38,9 +38,9 @@ just index your release.
    (`.../releases/download/v1.2.0/WhatsApp-Viewer-v1.2.0-release.apk`).
 3. Izzy reviews (usually days, not weeks). Once included, every new GitHub
    release with a higher `versionCode` is picked up automatically.
-4. Optional but recommended: add screenshots to
+4. ~~Screenshots~~ ✅ done — 5 phone shots are already checked in at
    `fastlane/metadata/android/com.whatsappviewer.app/en-US/images/phoneScreenshots/`
-   (they appear on the Izzy listing).
+   (plus icon.png), so the listing is visual from day one.
 
 **One rule to keep:** never bump `versionCode` backwards, never replace an
 already-published APK file — publish a new release instead.
@@ -113,12 +113,15 @@ fdroiddata recipe.
 
 ## 3. Everything else worth doing for launch
 
-- [ ] **GitHub repo polish** — set the social preview image
-      (Settings → General → Social preview → upload `website/social-preview.png`)
-- [ ] **Repo topics** — `whatsapp`, `chat-export`, `local-first`, `pwa`,
-      `android`, `foss`, `offline-first`
-- [ ] **Screenshots in README** — 3-5 PNGs (chat view, insights, media hub,
-      settings) triple the conversion from the landing page
+- [x] **GitHub repo polish** — description, homepage URL and 14 topics are
+      set (verified via API). Only the **social preview image** remains —
+      it cannot be set via API: Settings → General → Social preview →
+      upload `website/social-preview.png`
+- [x] **Screenshots** — 5 real phone-resolution shots captured from the app
+      (docs/screenshots/, embedded in README, shipped in fastlane metadata
+      and on the landing page)
+- [x] **Privacy policy** — PRIVACY.md, linked from README + landing footer
+- [x] **Submission draft** — docs/izzy-submission-draft.md (paste-ready)
 - [ ] **Post the launch**:
       - r/fossdroid + r/degoogle + r/privacy (Reddit FOSS communities)
       - Lemmy `!opensource@lemmy.ml`, `!fossandroid@lemmy.ml`

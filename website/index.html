@@ -79,6 +79,10 @@
   .apk-txt{flex:1;min-width:240px}
   .apk-txt p{color:var(--muted);font-size:14.5px}
 
+  .shots{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,320px),1fr);gap:18px;justify-content:center}
+  .shots img{width:100%;border-radius:18px;border:1px solid var(--line);box-shadow:0 18px 44px rgba(0,0,0,.35);transition:.2s}
+  .shots img:hover{transform:translateY(-4px)}
+
   footer{border-top:1px solid var(--line);padding:34px 0 42px;text-align:center;color:var(--muted);font-size:13.5px}
   footer .fine{margin-top:8px;font-size:12.5px;opacity:.75;max-width:640px;margin-inline:auto}
   @media(max-width:640px){header.hero{padding:64px 0 56px}section{padding:54px 0}}
@@ -140,6 +144,18 @@
   </div>
 </section>
 
+<section>
+  <div class="wrap">
+    <h2 class="sec-title">Real screenshots</h2>
+    <p class="sec-sub">Light, dark and the analytics — all computed on-device.</p>
+    <div class="shots">
+      <img src="screenshots/chat-light.png" alt="WhatsApp Viewer chat view — light theme with voice note and media card" loading="lazy">
+      <img src="screenshots/chat-dark.png" alt="WhatsApp Viewer group chat — dark theme" loading="lazy">
+      <img src="screenshots/insights.png" alt="Insights dashboard with activity heatmap" loading="lazy">
+    </div>
+  </div>
+</section>
+
 <div class="strip">
   <div class="wrap strip-in">
     <div><b>🔒 Zero telemetry</b><br><span>No analytics, no trackers, no network calls unless you trigger AI</span></div>
@@ -175,7 +191,7 @@ cp .env.example .env && bun run db:push
 
 <footer>
   <div class="wrap">
-    <p><b>WhatsApp Viewer</b> — open source under the MIT License · <a href="https://github.com/Avithegod2010/WA-archiver">GitHub</a> · <a href="https://github.com/Avithegod2010/WA-archiver/releases">Releases</a></p>
+    <p><b>WhatsApp Viewer</b> — open source under the MIT License · <a href="https://github.com/Avithegod2010/WA-archiver">GitHub</a> · <a href="https://github.com/Avithegod2010/WA-archiver/releases">Releases</a> · <a href="https://github.com/Avithegod2010/WA-archiver/blob/main/PRIVACY.md">Privacy policy</a></p>
     <p class="fine">Not affiliated with, endorsed by, or connected to WhatsApp LLC or Meta Platforms. "WhatsApp" is a trademark of its respective owner. This tool reads export files produced by WhatsApp.</p>
   </div>
 </footer>
