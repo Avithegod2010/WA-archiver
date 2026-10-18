@@ -79,11 +79,19 @@ scripts/build-capacitor.mjs during the CI build.
 
 ## Checklist before you hit Submit on GitLab
 
-- [x] Signed release APK on GitHub Releases (v1.2.0, versionCode 3)
+- [x] Signed release APK on GitHub Releases (v1.3.0, versionCode 4 — Chat Archiver)
+- [x] Trademark-clean branding: "Chat Archiver" name + appId
+  `io.github.avithegod2010.chatarchiver` (no "WhatsApp" in name/ID; descriptive
+  use only)
 - [x] LICENSE (MIT) in repo root
 - [x] fastlane metadata: title / descriptions / changelogs / icon / screenshots
 - [x] Privacy policy: PRIVACY.md (linked from README + landing page)
 - [x] No trackers/analytics (dex-scanned v1.2.0 APK — zero hits)
 - [x] Issue tracker open
+- [ ] **(You)** Repo "About" metadata — the PAT can't set it (needs admin scope):
+      About ⚙️ → description *"Chat Archiver — read your exported WhatsApp chats
+      offline. Private, local-first, FOSS (MIT)."*, website
+      `https://avithegod2010.github.io/WA-archiver/`, topics add
+      `chat-reader` `chat-archive` `f-droid` `izzonydroid`
 - [ ] **(You)** GitLab account + submit the issue
-- [ ] **(You)** After acceptance: keep tagging releases (`v1.2.1`, …) — Izzy auto-updates
+- [ ] **(You)** After acceptance: keep tagging releases (`v1.3.1`, …) — Izzy auto-updates
