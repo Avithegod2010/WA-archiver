@@ -13,6 +13,7 @@ import {
   subscribe as subscribeEngine,
 } from './audio-engine'
 import { initialsForName } from './types'
+import { cn } from '@/lib/utils'
 import './dock-extras.css'
 
 /** Window event fired when the dock body is tapped (contract for ChatView). */
@@ -34,7 +35,7 @@ function prefersReducedMotion(): boolean {
  * (wa-audio-dock-open { chatId }) and jumps/flashes the message element
  * when one with [data-msg-id="<messageId>"] exists in the DOM.
  */
-export function AudioDock() {
+export function AudioDock({ raised = false }: { raised?: boolean }) {
   const s = useSyncExternalStore(subscribeEngine, getEngineState, getEngineState)
   const flashTimerRef = useRef<number | null>(null)
 
@@ -87,7 +88,15 @@ export function AudioDock() {
 
   return (
     <div
-      className="pointer-events-none fixed left-3 z-40 bottom-[calc(3rem+env(safe-area-inset-bottom,0px))] sm:bottom-14"
+      className={cn(
+        'pointer-events-none fixed left-3 z-40',
+        // Raised while a chat is open: the composer (input row + optional
+        // smart-reply chips) occupies the bottom ~6.5rem of the chat column,
+        // so the dock lifts above it instead of covering the "+"/mic buttons.
+        raised
+          ? 'bottom-[7.5rem] sm:bottom-[6.75rem]'
+          : 'bottom-[calc(3rem+env(safe-area-inset-bottom,0px))] sm:bottom-14'
+      )}
       role="region"
       aria-label="Voice message mini player"
     >

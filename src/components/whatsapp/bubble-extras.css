@@ -162,6 +162,29 @@
   word-break: break-word;
 }
 
+/* ------------------------------------------------------------------ */
+/* Long-press message popup (MessageActionSheet — WhatsApp-style card   */
+/* anchored to the pressed message, reaction pill on top)               */
+/* ------------------------------------------------------------------ */
+@keyframes wa-popup-in {
+  from {
+    opacity: 0;
+    transform: scale(0.9);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+.wa-msg-popup-in {
+  animation: wa-popup-in 170ms cubic-bezier(0.34, 1.56, 0.64, 1) both;
+}
+@media (prefers-reduced-motion: reduce) {
+  .wa-msg-popup-in {
+    animation: none;
+  }
+}
+
 /* Flash on the jumped-to message wrapper (matches ChatView jump highlight) */
 @keyframes wa-quote-flash-bg {
   0%,

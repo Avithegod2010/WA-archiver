@@ -46,7 +46,7 @@ import {
 } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import { toast } from 'sonner'
-import { Avatar, SavedAvatar } from './Avatar'
+import { Avatar, SavedAvatar, useChatAvatar } from './Avatar'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import {
@@ -146,14 +146,41 @@ const TYPE_META: Record<
   media: { icon: <ImageIcon className="h-3.5 w-3.5" />, label: 'Media' },
 }
 
-function Preview({ chat }: { chat: ChatSummary }) {
+/**
+ * Inline group-sender prefix ("Priya Nair: ") — kept INSIDE the same <p> as
+ * the preview so the row stays WhatsApp's single truncated line. Rendering it
+ * as a sibling block made rows wrap onto 3+ lines and clip at the list edge.
+ */
+function SenderPrefix({ sender }: { sender: string }) {
+  if (sender === 'You') return <span className="text-[13.5px]">You: </span>
+  return (
+    <span className="text-[13.5px]">
+      <span className="text-(--wa-text)">{sender}</span>{': '}
+    </span>
+  )
+}
+
+function Preview({
+  chat,
+  sender,
+}: {
+  chat: ChatSummary
+  /** Group sender shown inline before the preview ("Sender: preview"). */
+  sender?: string | null
+}) {
   if (chat.lastType === 'system') {
-    return <p className="truncate italic text-[13.5px]">{chat.lastPreview}</p>
+    return (
+      <p className="truncate text-[13.5px] italic">
+        {sender ? <SenderPrefix sender={sender} /> : null}
+        {chat.lastPreview}
+      </p>
+    )
   }
   const meta = TYPE_META[chat.lastType]
   if (meta) {
     return (
       <p className="truncate text-[13.5px]">
+        {sender ? <SenderPrefix sender={sender} /> : null}
         <span className="inline-flex items-center gap-1 align-[1px]">
           {meta.icon}
           {meta.label}
@@ -164,7 +191,12 @@ function Preview({ chat }: { chat: ChatSummary }) {
       </p>
     )
   }
-  return <p className="truncate text-[13.5px]">{chat.lastPreview}</p>
+  return (
+    <p className="truncate text-[13.5px]">
+      {sender ? <SenderPrefix sender={sender} /> : null}
+      {chat.lastPreview}
+    </p>
+  )
 }
 
 /** One chat row — shared by the active list and the archived drawer. */
@@ -198,6 +230,7 @@ function ChatRow({
 }) {
   const isSaved = chat.id === SAVED_CHAT_ID
   const hasUnread = !isArchived && unread > 0
+  const customAvatar = useChatAvatar(isSaved ? '' : chat.id)
   return (
     <button
       data-chat-idx={index}
@@ -222,7 +255,7 @@ function ChatRow({
           <SavedAvatar size={49} />
         </span>
       ) : (
-        <Avatar name={chat.title} size={49} />
+        <Avatar name={chat.title} size={49} src={customAvatar} />
       )}
       <div className="min-w-0 flex-1 border-b border-black/5 py-1.5 dark:border-white/5">
         <div className="flex items-baseline justify-between gap-2">
@@ -256,23 +289,10 @@ function ChatRow({
         </div>
         <div className="mt-0.5 flex items-center justify-between gap-2">
           <div className="min-w-0 flex-1 text-(--wa-text-2)">
-            {chat.isGroup && chat.lastSender ? (
-              <span className="text-[13.5px]">
-                {chat.lastSender === 'You' ? (
-                  'You: '
-                ) : (
-                  <>
-                    <span className="text-(--wa-text)">
-                      {chat.lastSender}
-                    </span>
-                    {': '}
-                  </>
-                )}
-              </span>
-            ) : null}
-            <span className="align-[1px]">
-              <Preview chat={chat} />
-            </span>
+            <Preview
+              chat={chat}
+              sender={chat.isGroup ? chat.lastSender : null}
+            />
           </div>
           {/* Unread pill (WhatsApp-style: below the timestamp, swaps to the
               hover actions while hovering) */}

@@ -1,6 +1,13 @@
 'use client'
 
-import { useState, type ReactNode } from 'react'
+import {
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type ReactNode,
+} from 'react'
+import { createPortal } from 'react-dom'
 import {
   Bookmark,
   BookmarkPlus,
@@ -19,14 +26,12 @@ import {
   Volume2,
 } from 'lucide-react'
 import { toast } from 'sonner'
-import { Sheet, SheetContent, SheetDescription, SheetTitle } from '@/components/ui/sheet'
-import { colorForName, type ChatMessage } from './types'
-import { formatChatTime } from './display'
+import { type ChatMessage } from './types'
 import { cn } from '@/lib/utils'
 
 export type ReactionMap = Record<string, string[]>
 
-/** Full quick-reaction grid (hover popover + action sheet). */
+/** Full quick-reaction grid (hover popover + action popup). */
 export const QUICK_REACTIONS = [
   '👍',
   '❤️',
@@ -42,7 +47,7 @@ export const QUICK_REACTIONS = [
   '🤝',
 ]
 
-/** Compact 6-emoji row at the top of the desktop context menu. */
+/** Compact 6-emoji row at the top of the desktop context menu + long-press popup. */
 export const MENU_REACTIONS = ['👍', '❤️', '😂', '😮', '😢', '🙏']
 
 const COPY_LABEL: Record<string, string> = {
@@ -107,26 +112,27 @@ function speechActive(): boolean {
   return speechAvailable() && window.speechSynthesis.speaking
 }
 
-function formatTime(iso: string): string {
-  return formatChatTime(iso)
-}
-
-function SheetRow({
+function PopupRow({
   icon,
   label,
   onClick,
+  refCb,
 }: {
   icon: ReactNode
   label: string
   onClick: () => void
+  refCb?: (el: HTMLButtonElement | null) => void
 }) {
   return (
     <button
       type="button"
+      ref={refCb}
       onClick={onClick}
-      className="flex h-12 w-full shrink-0 items-center gap-3 rounded-xl px-3 text-left text-[15px] text-(--wa-text) transition-colors hover:bg-black/5 active:bg-black/10 dark:hover:bg-white/5"
+      role="menuitem"
+      tabIndex={refCb ? 0 : -1}
+      className="flex h-11 w-full shrink-0 items-center gap-3 rounded-lg px-3 text-left text-[14.5px] text-(--wa-text) transition-colors hover:bg-black/[0.06] active:bg-black/10 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-(--wa-accent) dark:hover:bg-white/[0.07]"
     >
-      <span className="flex h-6 w-6 shrink-0 items-center justify-center text-(--wa-text-2)">
+      <span className="flex h-5 w-5 shrink-0 items-center justify-center text-(--wa-text-2)">
         {icon}
       </span>
       <span className="truncate">{label}</span>
@@ -134,10 +140,14 @@ function SheetRow({
   )
 }
 
+export type PopupPoint = { x: number; y: number }
+
 interface MessageActionSheetProps {
   msg: ChatMessage | null
   open: boolean
   onOpenChange: (open: boolean) => void
+  /** Long-press point (viewport coords) — the popup anchors near it. */
+  point?: PopupPoint | null
   /** Resolved media URL — enables the Download row when present. */
   src?: string | null
   /** Starts a reply to this message (quote in the composer). */
@@ -155,11 +165,24 @@ interface MessageActionSheetProps {
   onToggleSelect?: (id: string) => void
 }
 
-/** WhatsApp-style bottom action sheet, opened by long-press on touch devices. */
+const VIEWPORT_MARGIN = 8
+const POINT_GAP = 14
+
+/**
+ * WhatsApp-style long-press popup (floating card anchored to the pressed
+ * message, reaction pill on top — replaces the old bottom action sheet).
+ *
+ * Rendered through a portal (message rows sit inside animated wrappers whose
+ * transforms would otherwise become the containing block for fixed children).
+ * Position is measured after mount: centered horizontally on the press point,
+ * preferring the space ABOVE it (WhatsApp pops the menu over the finger) and
+ * flipping below when near the top edge, always clamped to the viewport.
+ */
 export function MessageActionSheet({
   msg,
   open,
   onOpenChange,
+  point,
   src,
   onReply,
   onEdit,
@@ -172,21 +195,84 @@ export function MessageActionSheet({
   onTranslate,
   onToggleSelect,
 }: MessageActionSheetProps) {
-  const [reactOpen, setReactOpen] = useState(false)
   const [speaking, setSpeaking] = useState(false)
+  const [pos, setPos] = useState<{
+    left: number
+    top: number
+    above: boolean
+  } | null>(null)
+  const cardRef = useRef<HTMLDivElement>(null)
+  const firstItemRef = useRef<HTMLButtonElement | null>(null)
 
-  // Reset the inline reaction grid on every close path (overlay, X, Esc, action).
-  const handleOpenChange = (o: boolean) => {
-    if (!o) setReactOpen(false)
-    onOpenChange(o)
-  }
+  // Measure + place the card once it is mounted (hidden pre-measure pass).
+  // Runs pre-paint, so the new position lands before the browser draws —
+  // reopening never shows a stale position. setState here is the standard
+  // DOM-measurement pattern (rule flagged as informational only).
+  useLayoutEffect(() => {
+    if (!open || !msg) return
+    const card = cardRef.current
+    if (!card) return
+    const rect = card.getBoundingClientRect()
+    const vw = window.innerWidth
+    const vh = window.innerHeight
+    const W = rect.width
+    const H = rect.height
+    const px = point?.x ?? vw / 2
+    const py = point?.y ?? vh / 2
+    const left = Math.min(
+      Math.max(px - W / 2, VIEWPORT_MARGIN),
+      Math.max(vw - W - VIEWPORT_MARGIN, VIEWPORT_MARGIN)
+    )
+    let above = true
+    let top = py - H - POINT_GAP
+    if (top < VIEWPORT_MARGIN) {
+      top = py + 28 + POINT_GAP // flip below the finger
+      above = false
+    }
+    if (top + H > vh - VIEWPORT_MARGIN) {
+      top = Math.max(vh - H - VIEWPORT_MARGIN, VIEWPORT_MARGIN)
+      above = py > top + H / 2
+    }
+    // DOM-measurement setState — runs pre-paint (standard measure pattern).
+    setPos({ left, top, above })
+    // Focus the first action for keyboard users (touch users never see it).
+    window.setTimeout(() => firstItemRef.current?.focus(), 0)
+  }, [open, msg, point?.x, point?.y])
 
-  if (!msg) return null
+  // Escape closes; body scroll is locked while the popup is up.
+  useEffect(() => {
+    if (!open) return
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        e.preventDefault()
+        onOpenChange(false)
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    const prevOverflow = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+    return () => {
+      window.removeEventListener('keydown', onKey)
+      document.body.style.overflow = prevOverflow
+    }
+  }, [open, onOpenChange])
 
-  const close = () => onOpenChange(false)
+  // Reset the inline reaction state on every close path.
+  const handleOpenChange = (o: boolean) => onOpenChange(o)
+
+  if (!msg || !open || typeof document === 'undefined') return null
+
+  const close = () => handleOpenChange(false)
   const pinned = isPinned(msg)
-  const sender = msg.sender ?? ''
-  const senderIsMe = sender === 'You'
+
+  /** Only the first rendered row gets the initial focus. */
+  const firstRow = onReply ? 'reply' : onEdit ? 'edit' : 'copy'
+  const firstRef = (row: string) =>
+    row === firstRow
+      ? (el: HTMLButtonElement | null) => {
+          firstItemRef.current = el
+        }
+      : undefined
 
   const speakable = !!msg.body?.trim()
   const isSpeaking = speaking || speechActive()
@@ -232,48 +318,83 @@ export function MessageActionSheet({
     close()
   }
 
-  return (
-    <Sheet open={open} onOpenChange={handleOpenChange}>
-      <SheetContent
-        side="bottom"
-        className="max-h-[85dvh] gap-2 overflow-y-auto rounded-t-2xl border-t-0 px-3 pt-2 pb-[calc(12px+env(safe-area-inset-bottom))]"
+  const popup = (
+    <div
+      className="fixed inset-0 z-[60]"
+      onPointerDown={(e) => {
+        if (e.target === e.currentTarget) close()
+      }}
+      onContextMenu={(e) => e.preventDefault()}
+      role="presentation"
+    >
+      {/* WhatsApp keeps the chat visible behind the popup — the backdrop is
+          a plain event catcher (no dim) and the card carries the surface. */}
+      <div
+        ref={cardRef}
+        role="menu"
+        aria-label="Message actions"
+        style={{
+          left: pos?.left ?? 0,
+          top: pos?.top ?? -9999,
+          visibility: pos ? 'visible' : 'hidden',
+          transformOrigin: pos ? (pos.above ? '50% 100%' : '50% 0%') : undefined,
+        }}
+        className={cn(
+          'wa-msg-popup absolute w-[248px] max-w-[calc(100vw-16px)] rounded-2xl border border-(--wa-line) bg-(--wa-panel) p-1.5 shadow-[0_12px_40px_rgba(11,20,26,0.35)] dark:bg-(--wa-panel-2)',
+          pos && 'wa-msg-popup-in'
+        )}
       >
-        <SheetTitle className="sr-only">Message actions</SheetTitle>
-        <SheetDescription className="sr-only">
-          Choose an action for this message
-        </SheetDescription>
-
-        {/* Drag handle */}
-        <div
-          className="mx-auto h-1.5 w-12 shrink-0 rounded-full bg-black/15 dark:bg-white/20"
-          aria-hidden="true"
-        />
-
-        {/* Message preview */}
-        <div className="shrink-0 rounded-[7.5px] bg-(--wa-in) px-3 py-2 text-(--wa-text) shadow-sm">
-          {sender && (
-            <p
-              className="text-[12.5px] font-semibold leading-tight"
-              style={{
-                color: senderIsMe ? 'var(--wa-accent-strong)' : colorForName(sender),
-              }}
+        {/* Reaction pill — WhatsApp's signature row on top of the menu */}
+        {onReact && (
+          <>
+            <div
+              className="mb-1 flex items-center justify-between gap-0.5 rounded-xl bg-black/[0.045] px-1 py-1 dark:bg-white/[0.06]"
+              role="group"
+              aria-label="React to this message"
             >
-              {senderIsMe ? 'You' : sender}
-            </p>
-          )}
-          <p className="line-clamp-2 break-words text-[13.5px] leading-snug whitespace-pre-wrap">
-            {baseTextFor(msg) || 'Media message'}
-          </p>
-          <p className="mt-0.5 text-right text-[10.5px] text-(--wa-text-2)">
-            {formatTime(msg.ts)}
-          </p>
-        </div>
+              {MENU_REACTIONS.map((em) => (
+                <button
+                  key={em}
+                  type="button"
+                  role="menuitemradio"
+                  aria-checked={iReacted(msg, em)}
+                  aria-label={iReacted(msg, em) ? `Remove ${em} reaction` : `React ${em}`}
+                  onClick={() => {
+                    onReact(msg.id, em)
+                    toast.success(
+                      iReacted(msg, em) ? 'Reaction removed' : `Reacted ${em}`
+                    )
+                    close()
+                  }}
+                  className={cn(
+                    'flex h-9 w-9 items-center justify-center rounded-full text-[22px] leading-none transition-transform hover:scale-125 active:scale-95 motion-reduce:transition-none',
+                    iReacted(msg, em) && 'bg-(--wa-accent)/20 ring-1 ring-(--wa-accent)'
+                  )}
+                >
+                  {em}
+                </button>
+              ))}
+              <span
+                className="flex h-9 w-9 items-center justify-center rounded-full text-(--wa-text-2)"
+                title="Open the message menu for more reactions"
+                aria-hidden
+              >
+                <SmilePlus className="h-4.5 w-4.5" />
+              </span>
+            </div>
+            <div
+              className="mx-2 mb-1 h-px shrink-0 bg-black/8 dark:bg-white/10"
+              aria-hidden="true"
+            />
+          </>
+        )}
 
         {/* Action rows */}
-        <div className="flex shrink-0 flex-col pb-1">
+        <div className="flex flex-col">
           {onReply && (
-            <SheetRow
-              icon={<Reply className="h-5 w-5 text-(--wa-accent)" />}
+            <PopupRow
+              refCb={firstRef('reply')}
+              icon={<Reply className="h-4.5 w-4.5 text-(--wa-accent)" />}
               label="Reply"
               onClick={() => {
                 onReply(msg)
@@ -281,44 +402,10 @@ export function MessageActionSheet({
               }}
             />
           )}
-          {onReact && (
-            <>
-              <SheetRow
-                icon={<SmilePlus className="h-5 w-5" />}
-                label={reactOpen ? 'Pick a reaction' : 'React'}
-                onClick={() => setReactOpen((v) => !v)}
-              />
-              {reactOpen && (
-                <div className="wa-chip-pop grid grid-cols-6 gap-1 px-1 pt-0.5 pb-1">
-                  {QUICK_REACTIONS.map((em) => (
-                    <button
-                      key={em}
-                      type="button"
-                      aria-label={iReacted(msg, em) ? `Remove ${em} reaction` : `React ${em}`}
-                      onClick={() => {
-                        onReact(msg.id, em)
-                        toast.success(iReacted(msg, em) ? 'Reaction removed' : `Reacted ${em}`)
-                        close()
-                      }}
-                      className={cn(
-                        'flex h-11 w-11 items-center justify-center justify-self-center rounded-full text-2xl transition-transform hover:scale-110 active:scale-95 motion-reduce:transition-none',
-                        iReacted(msg, em) && 'bg-(--wa-accent)/15 ring-2 ring-(--wa-accent)'
-                      )}
-                    >
-                      {em}
-                    </button>
-                  ))}
-                </div>
-              )}
-              <div
-                className="mx-3 my-1 h-px shrink-0 bg-black/8 dark:bg-white/10"
-                aria-hidden="true"
-              />
-            </>
-          )}
           {onEdit && (
-            <SheetRow
-              icon={<Pencil className="h-5 w-5" />}
+            <PopupRow
+              refCb={firstRef('edit')}
+              icon={<Pencil className="h-4.5 w-4.5" />}
               label="Edit message"
               onClick={() => {
                 onEdit(msg)
@@ -326,8 +413,9 @@ export function MessageActionSheet({
               }}
             />
           )}
-          <SheetRow
-            icon={<Copy className="h-5 w-5" />}
+          <PopupRow
+            refCb={firstRef('copy')}
+            icon={<Copy className="h-4.5 w-4.5" />}
             label="Copy"
             onClick={() => {
               copyMessage(msg)
@@ -335,9 +423,9 @@ export function MessageActionSheet({
             }}
           />
           {onForwardSaved && (
-            <SheetRow
-              icon={<BookmarkPlus className="h-5 w-5 text-(--wa-accent)" />}
-              label="Forward to Saved Messages"
+            <PopupRow
+              icon={<BookmarkPlus className="h-4.5 w-4.5 text-(--wa-accent)" />}
+              label="Forward to Saved"
               onClick={() => {
                 onForwardSaved(msg)
                 close()
@@ -345,8 +433,8 @@ export function MessageActionSheet({
             />
           )}
           {onBookmark && (
-            <SheetRow
-              icon={<Bookmark className="h-5 w-5 text-(--wa-accent)" />}
+            <PopupRow
+              icon={<Bookmark className="h-4.5 w-4.5 text-(--wa-accent)" />}
               label="Bookmark message"
               onClick={() => {
                 onBookmark(msg)
@@ -355,12 +443,12 @@ export function MessageActionSheet({
             />
           )}
           {onToggleStar && (
-            <SheetRow
+            <PopupRow
               icon={
                 msg.starred ? (
-                  <StarOff className="h-5 w-5 text-[#f2a33c]" />
+                  <StarOff className="h-4.5 w-4.5 text-[#f2a33c]" />
                 ) : (
-                  <Star className="h-5 w-5 text-[#f2a33c]" />
+                  <Star className="h-4.5 w-4.5 text-[#f2a33c]" />
                 )
               }
               label={msg.starred ? 'Unstar message' : 'Star message'}
@@ -371,12 +459,12 @@ export function MessageActionSheet({
             />
           )}
           {onPinMessage && (
-            <SheetRow
+            <PopupRow
               icon={
                 pinned ? (
-                  <PinOff className="h-5 w-5" />
+                  <PinOff className="h-4.5 w-4.5" />
                 ) : (
-                  <Pin className="h-5 w-5" />
+                  <Pin className="h-4.5 w-4.5" />
                 )
               }
               label={pinned ? 'Unpin message' : 'Pin message'}
@@ -387,8 +475,8 @@ export function MessageActionSheet({
             />
           )}
           {onTranslate && (
-            <SheetRow
-              icon={<Languages className="h-5 w-5 text-(--wa-accent)" />}
+            <PopupRow
+              icon={<Languages className="h-4.5 w-4.5 text-(--wa-accent)" />}
               label="Translate with AI"
               onClick={() => {
                 onTranslate(msg)
@@ -397,12 +485,12 @@ export function MessageActionSheet({
             />
           )}
           {speakable && (
-            <SheetRow
+            <PopupRow
               icon={
                 isSpeaking ? (
-                  <Square className="h-5 w-5 text-rose-500" />
+                  <Square className="h-4.5 w-4.5 text-rose-500" />
                 ) : (
-                  <Volume2 className="h-5 w-5 text-(--wa-accent)" />
+                  <Volume2 className="h-4.5 w-4.5 text-(--wa-accent)" />
                 )
               }
               label={isSpeaking ? 'Stop reading' : 'Speak'}
@@ -414,17 +502,18 @@ export function MessageActionSheet({
               href={src}
               download={msg.mediaName ?? true}
               onClick={close}
-              className="flex h-12 w-full shrink-0 items-center gap-3 rounded-xl px-3 text-left text-[15px] text-(--wa-text) transition-colors hover:bg-black/5 active:bg-black/10 dark:hover:bg-white/5"
+              role="menuitem"
+              className="flex h-11 w-full shrink-0 items-center gap-3 rounded-lg px-3 text-left text-[14.5px] text-(--wa-text) transition-colors hover:bg-black/[0.06] active:bg-black/10 dark:hover:bg-white/[0.07]"
             >
-              <span className="flex h-6 w-6 shrink-0 items-center justify-center text-(--wa-text-2)">
-                <Download className="h-5 w-5" />
+              <span className="flex h-5 w-5 shrink-0 items-center justify-center text-(--wa-text-2)">
+                <Download className="h-4.5 w-4.5" />
               </span>
               <span className="truncate">Download media</span>
             </a>
           )}
           {(onToggleSelect || onSelect) && (
-            <SheetRow
-              icon={<ListChecks className="h-5 w-5" />}
+            <PopupRow
+              icon={<ListChecks className="h-4.5 w-4.5" />}
               label="Select message"
               onClick={() => {
                 if (onToggleSelect) onToggleSelect(msg.id)
@@ -434,7 +523,9 @@ export function MessageActionSheet({
             />
           )}
         </div>
-      </SheetContent>
-    </Sheet>
+      </div>
+    </div>
   )
+
+  return createPortal(popup, document.body)
 }

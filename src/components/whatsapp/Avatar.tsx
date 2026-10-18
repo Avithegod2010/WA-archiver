@@ -1,22 +1,42 @@
 'use client'
 
+import { useSyncExternalStore } from 'react'
 import { Bookmark } from 'lucide-react'
+import {
+  getChatAvatar,
+  subscribeChatAvatars,
+} from './chat-avatars'
 import { colorForName, initialsForName } from './types'
 import { cn } from '@/lib/utils'
+
+/**
+ * Reactively read a chat's custom photo (null = show initials). Subscribes to
+ * set/remove events and cross-tab storage changes.
+ */
+export function useChatAvatar(chatId: string): string | null {
+  return useSyncExternalStore(
+    subscribeChatAvatars,
+    () => getChatAvatar(chatId),
+    () => null
+  )
+}
 
 export function Avatar({
   name,
   size = 49,
   className,
+  src,
 }: {
   name: string
   size?: number
   className?: string
+  /** Custom photo (data URL) — replaces the initials fallback when set. */
+  src?: string | null
 }) {
   return (
     <div
       className={cn(
-        'flex shrink-0 select-none items-center justify-center rounded-full text-white',
+        'flex shrink-0 select-none items-center justify-center overflow-hidden rounded-full text-white',
         className
       )}
       style={{
@@ -29,7 +49,16 @@ export function Avatar({
       }}
       aria-hidden="true"
     >
-      {initialsForName(name)}
+      {src ? (
+        <img
+          src={src}
+          alt=""
+          draggable={false}
+          className="h-full w-full rounded-full object-cover"
+        />
+      ) : (
+        initialsForName(name)
+      )}
     </div>
   )
 }

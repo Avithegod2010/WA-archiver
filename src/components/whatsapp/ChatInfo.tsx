@@ -1,12 +1,13 @@
 'use client'
 
-import { useMemo, useState } from 'react'
+import { useRef, useMemo, useState } from 'react'
 import {
   BarChart3,
   Bell,
   BellOff,
   CalendarCheck2,
   CalendarDays,
+  Camera,
   FileText,
   Flame,
   HelpCircle,
@@ -17,9 +18,11 @@ import {
   Palette,
   Slash,
   Timer,
+  Trash2,
   Users,
   Video,
 } from 'lucide-react'
+import { toast } from 'sonner'
 import {
   Dialog,
   DialogContent,
@@ -27,9 +30,13 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
-import { Avatar } from './Avatar'
+import { Avatar, useChatAvatar } from './Avatar'
 import type { ChatDetailChat, ChatMessage } from './types'
 import { colorForName } from './types'
+import {
+  fileToAvatarDataUrl,
+  setChatAvatar,
+} from './chat-avatars'
 import {
   EMOJI_RE,
   URL_TEST_RE,
@@ -222,9 +229,11 @@ export function ChatInfo({
       <DialogContent className="wa-scroll max-h-[85vh] overflow-y-auto bg-(--wa-panel-2) p-0 dark:bg-(--wa-panel) sm:max-w-md">
         <DialogHeader className="bg-(--wa-appbar) p-6">
           <div className="anim-fade-up flex flex-col items-center gap-3 text-center">
-            <div className="anim-pop">
-              <Avatar name={chat.title} size={88} className="ring-4 ring-white/20" />
-            </div>
+            <ChatAvatarHeader
+              key={`avatar-${chat.id}`}
+              chatId={chat.id}
+              title={chat.title}
+            />
             <div>
               <DialogTitle className="text-xl font-medium text-white dark:text-(--wa-text)">
                 {chat.title}
@@ -524,6 +533,93 @@ export function ChatInfo({
         </div>
       </DialogContent>
     </Dialog>
+  )
+}
+
+/**
+ * Chat-info avatar with "use your own media" editing (feature: custom chat
+ * photo). Camera badge opens a file picker; the picked image is center-cropped
+ * to a square, downscaled to ≤192px JPEG and stored as a data URL keyed by the
+ * chat id — the same photo then shows in the chat list row and chat header.
+ */
+function ChatAvatarHeader({
+  chatId,
+  title,
+}: {
+  chatId: string
+  title: string
+}) {
+  const customAvatar = useChatAvatar(chatId)
+  const fileInputRef = useRef<HTMLInputElement>(null)
+  const [busy, setBusy] = useState(false)
+
+  const onPick = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    e.target.value = '' // allow re-picking the same file later
+    if (!file || busy) return
+    setBusy(true)
+    try {
+      const dataUrl = await fileToAvatarDataUrl(file)
+      setChatAvatar(chatId, dataUrl)
+      toast.success('Chat photo updated')
+    } catch {
+      toast.error('Could not use that image — try a JPG or PNG')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <div className="anim-pop flex flex-col items-center gap-2">
+      <div className="relative">
+        <Avatar
+          name={title}
+          size={88}
+          className="ring-4 ring-white/20"
+          src={customAvatar}
+        />
+        <button
+          type="button"
+          onClick={() => fileInputRef.current?.click()}
+          disabled={busy}
+          aria-label={customAvatar ? 'Change chat photo' : 'Set chat photo'}
+          title={customAvatar ? 'Change chat photo' : 'Set photo from your media'}
+          className="absolute -bottom-0.5 -right-0.5 flex h-8 w-8 items-center justify-center rounded-full bg-(--wa-accent) text-white shadow-md ring-2 ring-(--wa-appbar) transition-transform hover:scale-110 active:scale-95 disabled:opacity-60"
+        >
+          <Camera className="h-4 w-4" aria-hidden />
+        </button>
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept="image/*"
+          className="hidden"
+          onChange={onPick}
+        />
+      </div>
+      <div className="flex items-center gap-2" aria-live="polite">
+        <button
+          type="button"
+          onClick={() => fileInputRef.current?.click()}
+          disabled={busy}
+          className="rounded-full px-2 py-0.5 text-[11.5px] font-medium text-white/85 underline-offset-2 transition-colors hover:text-white hover:underline disabled:opacity-60"
+        >
+          {customAvatar ? 'Change photo' : 'Use your own photo'}
+        </button>
+        {customAvatar && (
+          <button
+            type="button"
+            onClick={() => {
+              setChatAvatar(chatId, null)
+              toast.success('Custom photo removed')
+            }}
+            className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11.5px] font-medium text-white/70 underline-offset-2 transition-colors hover:text-white hover:underline"
+          >
+            <Trash2 className="h-3 w-3" aria-hidden />
+            Remove
+          </button>
+        )}
+      </div>
+    </div>
   )
 }
 

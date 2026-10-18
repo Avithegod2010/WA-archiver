@@ -60,7 +60,7 @@ import {
   X,
   Info,
 } from 'lucide-react'
-import { Avatar, SavedAvatar } from './Avatar'
+import { Avatar, SavedAvatar, useChatAvatar } from './Avatar'
 import { MessageBubble } from './MessageBubble'
 import { ChatInfo } from './ChatInfo'
 import { MediaGallery } from './MediaGallery'
@@ -1575,6 +1575,7 @@ export function ChatView({
   /* ------------ Multi-select + reply + forward dialog (10-b) ------------ */
 
   const isSavedChat = detail?.chat.id === SAVED_CHAT_ID
+  const customAvatar = useChatAvatar(isSavedChat ? '' : (detail?.chat.id ?? ''))
   /* ---- 14-b: demo-chat marker — persona auto-replies only ever run here
      (sourceFile is `demo://<id>@v2` for demo chats; imports keep their file
      name and Saved Messages is `local`). */
@@ -2760,7 +2761,7 @@ export function ChatView({
           {isSavedChat ? (
             <SavedAvatar size={40} />
           ) : (
-            <Avatar name={chat.title} size={40} />
+            <Avatar name={chat.title} size={40} src={customAvatar} />
           )}
           <div className="min-w-0">
             <h2 className="truncate text-[16px] font-medium leading-tight text-(--wa-text)">
@@ -3613,57 +3614,58 @@ export function ChatView({
           onPick={handleScrubPick}
           containerRef={scrollRef}
         />
-      </div>
 
-      {/* Scroll-to-bottom FAB (WhatsApp style) — springs in/out of view */}
-      <button
-        onClick={handleScrollToBottom}
-        aria-label="Scroll to latest messages"
-        aria-hidden={!showFab || searchOpen}
-        tabIndex={showFab && !searchOpen ? 0 : -1}
-        className={cn(
-          'absolute bottom-[68px] right-4 z-20 flex h-10 w-10 items-center justify-center rounded-full bg-(--wa-in) text-(--wa-text-2) shadow-[0_1px_3px_rgba(11,20,26,0.3)] transition-all duration-300 [transition-timing-function:cubic-bezier(0.34,1.56,0.64,1)] hover:scale-110 active:scale-90 dark:bg-(--wa-panel-2) dark:text-(--wa-text-2)',
-          showFab && !searchOpen
-            ? 'translate-y-0 scale-100 opacity-100'
-            : 'pointer-events-none translate-y-4 scale-50 opacity-0'
-        )}
-      >
-        <ChevronDown className="h-6 w-6" />
-      </button>
-
-      {/* Unread pill (14-f) — WhatsApp-style "N new messages" (emerald),
-          stacked above the scroll-to-bottom chevron (bottom-[68px] + h-10)
-          and clear of the scheduled chip (top edge ≈116px above the
-          composer); hidden with the rest of the chrome while the search
-          panel is open; visible while the first unread message is out of
-          view (plus the clamped-open exception — see updateUnreadPill). */}
-      {unreadInfo && unreadInfo.count > 0 && (
+        {/* Scroll-to-bottom FAB (WhatsApp style) — springs in/out of view.
+            Anchored INSIDE the message wrapper so its bottom edge always sits
+            just above the composer, whatever the composer's current height
+            (bare input vs input + smart-reply chips) — no overlap possible. */}
         <button
-          type="button"
-          onClick={handleUnreadPillClick}
-          aria-label="Jump to unread messages"
-          aria-hidden={!showUnreadPill || selecting || searchOpen}
-          tabIndex={showUnreadPill && !selecting && !searchOpen ? 0 : -1}
+          onClick={handleScrollToBottom}
+          aria-label="Scroll to latest messages"
+          aria-hidden={!showFab || searchOpen}
+          tabIndex={showFab && !searchOpen ? 0 : -1}
           className={cn(
-            'absolute bottom-[120px] right-4 z-20 flex h-9 items-center gap-1.5 rounded-full bg-emerald-600 px-3.5 text-[12.5px] font-medium text-white shadow-lg transition-all duration-300 [transition-timing-function:cubic-bezier(0.34,1.56,0.64,1)] hover:bg-emerald-500 active:scale-95 dark:bg-emerald-600 dark:hover:bg-emerald-500',
-            showUnreadPill && !selecting && !searchOpen
+            'absolute bottom-3 right-4 z-20 flex h-10 w-10 items-center justify-center rounded-full bg-(--wa-in) text-(--wa-text-2) shadow-[0_1px_3px_rgba(11,20,26,0.3)] transition-all duration-300 [transition-timing-function:cubic-bezier(0.34,1.56,0.64,1)] hover:scale-110 active:scale-90 dark:bg-(--wa-panel-2) dark:text-(--wa-text-2)',
+            showFab && !searchOpen
               ? 'translate-y-0 scale-100 opacity-100'
               : 'pointer-events-none translate-y-4 scale-50 opacity-0'
           )}
         >
-          <ArrowDown className="h-4 w-4 shrink-0" aria-hidden />
-          <span className="whitespace-nowrap tabular-nums">
-            {unreadInfo.count} new message{unreadInfo.count === 1 ? '' : 's'}
-          </span>
+          <ChevronDown className="h-6 w-6" />
         </button>
-      )}
 
-      {/* Movie mode (10-i) — entry FAB + playback bar (auto-scroll the chat) */}
-      <MovieMode
-        containerRef={scrollRef}
-        enabled={movieMode}
-        onEnabledChange={setMovieMode}
-      />
+        {/* Unread pill (14-f) — WhatsApp-style "N new messages" (emerald).
+            Stacked above the movie-mode FAB (bottom-[60px] + h-11), which is
+            stacked above the scroll-to-bottom chevron (bottom-3 + h-10) — a
+            clean 12px-gapped column with zero overlap between the three. */}
+        {unreadInfo && unreadInfo.count > 0 && (
+          <button
+            type="button"
+            onClick={handleUnreadPillClick}
+            aria-label="Jump to unread messages"
+            aria-hidden={!showUnreadPill || selecting || searchOpen}
+            tabIndex={showUnreadPill && !selecting && !searchOpen ? 0 : -1}
+            className={cn(
+              'absolute bottom-[116px] right-4 z-20 flex h-9 items-center gap-1.5 rounded-full bg-emerald-600 px-3.5 text-[12.5px] font-medium text-white shadow-lg transition-all duration-300 [transition-timing-function:cubic-bezier(0.34,1.56,0.64,1)] hover:bg-emerald-500 active:scale-95 dark:bg-emerald-600 dark:hover:bg-emerald-500',
+              showUnreadPill && !selecting && !searchOpen
+                ? 'translate-y-0 scale-100 opacity-100'
+                : 'pointer-events-none translate-y-4 scale-50 opacity-0'
+            )}
+          >
+            <ArrowDown className="h-4 w-4 shrink-0" aria-hidden />
+            <span className="whitespace-nowrap tabular-nums">
+              {unreadInfo.count} new message{unreadInfo.count === 1 ? '' : 's'}
+            </span>
+          </button>
+        )}
+
+        {/* Movie mode (10-i) — entry FAB + playback bar (auto-scroll the chat) */}
+        <MovieMode
+          containerRef={scrollRef}
+          enabled={movieMode}
+          onEnabledChange={setMovieMode}
+        />
+      </div>
 
       {/* Reading mode (idea #18) — full-screen clean transcript overlay */}
       {readingOpen && (

@@ -288,7 +288,10 @@ function useCoarsePointer(): boolean {
  * moves >10px (scroll) or lifts/cancels. On touch devices the Radix
  * ContextMenu is skipped entirely to avoid double long-press menus.
  */
-function useLongPress(onFire: () => void, enabled: boolean) {
+function useLongPress(
+  onFire: (point: { x: number; y: number }) => void,
+  enabled: boolean
+) {
   const timer = useRef<number | null>(null)
   const startXY = useRef<{ x: number; y: number } | null>(null)
   const [pressing, setPressing] = useState(false)
@@ -318,7 +321,7 @@ function useLongPress(onFire: () => void, enabled: boolean) {
         timer.current = window.setTimeout(() => {
           timer.current = null
           navigator.vibrate?.(15)
-          onFire()
+          onFire(startXY.current ?? { x: e.clientX, y: e.clientY })
         }, 450)
       },
       onPointerMove(e: React.PointerEvent) {
@@ -368,7 +371,7 @@ function useHeartBurst() {
   return { spawnHeart, heartsNode }
 }
 
-/** Per-bubble extras: coarse long-press → action sheet, double-click → ❤️. */
+/** Per-bubble extras: coarse long-press → action popup, double-click → ❤️. */
 function useMessageExtras(
   msg: ChatMessage,
   opts: {
@@ -378,8 +381,16 @@ function useMessageExtras(
 ) {
   const coarse = useCoarsePointer()
   const [sheetOpen, setSheetOpen] = useState(false)
+  /** Viewport point where the finger was when the long-press fired. */
+  const [sheetPoint, setSheetPoint] = useState<{
+    x: number
+    y: number
+  } | null>(null)
   const longPress = useLongPress(
-    () => setSheetOpen(true),
+    (pt) => {
+      setSheetPoint(pt)
+      setSheetOpen(true)
+    },
     coarse && !opts.selectMode
   )
   const { spawnHeart, heartsNode } = useHeartBurst()
@@ -401,6 +412,7 @@ function useMessageExtras(
     coarse,
     sheetOpen,
     setSheetOpen,
+    sheetPoint,
     longPress,
     onBubbleDoubleClick,
     heartsNode,
@@ -1725,6 +1737,7 @@ export function MessageBubble({
         msg={msg}
         open={extras.sheetOpen}
         onOpenChange={extras.setSheetOpen}
+        point={extras.sheetPoint}
         src={src}
         onReply={swipeEnabled ? onReply : undefined}
         onEdit={
@@ -2008,6 +2021,7 @@ function OutgoingBubble({
         msg={msg}
         open={extras.sheetOpen}
         onOpenChange={extras.setSheetOpen}
+        point={extras.sheetPoint}
         src={src}
         onReply={swipeEnabled ? onReply : undefined}
         onEdit={

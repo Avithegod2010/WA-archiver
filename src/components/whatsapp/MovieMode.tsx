@@ -47,7 +47,7 @@ export function MovieMode({
         type="button"
         onClick={() => onEnabledChange(true)}
         className="wa-movie-fab wa-iconbtn absolute right-4 z-20 flex h-11 w-11 items-center justify-center rounded-full bg-(--wa-in) text-(--wa-text-2) shadow-[0_1px_3px_rgba(11,20,26,0.3)] transition-transform hover:scale-110 active:scale-95 dark:bg-(--wa-panel-2)"
-        style={{ bottom: 'calc(118px + env(safe-area-inset-bottom, 0px))' }}
+        style={{ bottom: 'calc(60px + env(safe-area-inset-bottom, 0px))' }}
         aria-label="Movie mode — auto-scroll the chat"
         title="Movie mode — auto-scroll the chat"
       >

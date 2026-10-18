@@ -1701,12 +1701,15 @@ function WhatsAppAppInner() {
       {/* Notification-style incoming-message toasts (playful simulator) */}
       <NotifToasts chats={chats} onOpenChat={openChat} />
 
-      {/* Floating voice-note mini player — playback survives chat switches */}
-      <AudioDock />
+      {/* Floating voice-note mini player — playback survives chat switches.
+          Raised above the composer while a chat is open (no overlap). */}
+      <AudioDock raised={!!activeId} />
       <ScheduledDispatchPoller />
 
-      {/* PWA install banner — floating, above the sticky footer */}
-      <PwaInstallBanner />
+      {/* PWA install banner — floating above the sticky footer. Hidden while
+          a chat is open: the fixed card sat on top of the composer / smart
+          replies (overlap), and no install nudge belongs mid-conversation. */}
+      {!activeId && <PwaInstallBanner />}
 
       {/* App lock overlay — top-most (#15) */}
       <AppLock />
