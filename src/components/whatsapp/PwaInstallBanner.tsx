@@ -123,7 +123,7 @@ export function PwaInstallBanner() {
   useEffect(() => {
     const onInstalled = () => {
       setState('hidden')
-      toast.success('Chat Archiver installed — find it on your Home screen')
+      toast.success('WA Archiver installed — find it on your Home screen')
     }
     window.addEventListener('appinstalled', onInstalled)
     return () => window.removeEventListener('appinstalled', onInstalled)
@@ -158,20 +158,20 @@ export function PwaInstallBanner() {
 
   return (
     <aside
-      aria-label="Install Chat Archiver"
+      aria-label="Install WA Archiver"
       className="animate-in fade-in slide-in-from-bottom-4 fixed inset-x-3 bottom-[calc(env(safe-area-inset-bottom)+3.5rem)] z-40 rounded-2xl border border-(--wa-line) bg-(--wa-panel) shadow-lg duration-300 sm:inset-x-auto sm:left-1/2 sm:w-[26.5rem] sm:-translate-x-1/2 motion-reduce:animate-none motion-reduce:transition-none"
     >
       <div className="flex items-center gap-3 p-4">
         {/* App icon */}
         <img
           src="/icon.svg"
-          alt="Chat Archiver app icon"
+          alt="WA Archiver app icon"
           className="h-11 w-11 shrink-0 rounded-xl shadow-sm"
         />
 
         <div className="min-w-0 flex-1">
           <p className="text-[14px] leading-tight font-semibold text-(--wa-text)">
-            Install Chat Archiver
+            Install WA Archiver
           </p>
           {state === 'ios' ? (
             <p className="mt-1 flex items-center gap-1.5 text-[12px] leading-snug text-(--wa-text-2)">
@@ -194,7 +194,7 @@ export function PwaInstallBanner() {
               size="sm"
               className="h-10 gap-1.5 rounded-full bg-(--wa-accent) px-4 text-[13px] font-medium text-white hover:bg-(--wa-accent-strong)"
               onClick={() => void handleInstall()}
-              aria-label="Install Chat Archiver"
+              aria-label="Install WA Archiver"
             >
               <Download className="h-4 w-4" aria-hidden />
               Install

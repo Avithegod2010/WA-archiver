@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="docs/assets/banner.svg" alt="Chat Archiver — read, explore and enrich your exported WhatsApp chats, privately and locally" width="100%">
+<img src="docs/assets/banner.svg" alt="WA Archiver — read, explore and enrich your exported WhatsApp chats, privately and locally" width="100%">
 
 [![Release](https://img.shields.io/github/v/release/Avithegod2010/WA-archiver?color=00A884&label=release&logo=github)](https://github.com/Avithegod2010/WA-archiver/releases/latest)
 [![License](https://img.shields.io/badge/license-MIT-00A884.svg)](LICENSE)
@@ -33,7 +33,7 @@ No account · No cloud · No tracking · Your data never leaves your device
 Three bullet points, honestly:
 
 - 📥 **You export** — In WhatsApp, open a chat → `⋮ → More → Export chat → with media`. You get a `.zip` (or `.txt`).
-- 💬 **You drop it in** — Chat Archiver reads the export and shows it in a familiar, polished chat interface: bubbles, replies, reactions, photos, voice notes, documents, locations.
+- 💬 **You drop it in** — WA Archiver reads the export and shows it in a familiar, polished chat interface: bubbles, replies, reactions, photos, voice notes, documents, locations.
 - 🔒 **It stays yours** — Everything is stored in a local SQLite database on your own device. No server, no login, no analytics. Optional AI features use *your own* key and talk straight to Google.
 
 > 💡 **No export at hand?** Click **Try demo chats** on first launch and explore a
@@ -113,8 +113,8 @@ included), or self-host it: see **[docs/hosting.md](docs/hosting.md)**
 
 ```bash
 # 1. Clone & install
-git clone https://github.com/Avithegod2010/WA-archiver.git chat-archiver
-cd chat-archiver
+git clone https://github.com/Avithegod2010/WA-archiver.git WA-archiver
+cd wa-archiver
 bun install
 
 # 2. Create your env file
@@ -248,7 +248,7 @@ No — it's optional. Without a key, everything except the AI toolbox works full
 offline.
 
 **Is this affiliated with WhatsApp or Meta?**
-**No.** Chat Archiver is an independent, open-source tool that reads export
+**No.** WA Archiver is an independent, open-source tool that reads export
 files produced by WhatsApp. It is not endorsed by, affiliated with, or connected
 to WhatsApp LLC or Meta Platforms in any way. *WhatsApp* is a trademark of its
 respective owner.

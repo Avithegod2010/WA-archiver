@@ -435,7 +435,7 @@ export function SettingsDialog({
       const url = URL.createObjectURL(blob)
       const a = document.createElement('a')
       a.href = url
-      a.download = `chat-archiver-backup-${new Date()
+      a.download = `wa-archiver-backup-${new Date()
         .toISOString()
         .slice(0, 10)}.json`
       document.body.appendChild(a)
@@ -1480,7 +1480,7 @@ export function SettingsDialog({
           <div className="rounded-lg border border-black/10 bg-black/[0.03] p-3 dark:border-white/10 dark:bg-white/[0.04]">
             <div className="flex items-center justify-between gap-2">
               <span className="text-[13px] font-semibold text-(--wa-text)">
-                Chat Archiver
+                WA Archiver
               </span>
               <span
                 className="rounded-full bg-(--wa-accent)/10 px-2 py-0.5 text-[11px] font-semibold text-(--wa-accent)"

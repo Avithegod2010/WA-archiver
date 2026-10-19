@@ -2620,7 +2620,7 @@ export function ChatView({
               <path d="M8 21h8M12 17v4" />
             </svg>
           </div>
-          <h2 className="text-[32px] font-light text-(--wa-text)">Chat Archiver</h2>
+          <h2 className="text-[32px] font-light text-(--wa-text)">WA Archiver</h2>
           <p className="mt-4 text-sm leading-relaxed text-(--wa-text-2)">
             Import a WhatsApp chat export (.zip or .txt) to read your conversations
             here. Everything is stored locally in your own database — nothing leaves

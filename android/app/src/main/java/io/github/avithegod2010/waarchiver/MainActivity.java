@@ -1,4 +1,4 @@
-package io.github.avithegod2010.chatarchiver;
+package io.github.avithegod2010.waarchiver;
 
 import com.getcapacitor.BridgeActivity;
 

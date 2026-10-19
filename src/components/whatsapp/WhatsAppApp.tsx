@@ -258,7 +258,7 @@ function WhatsAppAppInner() {
       const url = URL.createObjectURL(blob)
       const a = document.createElement('a')
       a.href = url
-      a.download = `chat-archiver-backup-${new Date().toISOString().slice(0, 10)}.json`
+      a.download = `wa-archiver-backup-${new Date().toISOString().slice(0, 10)}.json`
       document.body.appendChild(a)
       a.click()
       a.remove()
@@ -1100,7 +1100,7 @@ function WhatsAppAppInner() {
           </span>
           <div className="min-w-0">
             <h1 className="truncate text-[16px] font-semibold leading-tight text-white">
-              Chat Archiver
+              WA Archiver
             </h1>
             <p className="truncate text-[11px] leading-tight text-white/70">
               Read your exported chats — private &amp; local

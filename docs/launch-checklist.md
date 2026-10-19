@@ -24,7 +24,7 @@ just index your release.
 | Proprietary blobs | ✅ none — androidx + Capacitor (Apache-2.0) + SQLCipher + Kotlin only |
 | Target SDK | ✅ 36 (max) |
 | Min SDK | ✅ 24 (Android 7) |
-| Unique applicationId | ✅ `io.github.avithegod2010.chatarchiver` |
+| Unique applicationId | ✅ `io.github.avithegod2010.waarchiver` |
 | APK size | ✅ 23 MB (fine) |
 | Releases with changelogs | ✅ GitHub Releases + `CHANGELOG.md` + `fastlane/metadata/android/` (Izzy reads fastlane changelogs automatically) |
 
@@ -39,7 +39,7 @@ just index your release.
 3. Izzy reviews (usually days, not weeks). Once included, every new GitHub
    release with a higher `versionCode` is picked up automatically.
 4. ~~Screenshots~~ ✅ done — 5 phone shots are already checked in at
-   `fastlane/metadata/android/io.github.avithegod2010.chatarchiver/en-US/images/phoneScreenshots/`
+   `fastlane/metadata/android/io.github.avithegod2010.waarchiver/en-US/images/phoneScreenshots/`
    (plus icon.png), so the listing is visual from day one.
 
 **One rule to keep:** never bump `versionCode` backwards, never replace an
@@ -62,7 +62,7 @@ What's already fine:
 
 Gaps to close before a successful `fdroiddata` merge request:
 
-1. **Reproducible-ish build recipe.** Draft `metadata/io.github.avithegod2010.chatarchiver.yml`:
+1. **Reproducible-ish build recipe.** Draft `metadata/io.github.avithegod2010.waarchiver.yml`:
 
    ```yaml
    Categories:
@@ -72,7 +72,7 @@ Gaps to close before a successful `fdroiddata` merge request:
    WebSite: https://avithegod2010.github.io/WA-archiver/
    SourceCode: https://github.com/Avithegod2010/WA-archiver
    IssueTracker: https://github.com/Avithegod2010/WA-archiver/issues
-   Name: Chat Archiver
+   Name: WA Archiver
    Summary: Read your exported WhatsApp chats offline, privately
    Description: |-
        Import WhatsApp chat exports (.zip/.txt) and read them in a familiar

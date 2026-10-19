@@ -11,19 +11,19 @@ users must uninstall/reinstall to update the app).
 
 | File                          | What it is                                       |
 | ----------------------------- | ------------------------------------------------ |
-| `chat-archiver.keystore.enc` | PKCS12 keystore, AES-256-CBC + PBKDF2 encrypted  |
+| `whatsapp-viewer.keystore.enc` | PKCS12 keystore, AES-256-CBC + PBKDF2 encrypted  |
 
 ## Recover
 
 ```bash
 openssl enc -d -aes-256-cbc -pbkdf2 \
-  -in signing/chat-archiver.keystore.enc \
-  -out chat-archiver.keystore \
+  -in signing/whatsapp-viewer.keystore.enc \
+  -out whatsapp-viewer.keystore \
   -pass pass:<PASSWORD>
 ```
 
 - The decryption password is **not** stored in this repository — keep it in
   your password manager. It was shared in the chat where the key was created
   (2026-10-14).
-- Alias: `chat-archiver` · Type: PKCS12 · Key: RSA 2048 · Validity: 30 years
+- Alias: managed via the `KEYSTORE_ALIAS` Actions secret (historically `whatsapp-viewer`) · Type: PKCS12 · Key: RSA 2048 · Validity: 30 years
 - The same password is both the store password and the key password.

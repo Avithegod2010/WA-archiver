@@ -1,7 +1,24 @@
 # Changelog
 
-All notable changes to Chat Archiver are documented here.
+All notable changes to WA Archiver are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
+
+## [1.4.0] — 2026-10-19
+
+### Changed — Name restored to WA Archiver
+- **Renamed back to WA Archiver** to match the repository
+  (`Avithegod2010/WA-archiver`) after the brief v1.3.0 detour as
+  "Chat Archiver". Name-safety check: names are not copyrightable (no
+  copyright issue), the "WA" abbreviation keeps the WhatsApp trademark out
+  of the app name, and the original neon-bubble icon stays — it contains no
+  WhatsApp logo elements (the usual F-Droid takedown trigger).
+- **New application ID:** `io.github.avithegod2010.waarchiver`
+  (was `io.github.avithegod2010.chatarchiver`). ⚠️ Side-loads as a new
+  app — uninstall "Chat Archiver" first. PWA installs are unaffected
+  (same origin; the name updates in place).
+- GitHub release v1.3.0 re-titled "WA Archiver v1.3.0" and its APK asset
+  renamed for consistency; v1.3.0 notes above kept as history.
+- versionCode 5.
 
 ## [1.3.0] — 2026-10-19
 

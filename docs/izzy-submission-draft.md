@@ -11,7 +11,7 @@ You only need a (free) GitLab account and ~10 minutes.
 2. Go to <https://gitlab.com/IzzyOnDroid/repo/-/issues/new> and pick the
    **"App request"** (app inclusion) template.
 3. Paste the block below into the description (trim anything the template
-   already covers), title it: `App request: Chat Archiver`.
+   already covers), title it: `App request: WA Archiver`.
 4. Submit. Typical review time: a few days. Once accepted, Izzy indexes the
    **v1.2.0** release immediately and picks up every future release
    automatically (it watches your GitHub releases; versionCode must increase).
@@ -21,10 +21,10 @@ You only need a (free) GitLab account and ~10 minutes.
 ## Paste-ready issue text
 
 ```markdown
-### App request: Chat Archiver
+### App request: WA Archiver
 
-**App name:** Chat Archiver
-**Package name:** io.github.avithegod2010.chatarchiver
+**App name:** WA Archiver
+**Package name:** io.github.avithegod2010.waarchiver
 **Source code:** https://github.com/Avithegod2010/WA-archiver
 **Issue tracker:** https://github.com/Avithegod2010/WA-archiver/issues
 **License:** MIT
@@ -32,7 +32,7 @@ You only need a (free) GitLab account and ~10 minutes.
 (latest: https://github.com/Avithegod2010/WA-archiver/releases/tag/v1.2.0 —
 WhatsApp-Viewer-v1.2.0-release.apk, versionCode 3, APK Signature v2)
 **Changelogs:** fastlane format, checked in at
-fastlane/metadata/android/io.github.avithegod2010.chatarchiver/en-US/ (title, short and
+fastlane/metadata/android/io.github.avithegod2010.waarchiver/en-US/ (title, short and
 full descriptions, changelogs for versionCodes 1–3, icon + 5 phone
 screenshots)
 
@@ -41,7 +41,7 @@ included) and read them in a familiar, polished WhatsApp-style interface.
 
 **Full description:**
 
-Chat Archiver turns your exported WhatsApp chats into a beautiful,
+WA Archiver turns your exported WhatsApp chats into a beautiful,
 private reading experience — no account, no cloud, no tracking.
 
 - Import in seconds: drop the export zip you already have; preview before
@@ -79,9 +79,9 @@ scripts/build-capacitor.mjs during the CI build.
 
 ## Checklist before you hit Submit on GitLab
 
-- [x] Signed release APK on GitHub Releases (v1.3.0, versionCode 4 — Chat Archiver)
-- [x] Trademark-clean branding: "Chat Archiver" name + appId
-  `io.github.avithegod2010.chatarchiver` (no "WhatsApp" in name/ID; descriptive
+- [x] Signed release APK on GitHub Releases (v1.4.0, versionCode 5 — WA Archiver)
+- [x] Trademark-clean branding: "WA Archiver" name + appId
+  `io.github.avithegod2010.waarchiver` (no "WhatsApp" in name/ID; descriptive
   use only)
 - [x] LICENSE (MIT) in repo root
 - [x] fastlane metadata: title / descriptions / changelogs / icon / screenshots
@@ -89,9 +89,9 @@ scripts/build-capacitor.mjs during the CI build.
 - [x] No trackers/analytics (dex-scanned v1.2.0 APK — zero hits)
 - [x] Issue tracker open
 - [ ] **(You)** Repo "About" metadata — the PAT can't set it (needs admin scope):
-      About ⚙️ → description *"Chat Archiver — read your exported WhatsApp chats
+      About ⚙️ → description *"WA Archiver — read your exported WhatsApp chats
       offline. Private, local-first, FOSS (MIT)."*, website
       `https://avithegod2010.github.io/WA-archiver/`, topics add
       `chat-reader` `chat-archive` `f-droid` `izzonydroid`
 - [ ] **(You)** GitLab account + submit the issue
-- [ ] **(You)** After acceptance: keep tagging releases (`v1.3.1`, …) — Izzy auto-updates
+- [ ] **(You)** After acceptance: keep tagging releases (`v1.4.1`, …) — Izzy auto-updates

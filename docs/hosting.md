@@ -1,4 +1,4 @@
-# Hosting Chat Archiver
+# Hosting WA Archiver
 
 The app ships in three deployable shapes. Pick one — or all three; they are
 the same codebase and the same local-first behavior everywhere.

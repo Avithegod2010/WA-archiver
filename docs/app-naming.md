@@ -1,8 +1,13 @@
 # App naming — decision & trademark guidance
 
-> **✅ DECIDED (v1.3.0): the app is now named "Chat Archiver"** with application ID
-> `io.github.avithegod2010.chatarchiver`, and icon proposal **02 (carbon bubble)**
-> became the official app icon. This doc is kept for reference.
+> **✅ DECIDED (v1.4.0): the app is named "WA Archiver"** with application ID
+> `io.github.avithegod2010.waarchiver` — matching the repository name
+> (`Avithegod2010/WA-archiver`). Icon proposal **02 (carbon bubble)** remains
+> the official app icon. v1.3.0 briefly renamed the app "Chat Archiver"
+> (appId `io.github.avithegod2010.chatarchiver`); v1.4.0 returned to the
+> repo-matching name after a name-safety review confirmed "WA Archiver"
+> carries no copyright issues and lower trademark exposure than either
+> "WhatsApp Viewer" or store-blocking risks.
 >
 > The original working title was "WhatsApp Viewer" (appId `com.whatsappviewer.app`) — see
 > the trademark section below for why that had to change.
@@ -56,7 +61,7 @@ Details (not legal advice, just the practical picture):
 - **Google Play** (relevant later): apps using "WhatsApp" in the title or even the
   *package name* are routinely removed under the impersonation & IP policies. A
   package/application ID containing `whatsapp` (like the current
-  `io.github.avithegod2010.chatarchiver`) is itself a liability if we ever target Play.
+  `io.github.avithegod2010.waarchiver`) is itself a liability if we ever target Play.
 - **F-Droid**: does not mechanically reject trademarked names at submission, but
   its inclusion guidance requires respecting third-party trademarks, and apps are
   removed/renamed when a trademark holder complains. Reviewers commonly ask for
@@ -81,7 +86,7 @@ Details (not legal advice, just the practical picture):
 
 1. Pick a name from the list above (rename decision is yours).
 2. Before the next release (it's a breaking change — do it in one go):
-   - Change application ID `io.github.avithegod2010.chatarchiver` → `io.github.avithegod2010.<name>`
+   - Change application ID `io.github.avithegod2010.waarchiver` → `io.github.avithegod2010.<name>`
    - Update fastlane `title.txt` / `short_description.txt` / `full_description.txt`
    - Update PWA `manifest.webmanifest` `name`/`short_name`, Capacitor app name, README banner/tagline
 3. Keep every mention of WhatsApp in *descriptions only*, always phrased as

@@ -1,4 +1,4 @@
-/* Chat Archiver service worker.
+/* WA Archiver service worker.
  * 1. Caches only immutable content: chat media, app icons and the manifest.
  *    Everything else (HTML, API data) always goes to the network so imported
  *    chats and chat lists are always fresh.

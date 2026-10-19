@@ -91,9 +91,9 @@ jobs:
             SRC=android/app/build/outputs/apk/debug/app-debug.apk
           fi
           if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
-            APK="Chat-Archiver-${GITHUB_REF#refs/tags/}-release.apk"
+            APK="WA-Archiver-${GITHUB_REF#refs/tags/}-release.apk"
           else
-            APK="Chat-Archiver-v${VERSION}-debug-${GITHUB_SHA::7}.apk"
+            APK="WA-Archiver-v${VERSION}-debug-${GITHUB_SHA::7}.apk"
           fi
           cp "$SRC" "$APK"
           echo "file=$APK" >> "$GITHUB_OUTPUT"
@@ -108,7 +108,7 @@ jobs:
             TAG="${GITHUB_REF#refs/tags/}"
             echo "Attaching $APK_FILE to versioned release $TAG"
             gh release create "$TAG" \
-              --title "Chat Archiver $TAG" \
+              --title "WA Archiver $TAG" \
               --generate-notes \
               "$APK_FILE"
           else

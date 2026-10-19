@@ -1,4 +1,4 @@
-# Security Audit & Hardening Guide — Chat Archiver
+# Security Audit & Hardening Guide — WA Archiver
 
 > Audit performed at v1.0 (pre-diverge), covering the hosted/server build
 > (`next dev` / `next build` + `/api/*`) and the static APK export.

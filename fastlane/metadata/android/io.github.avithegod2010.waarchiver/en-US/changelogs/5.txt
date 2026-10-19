@@ -1,0 +1,6 @@
+WA Archiver v1.4 — the name settles.
+
+- Back to "WA Archiver", matching the repository (github.com/Avithegod2010/WA-archiver). v1.3 briefly shipped as "Chat Archiver".
+- New application ID: io.github.avithegod2010.waarchiver — installs as a new app, so uninstall "Chat Archiver" first if you had it.
+- PWA/web users: nothing to do — the name updates in place.
+- Same app inside: local-first, offline, no tracking.
