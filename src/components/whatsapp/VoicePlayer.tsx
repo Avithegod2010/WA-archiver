@@ -8,12 +8,15 @@ import {
   RATES,
   cycleRate as engineCycleRate,
   fmtTime,
+  getCachedPeaks,
   getState as getEngineState,
   load as engineLoad,
+  requestPeaks,
   seekBy as engineSeekBy,
   seekRatio as engineSeekRatio,
   subscribe as subscribeEngine,
   toggle as engineToggle,
+  type WavePeaks,
 } from './audio-engine'
 import {
   getEmptyPlayedSnapshot,
@@ -55,6 +58,27 @@ function barHeights(seed: string): number[] {
 }
 
 /**
+ * Map decoded peaks (WAVE_PEAK_COUNT buckets) onto the rendered bar count:
+ * each bar takes the MAX of its slice of buckets so transients survive the
+ * downsample. Heights reuse the exact 5..16px envelope of the pseudo-random
+ * fallback, so swapping in real peaks never shifts the bubble layout.
+ */
+function peaksToBars(peaks: readonly number[], count: number): number[] {
+  const out: number[] = []
+  const per = peaks.length / count
+  for (let i = 0; i < count; i++) {
+    const start = Math.floor(i * per)
+    const end = Math.min(peaks.length, Math.max(Math.ceil((i + 1) * per), start + 1))
+    let m = 0
+    for (let j = start; j < end; j++) {
+      if (peaks[j] > m) m = peaks[j]
+    }
+    out.push(Math.round(5 + m * 11)) // 5..16px — same envelope as barHeights()
+  }
+  return out
+}
+
+/**
  * WhatsApp-style voice message player: play/pause, seekable waveform,
  * elapsed/total time and a 0.5×/1×/1.5×/2× speed toggle (persisted across
  * sessions). Playbacks of tracks >3s resume where you left off (idea #7).
@@ -64,6 +88,12 @@ function barHeights(seed: string): number[] {
  * AudioDock then controls it. This component keeps a hidden metadata-only
  * <audio> to show the duration before the track is ever played; it never
  * plays through the local element.
+ *
+ * The waveform shows REAL decoded peaks (48-bucket amplitude decode cached
+ * module-side in audio-engine.ts) once available; until then — while
+ * decoding, or on failure (e.g. codecs Safari can't decode) — the
+ * deterministic pseudo-random bars keep rendering, so nothing regresses.
+ * Peaks are purely visual: seek still maps clientX → time via duration.
  *
  * Public props are { src, seed }; chatId/chatTitle/sender are optional
  * context used by the engine/dock and default to '' when unavailable.
@@ -107,6 +137,14 @@ export function VoicePlayer({
   const [localDuration, setLocalDuration] = useState(0)
   const [localFailed, setLocalFailed] = useState(false)
 
+  // Real waveform (Task A2): decoded peak buckets for this track; null while
+  // decoding or when decoding failed — the pseudo-random bars stay until
+  // real peaks arrive.
+  const [peaks, setPeaks] = useState<WavePeaks | null>(null)
+  /** Generation guard: bumped on src change/unmount so a decode that was
+   * in flight for a previous track is never applied (stale-drop). */
+  const peaksGenRef = useRef(0)
+
   // AI speech-to-text (additive): idle → loading → done/error per voice note.
   const [transcript, setTranscript] = useState<string | null>(null)
   const [transcribing, setTranscribing] = useState(false)
@@ -121,7 +159,11 @@ export function VoicePlayer({
   const failed = localFailed || (active && engine.failed)
   const rate = RATES[engine.rateIdx]
   const progress = duration > 0 ? Math.min(current / duration, 1) : 0
-  const bars = useMemo(() => barHeights(seed), [seed])
+  // Real peaks when decoded, deterministic pseudo-random bars before that.
+  const bars = useMemo(
+    () => (peaks ? peaksToBars(peaks, BAR_COUNT) : barHeights(seed)),
+    [peaks, seed]
+  )
 
   // Mark a voice note as played on its first successful play this session.
   useEffect(() => {
@@ -130,6 +172,63 @@ export function VoicePlayer({
       markPlayed(seed)
     }
   }, [active, engine.playing, seed])
+
+  /**
+   * Kick the lazy amplitude decode for this track. Idempotent by design:
+   * the engine caches results (module-level LRU) and dedupes in-flight
+   * decodes, so calling this on mount-idle AND on play costs nothing extra.
+   * A result from a superseded generation (src changed / unmounted) is
+   * dropped here — the stale-decode guard from Task A2.
+   */
+  const loadPeaks = useCallback(() => {
+    const gen = peaksGenRef.current
+    void requestPeaks(src).then((p) => {
+      if (p && gen === peaksGenRef.current) setPeaks(p)
+    })
+  }, [src])
+
+  // First play also triggers the decode directly (it may still be queued
+  // for idle time) — requestPeaks dedupes, so this is free once running.
+  useEffect(() => {
+    if (active && playing) loadPeaks()
+  }, [active, playing, loadPeaks])
+
+  // Real waveform decode (Task A2): starts once the player has mounted AND
+  // the main thread is idle — requestIdleCallback, forced after 800ms
+  // (setTimeout(…, 800) on engines without idle callbacks, e.g. older
+  // Safari). Cached tracks swap to their real peaks without touching the
+  // network. Unmounting (or a src change) cancels the pending kick and
+  // bumps the generation so a late result is ignored.
+  useEffect(() => {
+    peaksGenRef.current += 1
+    const cached = getCachedPeaks(src)
+    if (cached) {
+      setPeaks(cached)
+      return
+    }
+    setPeaks(null)
+    let kicked = false
+    const kick = () => {
+      if (kicked) return
+      kicked = true
+      const gen = peaksGenRef.current
+      void requestPeaks(src).then((p) => {
+        if (p && gen === peaksGenRef.current) setPeaks(p)
+      })
+    }
+    if (typeof window.requestIdleCallback === 'function') {
+      const id = window.requestIdleCallback(kick, { timeout: 800 })
+      return () => {
+        kicked = true
+        window.cancelIdleCallback(id)
+      }
+    }
+    const t = window.setTimeout(kick, 800)
+    return () => {
+      kicked = true
+      window.clearTimeout(t)
+    }
+  }, [src])
 
   // A seek issued while the track was still loading (duration unknown) is
   // applied as soon as the engine reports a duration.
@@ -351,6 +450,8 @@ export function VoicePlayer({
           onKeyDown={onWaveKeyDown}
           className="flex h-7 cursor-pointer touch-none items-center gap-[2px] rounded outline-none focus-visible:ring-2 focus-visible:ring-(--wa-accent)/60"
         >
+          {/* Heights come from the decoded peaks pipeline once available;
+              pseudo-random fallback until then. Purely visual. */}
           {bars.map((h, i) => {
             const played = (i + 0.5) / BAR_COUNT <= progress
             return (

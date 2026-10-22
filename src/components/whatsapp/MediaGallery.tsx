@@ -48,7 +48,17 @@ interface LinkRow {
   ts: string
 }
 
-type TabKey = 'all' | 'photos' | 'links' | 'docs' | 'voice' | 'stickers'
+type TabKey =
+  | 'all'
+  | 'photos'
+  | 'videos'
+  | 'links'
+  | 'docs'
+  | 'voice'
+  | 'stickers'
+
+/** Tabs that render the square-tile grid (and support selection mode). */
+const GRID_TABS: TabKey[] = ['all', 'photos', 'videos', 'stickers']
 
 const URL_RE = /https?:\/\/[^\s<>"'`{}|\\^\[\]]+/gi
 
@@ -68,6 +78,16 @@ function formatBytes(n: number | null): string {
   if (n < 1024) return `${n} B`
   if (n < 1024 * 1024) return `${(n / 1024).toFixed(0)} KB`
   return `${(n / (1024 * 1024)).toFixed(1)} MB`
+}
+
+/** 83.4s → "1:23" (switches to h:mm:ss past an hour). */
+function formatDuration(sec: number): string {
+  const s = Math.round(Math.max(0, sec))
+  const h = Math.floor(s / 3600)
+  const m = Math.floor((s % 3600) / 60)
+  const r = s % 60
+  const mm = h > 0 ? String(m).padStart(2, '0') : String(m)
+  return `${h > 0 ? `${h}:` : ''}${mm}:${String(r).padStart(2, '0')}`
 }
 
 function kindOf(type: string): 'image' | 'video' | 'audio' | 'doc' {
@@ -117,7 +137,7 @@ function prettyUrl(url: string): string {
 
 /**
  * Full-screen gallery of every media item in the active chat, organised in
- * All / Photos / Links / Docs / Voice (+ Stickers) tabs.
+ * All / Photos / Videos / Links / Docs / Voice (+ Stickers) tabs.
  * Rendered through a body portal so it overlays the whole app.
  */
 export function MediaGallery({
@@ -261,6 +281,8 @@ export function MediaGallery({
         return items.filter(
           (m) => m.type !== 'sticker' && ['image', 'video'].includes(kindOf(m.type))
         )
+      case 'videos':
+        return items.filter((m) => kindOf(m.type) === 'video')
       case 'stickers':
         return items.filter((m) => m.type === 'sticker')
       case 'docs':
@@ -275,13 +297,22 @@ export function MediaGallery({
   }, [items, filter])
 
   const counts = useMemo(() => {
-    const c = { all: 0, photos: 0, links: 0, docs: 0, voice: 0, stickers: 0 }
+    const c = {
+      all: 0,
+      photos: 0,
+      videos: 0,
+      links: 0,
+      docs: 0,
+      voice: 0,
+      stickers: 0,
+    }
     for (const m of items ?? []) {
       if (m.type === 'sticker') {
         c.stickers++
         continue
       }
       const k = kindOf(m.type)
+      if (k === 'video') c.videos++
       if (k === 'image' || k === 'video') c.photos++
       else if (k === 'doc' || (m.type === 'media' && isDocName(m.mediaName))) c.docs++
       else if (k === 'audio') c.voice++
@@ -301,8 +332,7 @@ export function MediaGallery({
     [items]
   )
 
-  const isGridTab =
-    filter === 'all' || filter === 'photos' || filter === 'stickers'
+  const isGridTab = GRID_TABS.includes(filter)
   const canJump = !!onJumpToMessage
 
   function exitSelect() {
@@ -311,7 +341,7 @@ export function MediaGallery({
   }
 
   function switchTab(tab: TabKey) {
-    if (selectMode && !(tab === 'all' || tab === 'photos' || tab === 'stickers')) {
+    if (selectMode && !GRID_TABS.includes(tab)) {
       exitSelect()
     }
     setFilter(tab)
@@ -404,6 +434,7 @@ export function MediaGallery({
   const tabs: Array<{ key: TabKey; label: string; icon: React.ReactNode }> = [
     { key: 'all', label: 'All', icon: <LayoutGrid className="h-3.5 w-3.5" /> },
     { key: 'photos', label: 'Photos', icon: <ImageIcon className="h-3.5 w-3.5" /> },
+    { key: 'videos', label: 'Videos', icon: <Film className="h-3.5 w-3.5" /> },
     { key: 'links', label: 'Links', icon: <Link2 className="h-3.5 w-3.5" /> },
     { key: 'docs', label: 'Docs', icon: <FileText className="h-3.5 w-3.5" /> },
     { key: 'voice', label: 'Voice', icon: <Mic className="h-3.5 w-3.5" /> },
@@ -536,12 +567,14 @@ export function MediaGallery({
           />
         )}
 
-        {/* ---------- Grid tabs (All / Photos / Stickers) ---------- */}
+        {/* ---------- Grid tabs (All / Photos / Videos / Stickers) ---------- */}
         {items != null && isGridTab && shown.length === 0 && (
           <EmptyState
             icon={
               filter === 'stickers' ? (
                 <StickerIcon className="h-7 w-7 text-(--wa-text-2)" />
+              ) : filter === 'videos' ? (
+                <Film className="h-7 w-7 text-(--wa-text-2)" />
               ) : (
                 <ImageIcon className="h-7 w-7 text-(--wa-text-2)" />
               )
@@ -551,14 +584,18 @@ export function MediaGallery({
                 ? 'No media in this chat'
                 : filter === 'stickers'
                   ? 'No stickers here'
-                  : 'No photos or videos yet'
+                  : filter === 'videos'
+                    ? 'No videos here yet'
+                    : 'No photos or videos yet'
             }
             body={
               filter === 'all'
                 ? 'Media appears here when the chat was exported with media.'
                 : filter === 'stickers'
                   ? 'Stickers appear here when the export includes media.'
-                  : 'Shared photos and videos appear here.'
+                  : filter === 'videos'
+                    ? 'Videos shared in this chat will appear here.'
+                    : 'Shared photos and videos appear here.'
             }
           />
         )}
@@ -1012,31 +1049,7 @@ function MediaTile({
           className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-[1.04]"
         />
       )}
-      {src && kind === 'video' && (
-        <>
-          <video
-            src={`${src}#t=0.1`}
-            poster={`${src}?poster=1`}
-            preload="metadata"
-            muted
-            playsInline
-            className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-[1.04]"
-          />
-          <span
-            className={cn(
-              'absolute left-1.5 top-1.5 flex items-center gap-1 rounded bg-black/55 px-1.5 py-0.5 text-[9.5px] font-medium text-white backdrop-blur-sm transition-all duration-150',
-              selectMode && 'left-8'
-            )}
-          >
-            <Film className="h-3 w-3" /> Video
-          </span>
-          <span className="pointer-events-none absolute inset-0 flex items-center justify-center">
-            <span className="flex h-11 w-11 items-center justify-center rounded-full bg-black/55 text-white backdrop-blur-sm transition-transform duration-200 group-hover:scale-110">
-              <Play className="ml-0.5 h-5 w-5 fill-current" />
-            </span>
-          </span>
-        </>
-      )}
+      {src && kind === 'video' && <VideoTileMedia src={src} selectMode={selectMode} />}
       {src && kind === 'audio' && (
         <span className="flex h-full w-full flex-col items-center justify-center gap-2 text-(--wa-accent)">
           <span className="flex h-12 w-12 items-center justify-center rounded-full bg-(--wa-accent)/15">
@@ -1110,6 +1123,52 @@ function MediaTile({
         </button>
       )}
     </div>
+  )
+}
+
+/**
+ * Video preview inside a grid tile. The Film badge doubles as the duration
+ * badge once the browser parses the video metadata (hidden while unknown).
+ */
+function VideoTileMedia({
+  src,
+  selectMode,
+}: {
+  src: string
+  selectMode: boolean
+}) {
+  const [duration, setDuration] = useState<number | null>(null)
+  return (
+    <>
+      <video
+        src={`${src}#t=0.1`}
+        poster={`${src}?poster=1`}
+        preload="metadata"
+        muted
+        playsInline
+        onLoadedMetadata={(e) => {
+          const d = e.currentTarget.duration
+          if (Number.isFinite(d) && d > 0) setDuration(d)
+        }}
+        className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-[1.04]"
+      />
+      <span
+        className={cn(
+          'absolute left-1.5 top-1.5 flex items-center gap-1 rounded bg-black/55 px-1.5 py-0.5 text-[9.5px] font-medium text-white backdrop-blur-sm transition-all duration-150',
+          selectMode && 'left-8'
+        )}
+      >
+        <Film className="h-3 w-3" /> Video
+        {duration != null && (
+          <span className="tabular-nums">· {formatDuration(duration)}</span>
+        )}
+      </span>
+      <span className="pointer-events-none absolute inset-0 flex items-center justify-center">
+        <span className="flex h-11 w-11 items-center justify-center rounded-full bg-black/55 text-white backdrop-blur-sm transition-transform duration-200 group-hover:scale-110">
+          <Play className="ml-0.5 h-5 w-5 fill-current" />
+        </span>
+      </span>
+    </>
   )
 }
 

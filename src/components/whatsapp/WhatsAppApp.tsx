@@ -109,6 +109,7 @@ import {
   useMessageNormalizer,
 } from './data-provider'
 import { cn } from '@/lib/utils'
+import { installIntentRouter } from '@/lib/intent-router'
 
 // ---- Offline caches (Task 7-e #6) --------------------------------------
 const CHATS_CACHE_KEY = 'wa-viewer:cache:chats'
@@ -849,6 +850,37 @@ function WhatsAppAppInner() {
     },
     [refreshChats, openChat, mode]
   )
+
+  // Android intent router (A4): the Capacitor shell forwards VIEW/SEND intents
+  // to window.__WA_INTENT__ (src/lib/intent-router.ts). Files reuse importFiles
+  // (same pipeline as the import panel); raw shared text lands in Saved
+  // Messages, mirroring the share-target fallback above.
+  useEffect(() => {
+    if (!mounted) return
+    installIntentRouter({
+      onFiles: (files, text) => {
+        if (files.length > 0) void importFiles(files)
+        if (text) {
+          void (async () => {
+            const savedId = await resolveSavedChatId()
+            if (!savedId) {
+              toast.error(
+                'Could not find Saved Messages — shared text was not added'
+              )
+              return
+            }
+            try {
+              await postTextToSaved(text)
+              toast.success('Shared to Saved Messages')
+              void refreshChats()
+            } catch {
+              toast.error('Could not save the shared text to Saved Messages')
+            }
+          })()
+        }
+      },
+    })
+  }, [mounted, importFiles, resolveSavedChatId, postTextToSaved, refreshChats])
 
   const loadDemo = useCallback(() => {
     setDemoPickerOpen(true)

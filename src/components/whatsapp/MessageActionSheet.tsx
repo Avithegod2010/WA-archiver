@@ -19,7 +19,6 @@ import {
   Pin,
   PinOff,
   Reply,
-  SmilePlus,
   Square,
   Star,
   StarOff,
@@ -47,7 +46,10 @@ export const QUICK_REACTIONS = [
   '🤝',
 ]
 
-/** Compact 6-emoji row at the top of the desktop context menu + long-press popup. */
+/**
+ * Compact 6-emoji row for MessageBubble's desktop hover context menu.
+ * The long-press popup below uses the full QUICK_REACTIONS grid instead.
+ */
 export const MENU_REACTIONS = ['👍', '❤️', '😂', '😮', '😢', '🙏']
 
 const COPY_LABEL: Record<string, string> = {
@@ -170,7 +172,8 @@ const POINT_GAP = 14
 
 /**
  * WhatsApp-style long-press popup (floating card anchored to the pressed
- * message, reaction pill on top — replaces the old bottom action sheet).
+ * message, full 12-emoji reaction grid on top — replaces the old bottom
+ * action sheet).
  *
  * Rendered through a portal (message rows sit inside animated wrappers whose
  * transforms would otherwise become the containing block for fixed children).
@@ -239,13 +242,41 @@ export function MessageActionSheet({
     window.setTimeout(() => firstItemRef.current?.focus(), 0)
   }, [open, msg, point?.x, point?.y])
 
-  // Escape closes; body scroll is locked while the popup is up.
+  // Escape closes; Tab is trapped inside the popup; body scroll is locked
+  // while the popup is up.
   useEffect(() => {
     if (!open) return
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
         e.preventDefault()
         onOpenChange(false)
+        return
+      }
+      if (e.key === 'Tab') {
+        // Focus trap: cycle Tab / Shift+Tab within the popup card. On the
+        // edges (or when focus escaped the card entirely) wrap around, so
+        // keyboard users can never tab into the page behind the portal.
+        const card = cardRef.current
+        if (!card) return
+        const focusables = Array.from(
+          card.querySelectorAll<HTMLElement>(
+            'button:not([disabled]), a[href], [tabindex]:not([tabindex="-1"])'
+          )
+        )
+        if (focusables.length === 0) return
+        const first = focusables[0]
+        const last = focusables[focusables.length - 1]
+        const active = document.activeElement
+        const inside = !!active && card.contains(active)
+        if (e.shiftKey) {
+          if (active === first || !inside) {
+            e.preventDefault()
+            last.focus()
+          }
+        } else if (active === last || !inside) {
+          e.preventDefault()
+          first.focus()
+        }
       }
     }
     window.addEventListener('keydown', onKey)
@@ -344,21 +375,25 @@ export function MessageActionSheet({
           pos && 'wa-msg-popup-in'
         )}
       >
-        {/* Reaction pill — WhatsApp's signature row on top of the menu */}
+        {/* Reaction grid — WhatsApp's full 12-emoji set, 4 columns (same
+            pattern as MessageBubble's quick-reaction popover), ≥44px targets */}
         {onReact && (
           <>
             <div
-              className="mb-1 flex items-center justify-between gap-0.5 rounded-xl bg-black/[0.045] px-1 py-1 dark:bg-white/[0.06]"
+              className="mb-1 grid grid-cols-4 place-items-center gap-0.5 rounded-xl bg-black/[0.045] px-1 py-1.5 dark:bg-white/[0.06]"
               role="group"
               aria-label="React to this message"
             >
-              {MENU_REACTIONS.map((em) => (
+              {QUICK_REACTIONS.map((em) => (
                 <button
                   key={em}
                   type="button"
                   role="menuitemradio"
                   aria-checked={iReacted(msg, em)}
-                  aria-label={iReacted(msg, em) ? `Remove ${em} reaction` : `React ${em}`}
+                  aria-label={
+                    iReacted(msg, em) ? `Remove ${em} reaction` : `React with ${em}`
+                  }
+                  title={`React with ${em}`}
                   onClick={() => {
                     onReact(msg.id, em)
                     toast.success(
@@ -367,20 +402,13 @@ export function MessageActionSheet({
                     close()
                   }}
                   className={cn(
-                    'flex h-9 w-9 items-center justify-center rounded-full text-[22px] leading-none transition-transform hover:scale-125 active:scale-95 motion-reduce:transition-none',
+                    'flex h-11 w-11 items-center justify-center rounded-full text-[22px] leading-none transition-transform hover:scale-125 active:scale-95 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-(--wa-accent) motion-reduce:transition-none',
                     iReacted(msg, em) && 'bg-(--wa-accent)/20 ring-1 ring-(--wa-accent)'
                   )}
                 >
                   {em}
                 </button>
               ))}
-              <span
-                className="flex h-9 w-9 items-center justify-center rounded-full text-(--wa-text-2)"
-                title="Open the message menu for more reactions"
-                aria-hidden
-              >
-                <SmilePlus className="h-4.5 w-4.5" />
-              </span>
             </div>
             <div
               className="mx-2 mb-1 h-px shrink-0 bg-black/8 dark:bg-white/10"

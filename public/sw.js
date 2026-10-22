@@ -1,12 +1,13 @@
 /* WA Archiver service worker.
  * 1. Caches only immutable content: chat media, app icons and the manifest.
  *    Everything else (HTML, API data) always goes to the network so imported
- *    chats and chat lists are always fresh.
+ *    chats and chat lists are always fresh. Page navigations fall back to a
+ *    precached offline page when the network is unreachable (or 5xx).
  * 2. Web Share Target: intercepts the POST from the OS share sheet
  *    (manifest share_target → /?share-target=1), stashes the shared text and
  *    files in the Cache API, then 303-redirects to /?shared=1 where the app
  *    picks the payload up and files it into Saved Messages. */
-const CACHE = 'wa-viewer-media-v2'
+const CACHE = 'wa-viewer-media-v3'
 const SHARE_CACHE = 'wa-viewer-share-v1'
 const SHARE_MARKER = '/__shared-'
 
@@ -18,7 +19,15 @@ const BASE = SCOPE_URL.pathname.endsWith('/')
   ? SCOPE_URL.pathname
   : `${SCOPE_URL.pathname}/`
 
-self.addEventListener('install', () => {
+self.addEventListener('install', (event) => {
+  // Precache the offline fallback page. Relative URL → resolved against this
+  // SW's own URL (the app root), so it works under GitHub Pages sub-paths too.
+  event.waitUntil(
+    caches
+      .open(CACHE)
+      .then((cache) => cache.addAll(['./offline.html']))
+      .catch(() => {}) // never block installation on the fallback page
+  )
   self.skipWaiting()
 })
 
@@ -79,24 +88,52 @@ self.addEventListener('fetch', (event) => {
     // separately by transformers.js (its own Cache-API bucket).
     url.pathname.startsWith(`${BASE}whisper/`)
 
-  if (!cacheable) return
+  if (cacheable) {
+    // Stale-while-revalidate: instant from cache, refresh in background.
+    // (Runs even when a cacheable path is loaded as a top-level navigation,
+    // so e.g. opening a media URL in a new tab while offline still works.)
+    event.respondWith(
+      (async () => {
+        const cache = await caches.open(CACHE)
+        const cached = await cache.match(req)
+        const network = fetch(req)
+          .then((res) => {
+            if (res && (res.status === 200 || res.status === 206)) {
+              cache.put(req, res.clone()).catch(() => {})
+            }
+            return res
+          })
+          .catch(() => cached)
+        return cached || network
+      })()
+    )
+    return
+  }
 
-  // Stale-while-revalidate: instant from cache, refresh in background.
-  event.respondWith(
-    (async () => {
-      const cache = await caches.open(CACHE)
-      const cached = await cache.match(req)
-      const network = fetch(req)
-        .then((res) => {
-          if (res && (res.status === 200 || res.status === 206)) {
-            cache.put(req, res.clone()).catch(() => {})
-          }
-          return res
-        })
-        .catch(() => cached)
-      return cached || network
-    })()
-  )
+  // ---- Offline navigation fallback (network-first) -----------------------
+  // HTML document loads (request.mode === 'navigate') always go to the
+  // network for freshness; if the device is offline or the server answers
+  // 5xx, serve the precached offline page instead of the browser's error
+  // screen. The share-target POST above is unaffected.
+  if (req.mode === 'navigate') {
+    event.respondWith(
+      (async () => {
+        try {
+          const res = await fetch(req)
+          if (res && res.status < 500) return res
+          throw new Error(`HTTP ${res.status}`)
+        } catch {
+          const cache = await caches.open(CACHE)
+          const offline = await cache.match('./offline.html')
+          if (offline) return offline
+          return new Response('Offline', {
+            status: 503,
+            headers: { 'Content-Type': 'text/html' },
+          })
+        }
+      })()
+    )
+  }
 })
 
 /**

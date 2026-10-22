@@ -98,6 +98,30 @@ jobs:
           cp "$SRC" "$APK"
           echo "file=$APK" >> "$GITHUB_OUTPUT"
 
+      # Tag builds: pull the body of this version's section out of
+      # CHANGELOG.md (Keep-a-Changelog: "## [1.4.0] — 2026-10-19" … until the
+      # next "## [" heading) so the GitHub Release shows the real changelog
+      # instead of a generic "Full Changelog" link. Empty output (no matching
+      # section) → the release step falls back to --generate-notes.
+      - name: Extract release notes from CHANGELOG
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          set -e
+          VERSION="${GITHUB_REF#refs/tags/v}"
+          awk -v marker="## [$VERSION]" '
+            index($0, marker) == 1 { found = 1; next }
+            found && /^## \[/ { exit }
+            found { print }
+          ' CHANGELOG.md > release-notes.md || true
+          # Trim leading/trailing blank lines; the body stays verbatim.
+          sed -i -e '/./,$!d' release-notes.md
+          sed -i -e ':a' -e '/^[[:space:]]*$/{$d;N;ba' -e '}' release-notes.md
+          if [[ -s release-notes.md ]]; then
+            echo "Release notes: CHANGELOG section for $VERSION ($(wc -l < release-notes.md) lines)"
+          else
+            echo "No CHANGELOG section for $VERSION — release will use auto-generated notes"
+          fi
+
       - name: Attach APK to GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
@@ -107,10 +131,20 @@ jobs:
           if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
             TAG="${GITHUB_REF#refs/tags/}"
             echo "Attaching $APK_FILE to versioned release $TAG"
-            gh release create "$TAG" \
-              --title "WA Archiver $TAG" \
-              --generate-notes \
-              "$APK_FILE"
+            # Prefer the CHANGELOG section for this version (release-notes.md,
+            # written by the extract step above); fall back to GitHub's
+            # auto-generated notes when there is no matching entry.
+            if [[ -s release-notes.md ]]; then
+              gh release create "$TAG" \
+                --title "WA Archiver $TAG" \
+                --notes-file release-notes.md \
+                "$APK_FILE"
+            else
+              gh release create "$TAG" \
+                --title "WA Archiver $TAG" \
+                --generate-notes \
+                "$APK_FILE"
+            fi
           else
             TAG="latest"
             TITLE="Latest APK (auto-build)"

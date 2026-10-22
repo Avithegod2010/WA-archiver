@@ -1471,7 +1471,7 @@ export function SettingsDialog({
           </p>
         </section>
 
-        {/* g) About — v1.0 release */}
+        {/* g) About — version badge (APP_VERSION-driven) */}
         <section aria-label="About" className="flex flex-col gap-2">
           <h3 className="flex items-center gap-1.5 text-[13px] font-semibold text-(--wa-text)">
             <Info className="h-3.5 w-3.5 text-(--wa-accent)" aria-hidden />
@@ -1484,9 +1484,9 @@ export function SettingsDialog({
               </span>
               <span
                 className="rounded-full bg-(--wa-accent)/10 px-2 py-0.5 text-[11px] font-semibold text-(--wa-accent)"
-                aria-label="Version 1.0"
+                aria-label={`Version ${APP_VERSION}`}
               >
-                v1.0
+                v{APP_VERSION}
               </span>
             </div>
             <p className="mt-1 text-[12px] leading-snug text-(--wa-text-2)">
@@ -1495,7 +1495,7 @@ export function SettingsDialog({
               your own device.
             </p>
             <p className="mt-2 text-[11px] leading-snug text-(--wa-text-2)">
-              You&apos;re running the v1.0 release. More features are planned
+              You&apos;re running the v{APP_VERSION} release. More features are planned
               for upcoming versions.
             </p>
             <Button

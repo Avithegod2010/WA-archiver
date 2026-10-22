@@ -38,6 +38,9 @@
   .btn-primary{background:linear-gradient(135deg,var(--green),var(--teal));color:#04231D;box-shadow:0 6px 22px rgba(37,211,102,.25)}
   .btn-ghost{border-color:var(--line);color:var(--ink)}
   .btn-ghost:hover{background:var(--panel)}
+  .nav-links{display:flex;gap:20px;align-items:center}
+  .nav-links a{color:var(--muted);font-weight:600;font-size:14.5px}
+  .nav-links a:hover{color:var(--ink);text-decoration:none}
 
   /* hero */
   header.hero{position:relative;overflow:hidden;padding:96px 0 84px;text-align:center}
@@ -69,6 +72,23 @@
   .strip b{font-size:17px}
   .strip span{color:var(--muted);font-size:14.5px}
 
+  /* how-to steps */
+  .steps{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:18px}
+  .step-num{width:44px;height:44px;border-radius:12px;display:flex;align-items:center;justify-content:center;font-size:19px;font-weight:800;background:linear-gradient(135deg,var(--green),var(--teal));color:#04231D;box-shadow:0 6px 22px rgba(37,211,102,.25);margin-bottom:14px}
+  .step-note{color:var(--muted);font-size:12.5px;opacity:.8;text-align:center;margin-top:28px}
+
+  /* faq */
+  .faq{max-width:780px;margin:0 auto;display:grid;gap:12px}
+  .faq details{background:var(--panel);border:1px solid var(--line);border-radius:14px;overflow:hidden;transition:.2s}
+  .faq details[open]{border-color:rgba(37,211,102,.45);background:rgba(37,211,102,.06)}
+  .faq summary{display:flex;align-items:center;gap:14px;padding:16px 20px;cursor:pointer;font-weight:700;font-size:15.5px;list-style:none;transition:.2s}
+  .faq summary::-webkit-details-marker{display:none}
+  .faq summary:hover{background:rgba(37,211,102,.04)}
+  .faq summary::after{content:'+';margin-left:auto;font-size:20px;font-weight:800;color:var(--green);transition:.18s;flex:none}
+  .faq details[open] summary::after{transform:rotate(45deg)}
+  .q-ico{width:36px;height:36px;border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:16px;flex:none;background:rgba(37,211,102,.14);border:1px solid rgba(37,211,102,.3)}
+  .faq details p{padding:0 20px 18px 70px;color:var(--muted);font-size:14.5px}
+
   /* quickstart */
   pre{background:#031B16;border:1px solid var(--line);border-radius:14px;padding:22px 24px;overflow-x:auto;font-size:14px;line-height:1.75;font-family:ui-monospace,'Cascadia Code',Menlo,Consolas,monospace}
   .c-cm{color:#6FA893}.c-kw{color:#7CEBAA}.c-s{color:#F5D48F}
@@ -85,6 +105,8 @@
 
   footer{border-top:1px solid var(--line);padding:34px 0 42px;text-align:center;color:var(--muted);font-size:13.5px}
   footer .fine{margin-top:8px;font-size:12.5px;opacity:.75;max-width:640px;margin-inline:auto}
+  #how-to,#faq{scroll-margin-top:76px}
+  @media(max-width:900px){.nav-links{display:none}}
   @media(max-width:640px){header.hero{padding:64px 0 56px}section{padding:54px 0}}
 </style>
 </head>
@@ -96,6 +118,10 @@
       <svg viewBox="0 0 512 512"><rect width="512" height="512" rx="112" fill="#008069"/><ellipse cx="256" cy="238" rx="152" ry="126" fill="#fff"/><path d="M148 318 L114 404 L216 352 Z" fill="#fff"/><circle cx="184" cy="238" r="19" fill="#008069"/><circle cx="256" cy="238" r="19" fill="#008069"/><circle cx="328" cy="238" r="19" fill="#008069"/></svg>
       WA Archiver
     </a>
+    <div class="nav-links">
+      <a href="#how-to">How-to</a>
+      <a href="#faq">FAQ</a>
+    </div>
     <div class="nav-cta">
       <a class="btn btn-ghost" href="./app/">Open web app</a>
       <a class="btn btn-ghost" href="https://github.com/Avithegod2010/WA-archiver">GitHub</a>
@@ -163,6 +189,57 @@
     <div><b>🔑 You hold the keys</b><br><span>PIN App Lock verified locally with an httpOnly session</span></div>
   </div>
 </div>
+
+<section id="how-to">
+  <div class="wrap">
+    <h2 class="sec-title">Export from WhatsApp in 60 seconds</h2>
+    <p class="sec-sub">Four taps in WhatsApp, one drop into WA Archiver — no account, no upload.</p>
+    <div class="steps">
+      <div class="card"><div class="step-num">1</div><h3>Open the chat</h3><p>In WhatsApp, open the chat and tap the contact or group name (Android) or the chat name (iPhone).</p></div>
+      <div class="card"><div class="step-num">2</div><h3>Tap "Export chat"</h3><p>Scroll down and tap <b>Export chat</b> — Android: <span style="font-family:monospace">⋮ More → Export chat</span> · iPhone: <b>Export Chat</b>.</p></div>
+      <div class="card"><div class="step-num">3</div><h3>With or without media</h3><p>Choose <b>Without media</b> for a small <span style="font-family:monospace">.txt</span>, or <b>Include media</b> for a <span style="font-family:monospace">.zip</span> with photos and voice notes.</p></div>
+      <div class="card"><div class="step-num">4</div><h3>Import into WA Archiver</h3><p>Save or share the file, then open WA Archiver and import it — drag &amp; drop works too. Everything stays on your device.</p></div>
+    </div>
+    <p class="step-note">Screenshots of WhatsApp belong to WhatsApp LLC — steps shown for user guidance only.</p>
+  </div>
+</section>
+
+<section id="faq">
+  <div class="wrap">
+    <h2 class="sec-title">FAQ</h2>
+    <p class="sec-sub">Short answers to what people ask before installing.</p>
+    <div class="faq">
+      <details>
+        <summary><span class="q-ico">🔒</span>Is my data uploaded anywhere?</summary>
+        <p>No. Parsing, storage and search happen entirely in your browser or on your device — there is no account and no server. The only optional network calls are AI features you trigger yourself with your own key.</p>
+      </details>
+      <details>
+        <summary><span class="q-ico">✈️</span>Does it work offline?</summary>
+        <p>Yes. The web app is an installable PWA and the Android APK is fully offline-first — already-imported chats, media and stats open without a connection.</p>
+      </details>
+      <details>
+        <summary><span class="q-ico">📁</span>Which formats are supported?</summary>
+        <p>Standard WhatsApp chat exports: plain <span style="font-family:monospace">.txt</span> files and <span style="font-family:monospace">.zip</span> archives that include media. You can import several chats at once.</p>
+      </details>
+      <details>
+        <summary><span class="q-ico">👥</span>Are groups supported?</summary>
+        <p>Yes — group chats get per-sender colors, group analytics, reactions and everything that 1:1 chats have.</p>
+      </details>
+      <details>
+        <summary><span class="q-ico">📱</span>Android app vs web app?</summary>
+        <p>They're the same app, v1.4.0. The APK is the offline-first packaged build, while the web app installs as a PWA straight from your browser.</p>
+      </details>
+      <details>
+        <summary><span class="q-ico">💚</span>Is it free / open source?</summary>
+        <p>Yes — WA Archiver is open source under the MIT License, and the source lives on GitHub. No accounts, subscriptions or paywalls.</p>
+      </details>
+      <details>
+        <summary><span class="q-ico">⚖️</span>Is it affiliated with WhatsApp or Meta?</summary>
+        <p>No. WA Archiver is an independent tool that only reads export files you produce from WhatsApp. "WhatsApp" is a trademark of its respective owner.</p>
+      </details>
+    </div>
+  </div>
+</section>
 
 <section>
   <div class="wrap">

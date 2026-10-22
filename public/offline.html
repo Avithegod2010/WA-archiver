@@ -1,0 +1,111 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="dark">
+  <meta name="theme-color" content="#0b141a">
+  <meta name="robots" content="noindex">
+  <title>Offline — WA Archiver</title>
+  <style>
+    /* Self-contained: no external fonts, images beyond the local icon, or JS libraries. */
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    html, body { height: 100%; }
+
+    body {
+      min-height: 100vh;
+      min-height: 100dvh;
+      display: grid;
+      place-items: center;
+      padding: 24px;
+      background: #0b141a;
+      color: #e9edef;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+        Helvetica, Arial, sans-serif;
+      -webkit-font-smoothing: antialiased;
+      text-align: center;
+    }
+
+    .card {
+      width: 100%;
+      max-width: 400px;
+      background: #111b21;
+      border: 1px solid rgba(134, 150, 160, 0.15);
+      border-radius: 18px;
+      padding: 44px 28px 40px;
+      box-shadow: 0 20px 60px rgba(0, 0, 0, 0.45);
+    }
+
+    .icon {
+      width: 72px;
+      height: 72px;
+      border-radius: 18px;
+      border: 2px solid rgba(37, 211, 102, 0.35);
+      box-shadow: 0 0 0 6px rgba(37, 211, 102, 0.08);
+      display: block;
+      margin: 0 auto 18px;
+    }
+
+    .brand {
+      font-size: 12px;
+      font-weight: 600;
+      letter-spacing: 0.18em;
+      text-transform: uppercase;
+      color: #25d366;
+      margin-bottom: 10px;
+    }
+
+    h1 {
+      font-size: 26px;
+      font-weight: 700;
+      color: #e9edef;
+      margin-bottom: 10px;
+    }
+
+    .sub {
+      font-size: 15px;
+      line-height: 1.55;
+      color: #8696a0;
+    }
+
+    .retry {
+      margin-top: 28px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 44px; /* touch-friendly target */
+      padding: 0 34px;
+      border: 0;
+      border-radius: 999px;
+      background: #008069;
+      color: #ffffff;
+      font: inherit;
+      font-size: 15px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: background-color 0.15s ease, transform 0.15s ease;
+    }
+
+    .retry:hover { background: #00a884; }
+    .retry:active { transform: scale(0.97); }
+    .retry:focus-visible {
+      outline: 2px solid #25d366;
+      outline-offset: 2px;
+    }
+  </style>
+</head>
+<body>
+  <main class="card" aria-labelledby="offline-heading">
+    <img class="icon" src="./icons/icon-192.png" alt="WA Archiver app icon" width="72" height="72">
+    <p class="brand">WA Archiver</p>
+    <h1 id="offline-heading">You're offline</h1>
+    <p class="sub" role="status">Chats you already opened stay available — reconnect to load new pages.</p>
+    <button class="retry" type="button" aria-label="Retry loading WA Archiver" onclick="location.reload()">Retry</button>
+  </main>
+  <script>
+    // Auto-recover: reload the app as soon as connectivity is back.
+    window.addEventListener('online', function () { location.reload() })
+  </script>
+</body>
+</html>
