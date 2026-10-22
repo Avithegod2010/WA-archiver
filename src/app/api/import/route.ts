@@ -3,6 +3,7 @@ import JSZip from 'jszip'
 import { db } from '@/lib/db'
 import { parseWhatsAppText, guessTitleFromFilename } from '@/lib/whatsapp-parser'
 import { persistParsedChat } from '@/lib/chat-service'
+import { mergeParsedIntoChat } from '@/lib/chat-merge'
 import {
   saveMediaFile,
   removeChatMedia,
@@ -15,6 +16,15 @@ import { assertAppUnlocked } from '@/lib/server-lock'
 
 export const runtime = 'nodejs'
 export const maxDuration = 120
+
+/**
+ * B1 — merge/dedup: when the multipart form carries `mergeIntoChatId`, the
+ * parsed transcript is deduplicated against that existing chat (makeMsgKey
+ * fingerprints) and only genuinely-new messages are appended — no duplicate
+ * chat, no duplicated rows. Without the field the route behaves exactly as
+ * before (always a fresh chat). Merge errors never delete the target chat:
+ * the rollback guard below only fires for chats this request created.
+ */
 
 const MAX_FILE_BYTES = 400 * 1024 * 1024 // total upload
 const MAX_ENTRY_BYTES = 80 * 1024 * 1024 // single media entry
@@ -58,6 +68,34 @@ export async function POST(req: NextRequest) {
     // field): when off, voice-note files are NOT saved to db/media — the
     // audio messages are still created so the transcript stays complete.
     const includeAudio = form.get('includeAudio') !== '0'
+    // B1 — optional merge target. Only accepted when the chat still exists;
+    // a stale id is a hard 404 so callers never silently duplicate.
+    const mergeField = form.get('mergeIntoChatId')
+    const mergeIntoChatId =
+      typeof mergeField === 'string' &&
+      mergeField.length > 0 &&
+      mergeField.length <= 128
+        ? mergeField
+        : null
+    let targetChat: {
+      id: string
+      title: string
+      isGroup: boolean
+      sourceFile: string
+    } | null = null
+    if (mergeIntoChatId) {
+      const found = await db.chat.findUnique({
+        where: { id: mergeIntoChatId },
+        select: { id: true, title: true, isGroup: true, sourceFile: true },
+      })
+      if (!found) {
+        return NextResponse.json(
+          { error: 'The chat to merge into no longer exists.' },
+          { status: 404 }
+        )
+      }
+      targetChat = found
+    }
     const buf = Buffer.from(await file.arrayBuffer())
     const isZip = /\.zip$/i.test(name)
     const isTxt = /\.txt$/i.test(name)
@@ -119,10 +157,14 @@ export async function POST(req: NextRequest) {
       }
 
       const title = guessTitleFromFilename(txtName) || guessTitleFromFilename(name)
-      const chat = await db.chat.create({
-        data: { title, isGroup: parsed.isGroup, sourceFile: name },
-      })
-      createdChatId = chat.id
+      // B1: when merging, media + rows attach to the EXISTING chat — no new
+      // row is created, and the rollback guard below must not fire for it.
+      const chat = targetChat
+        ? { id: targetChat.id }
+        : await db.chat.create({
+            data: { title, isGroup: parsed.isGroup, sourceFile: name },
+          })
+      createdChatId = targetChat ? null : chat.id
 
       // Extract media files under the chat folder and map basename -> stored name
       const mediaMap = new Map<string, string>()
@@ -156,21 +198,43 @@ export async function POST(req: NextRequest) {
         }
       }
 
+      // Audio-excluded imports blank the media reference of skipped files
+      // (mediaPath/mediaName end up null) but keep every message row.
+      const effectiveParsed = includeAudio
+        ? parsed
+        : {
+            ...parsed,
+            messages: parsed.messages.map((m) =>
+              m.mediaName && isAudioName(m.mediaName)
+                ? { ...m, mediaName: null }
+                : m
+            ),
+          }
+
+      // B1 — merge path: dedup against the existing transcript, append only
+      // genuinely-new rows, recompute aggregates. Returns merge stats.
+      if (targetChat) {
+        const merge = await mergeParsedIntoChat({
+          chatId: chat.id,
+          parsed: effectiveParsed,
+          mediaMap,
+        })
+        return NextResponse.json({
+          ok: true,
+          chatId: merge.chatId,
+          mediaFiles: mediaFileCount,
+          messages: merge.added,
+          added: merge.added,
+          duplicatesSkipped: merge.duplicatesSkipped,
+          merged: true,
+          participants: parsed.participants.length,
+        })
+      }
+
       const chatId = await persistParsedChat({
         title,
         sourceFile: name,
-        // Audio-excluded imports blank the media reference of skipped files
-        // (mediaPath/mediaName end up null) but keep every message row.
-        parsed: includeAudio
-          ? parsed
-          : {
-              ...parsed,
-              messages: parsed.messages.map((m) =>
-                m.mediaName && isAudioName(m.mediaName)
-                  ? { ...m, mediaName: null }
-                  : m
-              ),
-            },
+        parsed: effectiveParsed,
         mediaMap,
         chatId: chat.id,
       })
@@ -202,6 +266,23 @@ export async function POST(req: NextRequest) {
         },
         { status: 422 }
       )
+    }
+    // B1 — merge path for plain .txt uploads.
+    if (targetChat) {
+      const merge = await mergeParsedIntoChat({
+        chatId: targetChat.id,
+        parsed,
+      })
+      return NextResponse.json({
+        ok: true,
+        chatId: merge.chatId,
+        mediaFiles: 0,
+        messages: merge.added,
+        added: merge.added,
+        duplicatesSkipped: merge.duplicatesSkipped,
+        merged: true,
+        participants: parsed.participants.length,
+      })
     }
     const chatId = await persistParsedChat({ title, sourceFile: name, parsed })
     createdChatId = chatId

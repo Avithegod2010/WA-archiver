@@ -16,8 +16,10 @@ import {
   AudioLines,
   BarChart3,
   CalendarRange,
+  Check,
   FileText,
   Film,
+  GitMerge,
   Image as ImageIcon,
   MapPin,
   Paperclip,
@@ -32,9 +34,14 @@ import {
   type ImportPreviewData,
   type ImportSelection,
 } from '@/lib/data'
+import {
+  estimateNewForMerge,
+  type ImportMergeCandidate,
+} from '@/lib/import-dedup'
 import type { MessageType } from '@/lib/whatsapp-parser'
 import { Avatar } from './Avatar'
 import { Button } from '@/components/ui/button'
+import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group'
 import { cn } from '@/lib/utils'
 
 const DAY_MS = 24 * 60 * 60 * 1000
@@ -67,6 +74,30 @@ function msFromDay(iso: string, endOfDay: boolean): number | null {
   if (!iso) return null
   const t = new Date(`${iso}T${endOfDay ? '23:59:59.999' : '00:00:00'}`).getTime()
   return Number.isFinite(t) ? t : null
+}
+
+/**
+ * Compact month span for the merge banner: "Jan–Mar 2024" (same year) or
+ * "Jan 24–Mar 25" (cross-year). Falls back to a friendly dash when the chat
+ * has no datable messages.
+ */
+function monthSpan(
+  firstIso: string | null | undefined,
+  lastIso: string | null | undefined
+): string {
+  if (!firstIso || !lastIso) return 'no dates'
+  const f = new Date(firstIso)
+  const l = new Date(lastIso)
+  if (!Number.isFinite(f.getTime()) || !Number.isFinite(l.getTime())) {
+    return 'no dates'
+  }
+  const m = (d: Date) => d.toLocaleDateString(undefined, { month: 'short' })
+  if (f.getFullYear() === l.getFullYear()) {
+    return `${m(f)}–${m(l)} ${f.getFullYear()}`
+  }
+  return `${m(f)} ${String(f.getFullYear()).slice(2)}–${m(l)} ${String(
+    l.getFullYear()
+  ).slice(2)}`
 }
 
 function SectionLabel({
@@ -121,12 +152,16 @@ function Chip({
 export function ImportPreviewStep({
   data,
   busy,
+  mergeCandidates = [],
   onCommit,
   onCancel,
 }: {
   data: ImportPreviewData
   busy: boolean
-  onCommit: (selection: ImportSelection) => void
+  /** B1: existing chats matching this export (title or sourceFile). */
+  mergeCandidates?: ImportMergeCandidate[]
+  /** B1: second arg is the existing chat id when the user chose "Merge". */
+  onCommit: (selection: ImportSelection, mergeIntoChatId?: string) => void
   onCancel: () => void
 }) {
   const { summary } = data
@@ -139,6 +174,10 @@ export function ImportPreviewStep({
   // null = every sender; otherwise the checked set.
   const [senders, setSenders] = useState<Set<string> | null>(null)
   const [excluded, setExcluded] = useState<Set<string>>(new Set())
+  // B1 — merge target: 'new' (default) keeps today's behavior, 'merge'
+  // folds the filtered transcript into the matched existing chat.
+  const [target, setTarget] = useState<'new' | 'merge'>('new')
+  const [mergeChatId, setMergeChatId] = useState<string | null>(null)
 
   const selection: ImportSelection = useMemo(
     () => ({
@@ -150,10 +189,20 @@ export function ImportPreviewStep({
     [fromDay, toDay, senders, excluded]
   )
 
-  const keptCount = useMemo(
-    () => applyImportSelection(data.parsed.messages, selection).length,
+  const keptMessages = useMemo(
+    () => applyImportSelection(data.parsed.messages, selection),
     [data.parsed.messages, selection]
   )
+  const keptCount = keptMessages.length
+
+  // Effective merge candidate: the picked one, else the first match.
+  const candidate =
+    mergeCandidates.find((c) => c.id === mergeChatId) ?? mergeCandidates[0] ?? null
+  // Rough "~N new" estimate: incoming messages outside the existing chat's
+  // date span cannot be duplicates. Exact numbers come from commit-time dedup.
+  const estimatedNew = candidate
+    ? estimateNewForMerge(keptMessages, candidate.firstAt, candidate.lastAt)
+    : keptCount
 
   const togglSender = (name: string) => {
     setSenders((prev) => {
@@ -251,6 +300,139 @@ export function ImportPreviewStep({
           </p>
         )}
       </div>
+
+      {/* B1 — merge banner: an existing chat looks like this export */}
+      {mergeCandidates.length > 0 && (
+        <div
+          className="rounded-xl border border-(--wa-line) bg-(--wa-panel-2) p-3"
+          role="group"
+          aria-label="Existing chat match"
+        >
+          <SectionLabel icon={<GitMerge className="h-3.5 w-3.5" />}>
+            Existing chat{mergeCandidates.length > 1 ? `s · ${mergeCandidates.length}` : ''} found
+          </SectionLabel>
+
+          {mergeCandidates.length === 1 && candidate && (
+            <div className="mt-2 flex items-center gap-2.5">
+              <Avatar name={candidate.title} size={28} />
+              <p className="min-w-0 flex-1 truncate text-[12.5px] text-(--wa-text-2)">
+                <span className="font-semibold text-(--wa-text)">
+                  {candidate.title}
+                </span>{' '}
+                · {candidate.messageCount.toLocaleString()} msgs ·{' '}
+                {monthSpan(candidate.firstAt, candidate.lastAt)} · matched by{' '}
+                {candidate.matchedBy.join(' + ')}
+              </p>
+            </div>
+          )}
+
+          <RadioGroup
+            value={target}
+            onValueChange={(v) => setTarget(v as 'new' | 'merge')}
+            aria-label="Import target"
+            className="mt-1.5 gap-1"
+          >
+            <label
+              htmlFor="import-target-new"
+              className="flex min-h-11 cursor-pointer items-center gap-2.5 rounded-lg px-1.5 transition-colors hover:bg-(--wa-row-hover)"
+            >
+              <RadioGroupItem
+                value="new"
+                id="import-target-new"
+                aria-label="Import as new chat"
+              />
+              <span className="text-[13px] font-medium text-(--wa-text)">
+                Import as new chat
+              </span>
+            </label>
+            <label
+              htmlFor="import-target-merge"
+              className="flex min-h-11 cursor-pointer items-center gap-2.5 rounded-lg px-1.5 transition-colors hover:bg-(--wa-row-hover)"
+            >
+              <RadioGroupItem
+                value="merge"
+                id="import-target-merge"
+                aria-label="Merge into existing chat"
+              />
+              <span className="text-[13px] font-medium text-(--wa-text)">
+                Merge into existing chat
+              </span>
+              <span className="ml-auto text-[11px] text-(--wa-text-2)">
+                duplicates are skipped
+              </span>
+            </label>
+          </RadioGroup>
+
+          {target === 'merge' && candidate && (
+            <div className="mt-2 flex flex-col gap-2">
+              {mergeCandidates.length > 1 && (
+                <div
+                  role="radiogroup"
+                  aria-label="Choose the existing chat to merge into"
+                  className="wa-scroll flex max-h-40 flex-col gap-1.5 overflow-y-auto"
+                >
+                  {mergeCandidates.map((c) => {
+                    const picked = c.id === candidate.id
+                    return (
+                      <button
+                        key={c.id}
+                        type="button"
+                        role="radio"
+                        aria-checked={picked}
+                        aria-label={`Merge into ${c.title}`}
+                        onClick={() => setMergeChatId(c.id)}
+                        className={cn(
+                          'flex min-h-11 w-full items-center gap-2.5 rounded-lg border px-2.5 py-1.5 text-left transition-colors',
+                          picked
+                            ? 'border-(--wa-accent)/50 bg-(--wa-accent)/10'
+                            : 'border-(--wa-line) hover:bg-(--wa-row-hover)'
+                        )}
+                      >
+                        <Avatar name={c.title} size={28} />
+                        <span className="min-w-0 flex-1">
+                          <span className="block truncate text-[13px] font-medium text-(--wa-text)">
+                            {c.title}
+                          </span>
+                          <span className="block truncate text-[11px] text-(--wa-text-2)">
+                            {c.messageCount.toLocaleString()} msgs ·{' '}
+                            {monthSpan(c.firstAt, c.lastAt)} · matched by{' '}
+                            {c.matchedBy.join(' + ')}
+                          </span>
+                        </span>
+                        {picked && (
+                          <Check
+                            className="h-4 w-4 shrink-0 text-(--wa-accent)"
+                            aria-hidden
+                          />
+                        )}
+                      </button>
+                    )
+                  })}
+                </div>
+              )}
+              <p
+                className="rounded-lg bg-(--wa-accent)/8 px-2.5 py-2 text-[12px] leading-relaxed text-(--wa-text-2)"
+                aria-live="polite"
+              >
+                Merge into{' '}
+                <span className="font-semibold text-(--wa-text)">
+                  ‘{candidate.title}’
+                </span>{' '}
+                — existing{' '}
+                <span className="font-semibold text-(--wa-text)">
+                  {candidate.messageCount.toLocaleString()}
+                </span>{' '}
+                msgs ({monthSpan(candidate.firstAt, candidate.lastAt)}), incoming{' '}
+                <span className="font-semibold text-(--wa-text)">
+                  {keptCount.toLocaleString()}
+                </span>{' '}
+                ({monthSpan(summary.firstAt, summary.lastAt)}), ~
+                {estimatedNew.toLocaleString()} new
+              </p>
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Date range */}
       <div className="flex flex-col gap-2">
@@ -384,10 +566,12 @@ export function ImportPreviewStep({
           <span className="font-semibold text-(--wa-text)">
             {keptCount.toLocaleString()}
           </span>{' '}
-          of {summary.totalMessages.toLocaleString()} messages will be imported
+          of {summary.totalMessages.toLocaleString()} messages will be{' '}
+          {target === 'merge' ? 'merged' : 'imported'}
           {summary.systemCount > 0 && (
             <> · system notices always kept</>
           )}
+          {target === 'merge' && <> · exact duplicates are skipped</>}
         </p>
         <div className="flex items-center justify-end gap-2">
           <Button
@@ -402,12 +586,26 @@ export function ImportPreviewStep({
           <Button
             size="sm"
             className="h-10 gap-2 bg-(--wa-accent) px-4 text-white hover:bg-(--wa-accent-strong)"
-            disabled={busy || keptCount === 0}
-            onClick={() => onCommit(selection)}
+            disabled={busy || (keptCount === 0 && target !== 'merge')}
+            onClick={() =>
+              onCommit(
+                selection,
+                target === 'merge' && candidate ? candidate.id : undefined
+              )
+            }
           >
-            <FileText className="h-4 w-4" aria-hidden />
-            Import {keptCount.toLocaleString()}{' '}
-            {keptCount === 1 ? 'message' : 'messages'}
+            {target === 'merge' ? (
+              <GitMerge className="h-4 w-4" aria-hidden />
+            ) : (
+              <FileText className="h-4 w-4" aria-hidden />
+            )}
+            {target === 'merge'
+              ? `Merge ${keptCount.toLocaleString()} ${
+                  keptCount === 1 ? 'message' : 'messages'
+                }`
+              : `Import ${keptCount.toLocaleString()} ${
+                  keptCount === 1 ? 'message' : 'messages'
+                }`}
           </Button>
         </div>
       </div>

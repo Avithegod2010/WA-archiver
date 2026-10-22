@@ -33,6 +33,7 @@ import {
   type SendMessageInput,
   type StarredItem,
 } from '../types'
+import { makeMsgKey } from '@/lib/import-dedup'
 import { getEngine, type LocalEngine } from './engine'
 // Post-import rolling snapshots (idea #14) — fire-and-forget, never breaks
 // the import flow. Component-scoped store, safe to import here (no cycle:
@@ -572,7 +573,29 @@ export class LocalDataClient implements DataClient {
     return hydrated[0]
   }
 
-  async importParsed(input: ImportParsedInput): Promise<{ chatId: string }> {
+  /**
+   * Insert a parsed transcript. Fresh imports create the chat (or attach to
+   * the caller-created `chatId`) exactly as before.
+   *
+   * B1 — merge mode (`merge: true` + `chatId`): the existing transcript is
+   * fingerprinted with makeMsgKey (ts|sender|body|type) and only genuinely
+   * new messages are appended; self-duplicates inside the incoming batch are
+   * dropped too. Rows continue after the current max idx, and if any incoming
+   * message is older than existing rows the chat is re-indexed by timestamp
+   * (stable for ties) so the transcript stays chronological. Aggregates are
+   * then recomputed from the table — the existing chat's title, isGroup and
+   * sourceFile are preserved.
+   *
+   * Returns the chat id plus merge stats (`added` = rows written,
+   * `duplicatesSkipped` = exact duplicates dropped; both 0-adjacent values on
+   * fresh imports keep the old shape fully backward-compatible).
+   */
+  async importParsed(
+    input: ImportParsedInput & {
+      /** B1: merge into the existing `chatId` with message dedup. */
+      merge?: boolean
+    }
+  ): Promise<{ chatId: string; added: number; duplicatesSkipped: number }> {
     const e = await this.db()
     const now = new Date().toISOString()
     const mediaMap = input.mediaMap ?? new Map<string, string>()
@@ -588,8 +611,64 @@ export class LocalDataClient implements DataClient {
       )
     }
 
+    // B1 — fingerprint the existing transcript and keep only new messages.
+    // makeMsgKey normalizes ts to ISO and caps the body at the insert-time
+    // slice, so parsed-export keys match keys recomputed from stored rows.
+    const merge = input.merge === true && !!input.chatId
+    let duplicatesSkipped = 0
+    let incoming = input.messages
+    let oldestIncomingMs = Number.POSITIVE_INFINITY
+    let maxExistingMs = Number.NEGATIVE_INFINITY
+    if (merge) {
+      const existing = await e.all(
+        'SELECT ts, sender, body, type FROM "Message" WHERE chatId = ?',
+        [chatId]
+      )
+      const keys = new Set<string>()
+      for (const r of existing) {
+        keys.add(
+          makeMsgKey({
+            ts: str(r.ts),
+            sender: nstr(r.sender),
+            body: str(r.body),
+            type: str(r.type),
+          })
+        )
+        const t = Date.parse(str(r.ts))
+        if (Number.isFinite(t) && t > maxExistingMs) maxExistingMs = t
+      }
+      incoming = []
+      for (const m of input.messages) {
+        const key = makeMsgKey(m)
+        if (keys.has(key)) {
+          duplicatesSkipped++
+          continue
+        }
+        keys.add(key)
+        const t = m.ts instanceof Date ? m.ts.getTime() : Date.parse(m.ts)
+        if (Number.isFinite(t) && t < oldestIncomingMs) oldestIncomingMs = t
+        incoming.push(m)
+      }
+      if (incoming.length === 0) {
+        // Nothing new — still refresh aggregates so the row stays honest.
+        await this.refreshAggregates(e, chatId)
+        await this.engine.flush()
+        maybeAutoSnapshot()
+        return { chatId, added: 0, duplicatesSkipped }
+      }
+    }
+
     let mediaCount = 0
-    const rows = input.messages.map((m, i) => {
+    // Fresh chats restart idx at 0; merges continue after the current max.
+    const baseIdx = merge
+      ? num(
+          await e.scalar(
+            'SELECT COALESCE(MAX(idx), -1) FROM "Message" WHERE chatId = ?',
+            [chatId]
+          )
+        ) + 1
+      : 0
+    const rows = incoming.map((m, i) => {
       let mediaPath: string | null = null
       let mediaName: string | null = m.mediaName
       if (mediaName) {
@@ -603,7 +682,7 @@ export class LocalDataClient implements DataClient {
       return {
         id: newId(),
         chatId,
-        idx: i,
+        idx: baseIdx + i,
         ts: (m.ts instanceof Date ? m.ts : new Date(m.ts)).toISOString(),
         sender: m.sender,
         body: m.body.slice(0, 8000),
@@ -642,35 +721,65 @@ export class LocalDataClient implements DataClient {
       )
     }
 
-    // Import-time aggregates mirror persistParsedChat(): preview from the
-    // parser's buildPreview (label style), counts from the parsed rows.
-    const last = input.messages.at(-1) ?? null
-    const first = input.messages[0] ?? null
-    await e.runNoSave(
-      `UPDATE "Chat" SET title = ?, isGroup = ?, sourceFile = ?,
-              messageCount = ?, mediaCount = ?, firstAt = ?, lastAt = ?,
-              lastPreview = ?, lastSender = ?, lastType = ?
-        WHERE id = ?`,
-      [
-        input.title.trim() || 'Imported Chat',
-        input.isGroup ? 1 : 0,
-        input.sourceFile,
-        input.messages.length,
-        mediaCount,
-        first ? (first.ts instanceof Date ? first.ts : new Date(first.ts)).toISOString() : null,
-        last ? (last.ts instanceof Date ? last.ts : new Date(last.ts)).toISOString() : null,
-        last
-          ? buildPreview({ body: last.body, type: last.type as MessageType }).slice(0, 300)
-          : '',
-        last?.sender ?? null,
-        last?.type ?? 'text',
-        chatId,
-      ]
-    )
+    // B1 (merge): keep the transcript chronological. Appends already start
+    // after the current max idx — when any incoming message is OLDER than the
+    // newest existing row, re-index the whole chat by timestamp. The sort is
+    // stable (ES2019+), so equal timestamps keep their previous relative
+    // order. Skipped entirely on the common append-only path.
+    if (merge && oldestIncomingMs < maxExistingMs) {
+      const order = await e.all(
+        'SELECT id, idx, ts FROM "Message" WHERE chatId = ? ORDER BY idx ASC',
+        [chatId]
+      )
+      order.sort(
+        (a, b) => Date.parse(str(a.ts)) - Date.parse(str(b.ts))
+      )
+      for (let i = 0; i < order.length; i++) {
+        if (num(order[i].idx) !== i) {
+          await e.runNoSave('UPDATE "Message" SET idx = ? WHERE id = ?', [
+            i,
+            str(order[i].id),
+          ])
+        }
+      }
+    }
+
+    if (merge) {
+      // Merged transcript: recompute every aggregate from the table so
+      // counts/first/last reflect the FULL chat (imported rows + existing).
+      // The existing chat's title, isGroup and sourceFile are preserved.
+      await this.refreshAggregates(e, chatId)
+    } else {
+      // Import-time aggregates mirror persistParsedChat(): preview from the
+      // parser's buildPreview (label style), counts from the parsed rows.
+      const last = input.messages.at(-1) ?? null
+      const first = input.messages[0] ?? null
+      await e.runNoSave(
+        `UPDATE "Chat" SET title = ?, isGroup = ?, sourceFile = ?,
+                messageCount = ?, mediaCount = ?, firstAt = ?, lastAt = ?,
+                lastPreview = ?, lastSender = ?, lastType = ?
+          WHERE id = ?`,
+        [
+          input.title.trim() || 'Imported Chat',
+          input.isGroup ? 1 : 0,
+          input.sourceFile,
+          input.messages.length,
+          mediaCount,
+          first ? (first.ts instanceof Date ? first.ts : new Date(first.ts)).toISOString() : null,
+          last ? (last.ts instanceof Date ? last.ts : new Date(last.ts)).toISOString() : null,
+          last
+            ? buildPreview({ body: last.body, type: last.type as MessageType }).slice(0, 300)
+            : '',
+          last?.sender ?? null,
+          last?.type ?? 'text',
+          chatId,
+        ]
+      )
+    }
     await this.engine.flush()
     // Idea #14: rolling on-device snapshot after every import (throttled).
     maybeAutoSnapshot()
-    return { chatId }
+    return { chatId, added: rows.length, duplicatesSkipped }
   }
 
   async deleteMessage(id: string): Promise<void> {

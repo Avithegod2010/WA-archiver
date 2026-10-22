@@ -16,6 +16,7 @@ import {
   EMOJI_RE,
   URL_TEST_RE,
   countWords,
+  median,
 } from '@/lib/chat-analytics'
 import { countCloudWords } from '@/lib/wordcloud'
 import type { StatsData } from '@/components/whatsapp/types'
@@ -74,13 +75,34 @@ export interface StatsIgnorePair {
   leftOnReadPct: number
 }
 
+/** One "Fastest repliers" leaderboard row: how quickly this person replies
+ *  TO YOU (median of turn-switch deltas across every chat they share). */
+export interface StatsReplySpeedRow {
+  /** Stable key for list rendering (currently the sender display name). */
+  senderKey: string
+  /** Display name (same string as senderKey today). */
+  name: string
+  /** Median reply time to you, in milliseconds. */
+  medianMs: number
+  /** How many reply deltas the median is computed over (always ≥ 3). */
+  count: number
+}
+
+export interface StatsReplySpeeds {
+  rows: StatsReplySpeedRow[]
+  /** Inverse metric — your own median reply time to others (summary number).
+   *  Absent when you have no qualifying turn-switches. */
+  myMedianMs?: number
+}
+
 /** Everything GET /api/stats returns: the shared StatsData shape plus the
  *  defensive "extras" sections the dashboard renders (global word cloud,
- *  emoji leaderboard, "left on read" pairs). */
+ *  emoji leaderboard, "left on read" pairs, reply-speed leaderboard). */
 export interface StatsPayload extends StatsData {
   topWordsGlobal: StatsWordEntry[]
   emojiLeaderboard: StatsEmojiLeaderEntry[]
   ignoreGraph: StatsIgnorePair[]
+  replySpeeds: StatsReplySpeeds
 }
 
 /* --------------------- "Left on read" pair helpers ---------------------- */
@@ -176,6 +198,103 @@ function computeIgnoreGraph(
         b.leftOnReadPct - a.leftOnReadPct || b.aCount - a.aCount
     )
     .slice(0, IGNORE_GRAPH_LIMIT)
+}
+
+/* ----------------------- "Fastest repliers" speeds ----------------------- */
+
+/** Reply window + sampling floor — same turn-switch convention ChatInfo.tsx
+ *  uses for its per-chat median reply stat (positive delta, capped at 6h). */
+const REPLY_SPEED_WINDOW_MS = 6 * 3_600_000
+const MIN_REPLY_SAMPLES = 3
+const REPLY_SPEEDS_LIMIT = 12
+
+/** Per-person median reply time TO YOU, aggregated across every chat.
+ *
+ *  For each chat, messages are walked as a sorted timeline; a reply is a
+ *  turn-switch where the previous real message is yours and the next one is
+ *  from someone else: delta = their.ts - yours.ts (0 < delta < 6h, the
+ *  ChatInfo convention). Group chats attribute by sender; multiple chats
+ *  pool deltas per sender name. Senders with fewer than 3 samples are
+ *  dropped (tiny-sample medians are noise). The inverse "your median reply
+ *  time" is computed the same way with the roles swapped.
+ *
+ *  System messages are excluded at ingest (computeIgnoreGraph's convention):
+ *  they are not conversation turns, so a system line between two messages
+ *  does not break the reply chain. */
+export function computeReplySpeeds(
+  messages: readonly {
+    chatId: string
+    ts: string | Date
+    sender: string | null
+    type: string
+  }[],
+  mySenders: readonly string[] = ['You']
+): StatsReplySpeeds {
+  const mine = new Set(mySenders)
+
+  // Per-chat timeline of real (non-system) sender messages
+  const timelines = new Map<string, { t: number; s: string }[]>()
+  for (const m of messages) {
+    if (!m.sender || m.type === 'system') continue
+    const t = new Date(m.ts).getTime()
+    if (Number.isNaN(t)) continue
+    let arr = timelines.get(m.chatId)
+    if (!arr) {
+      arr = []
+      timelines.set(m.chatId, arr)
+    }
+    arr.push({ t, s: m.sender })
+  }
+
+  const theirDeltas = new Map<string, number[]>()
+  const myDeltas: number[] = []
+  for (const timeline of timelines.values()) {
+    timeline.sort((a, b) => a.t - b.t)
+    for (let i = 1; i < timeline.length; i++) {
+      const cur = timeline[i]
+      const prev = timeline[i - 1]
+      if (prev.s === cur.s) continue // not a turn switch
+      const bothMine = mine.has(prev.s) && mine.has(cur.s)
+      if (bothMine) continue // replying to yourself is not a reply
+      const delta = cur.t - prev.t
+      if (delta <= 0 || delta >= REPLY_SPEED_WINDOW_MS) continue
+      if (mine.has(cur.s)) {
+        // You replied to someone → inverse summary number
+        myDeltas.push(delta)
+      } else if (mine.has(prev.s)) {
+        // They replied to you → leaderboard sample
+        let arr = theirDeltas.get(cur.s)
+        if (!arr) {
+          arr = []
+          theirDeltas.set(cur.s, arr)
+        }
+        arr.push(delta)
+      }
+    }
+  }
+
+  const rows: StatsReplySpeedRow[] = []
+  for (const [senderKey, deltas] of theirDeltas) {
+    if (deltas.length < MIN_REPLY_SAMPLES) continue
+    rows.push({
+      senderKey,
+      name: senderKey,
+      medianMs: median(deltas),
+      count: deltas.length,
+    })
+  }
+  // Fastest first; ties broken by sample count (more = more reliable),
+  // then name for a deterministic order.
+  rows.sort(
+    (a, b) =>
+      a.medianMs - b.medianMs ||
+      b.count - a.count ||
+      a.name.localeCompare(b.name)
+  )
+
+  const result: StatsReplySpeeds = { rows: rows.slice(0, REPLY_SPEEDS_LIMIT) }
+  if (myDeltas.length > 0) result.myMedianMs = median(myDeltas)
+  return result
 }
 
 /* ------------------------------ Main entry ------------------------------- */
@@ -345,6 +464,10 @@ export function computeStats(input: {
      A's messages get NO message from B within the next 24 hours. */
   const ignoreGraph = computeIgnoreGraph(messages, chatMeta)
 
+  // "Fastest repliers" leaderboard — per-person median reply time TO YOU,
+  // plus the inverse "your median reply time" summary number.
+  const replySpeeds = computeReplySpeeds(messages, ['You'])
+
   let busiestDay: { date: string; count: number } | null = null
   for (const [date, count] of dayCount) {
     if (!busiestDay || count > busiestDay.count) busiestDay = { date, count }
@@ -475,6 +598,7 @@ export function computeStats(input: {
         return { emoji, count, topUser }
       }),
     ignoreGraph,
+    replySpeeds,
     participants: Object.entries(participantCount)
       .sort(([, a], [, b]) => b - a)
       .slice(0, 8)

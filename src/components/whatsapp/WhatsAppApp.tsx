@@ -1606,6 +1606,20 @@ function WhatsAppAppInner() {
               setGlobalSearchQuery(q)
               setGlobalSearchOpen(true)
             }}
+            onRefreshChats={refreshChats}
+            onAfterBulkDelete={async (deletedIds) => {
+              // B2 bulk delete: close the chat if it was deleted, then refresh
+              if (activeId && deletedIds.includes(activeId)) {
+                setActiveId(null)
+                setDetail(null)
+                try {
+                  localStorage.removeItem('wa-viewer:last-chat')
+                } catch {
+                  /* ignore */
+                }
+              }
+              await refreshChats()
+            }}
           />
         </div>
         <main

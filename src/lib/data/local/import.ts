@@ -18,6 +18,13 @@
  * only the matching rows — extracting only media that survived the filter.
  * `importFileToDevice` remains as preview + full commit for callers that
  * don't need the preview step.
+ *
+ * B1 — merge/dedup for re-imports: `commitDeviceImport` accepts
+ * `mergeIntoChatId`. The selection filter runs FIRST (applyImportSelection),
+ * exact-duplicate dedup runs SECOND (makeMsgKey fingerprints inside
+ * LocalDataClient.importParsed), so selective filters compose with merging.
+ * The result carries `{ added, duplicatesSkipped, merged }` stats for the
+ * success toast.
  */
 
 import JSZip from 'jszip'
@@ -52,6 +59,12 @@ export interface LocalImportResult {
   mediaFiles: number
   participants: number
   isGroup: boolean
+  /** B1: messages actually written (differs from `messages` when dedup drops rows). */
+  added: number
+  /** B1: exact duplicates skipped (merge mode only; 0 for fresh imports). */
+  duplicatesSkipped: number
+  /** B1: true when rows were merged into an existing chat. */
+  merged: boolean
 }
 
 export class LocalImportError extends Error {}
@@ -314,36 +327,64 @@ export function applyImportSelection(
  * database. Re-opens the ZIP from the kept File so the preview holds no
  * decompressed data; media extraction only stores files the filtered
  * transcript still references.
+ *
+ * B1 — `opts.mergeIntoChatId` merges the filtered transcript into an
+ * existing chat instead of creating one: applyImportSelection runs first,
+ * makeMsgKey dedup second, then only genuinely-new messages are appended
+ * (chronologically re-indexed when needed) and the chat's aggregates are
+ * recomputed. An empty filtered set is allowed when merging — it reports
+ * 0 added rather than failing — so a mis-tuned filter can never destroy
+ * an existing chat.
  */
 export async function commitDeviceImport(
   preview: ImportPreviewData,
   selection: ImportSelection | null,
   opts: {
     includeAudio?: boolean
+    /** B1: merge into this existing chat (dedup + append) instead of a new one. */
+    mergeIntoChatId?: string
     onProgress?: (p: LocalImportProgress) => void
   } = {}
 ): Promise<LocalImportResult> {
   const includeAudio = opts.includeAudio !== false
+  const mergeIntoChatId = opts.mergeIntoChatId
   const report = (p: LocalImportProgress) => opts.onProgress?.(p)
   const client = getLocalClient()
   const { parsed, file, summary } = preview
 
   const filtered = applyImportSelection(parsed.messages, selection)
-  if (filtered.length === 0) {
+  if (filtered.length === 0 && !mergeIntoChatId) {
     throw new LocalImportError(
       'The selected filters match no messages — loosen the date range, senders or media types and try again.'
     )
+  }
+
+  // B1: merge with filters that dropped everything — allowed, reports 0 added.
+  if (filtered.length === 0 && mergeIntoChatId) {
+    report({ phase: 'done', processed: 0, total: 0 })
+    return {
+      chatId: mergeIntoChatId,
+      title: summary.title,
+      messages: 0,
+      mediaFiles: 0,
+      participants: parsed.participants.length,
+      isGroup: parsed.isGroup,
+      added: 0,
+      duplicatesSkipped: 0,
+      merged: true,
+    }
   }
 
   const isZip = /\.zip$/i.test(file.name)
 
   if (!isZip) {
     report({ phase: 'inserting', processed: 0, total: 0 })
-    const { chatId } = await client.importParsed({
+    const { chatId, added, duplicatesSkipped } = await client.importParsed({
       title: summary.title,
       sourceFile: file.name,
       isGroup: parsed.isGroup,
       messages: filtered,
+      ...(mergeIntoChatId ? { chatId: mergeIntoChatId, merge: true } : {}),
     })
     report({ phase: 'done', processed: 0, total: 0 })
     return {
@@ -353,6 +394,9 @@ export async function commitDeviceImport(
       mediaFiles: 0,
       participants: parsed.participants.length,
       isGroup: parsed.isGroup,
+      added,
+      duplicatesSkipped,
+      merged: Boolean(mergeIntoChatId),
     }
   }
 
@@ -381,12 +425,16 @@ export async function commitDeviceImport(
   }
 
   // Create the chat row first so media blobs have an owner to key off.
-  const chat = await client.createChat({
-    title: summary.title,
-    isGroup: parsed.isGroup,
-    sourceFile: file.name,
-  })
-  const chatId = chat.id
+  // B1: when merging, media blobs attach to the EXISTING chat instead —
+  // no new row is created and a failure must never delete it.
+  const createdChat = mergeIntoChatId
+    ? null
+    : await client.createChat({
+        title: summary.title,
+        isGroup: parsed.isGroup,
+        sourceFile: file.name,
+      })
+  const chatId = mergeIntoChatId ?? createdChat!.id
 
   try {
     // ---- media extraction (browser blobs → IndexedDB) --------------------
@@ -441,8 +489,9 @@ export async function commitDeviceImport(
             ? { ...m, mediaName: null }
             : m
         )
-    await client.importParsed({
+    const { added, duplicatesSkipped } = await client.importParsed({
       chatId,
+      merge: Boolean(mergeIntoChatId),
       title: summary.title,
       sourceFile: file.name,
       isGroup: parsed.isGroup,
@@ -458,10 +507,16 @@ export async function commitDeviceImport(
       mediaFiles: mediaFileCount,
       participants: parsed.participants.length,
       isGroup: parsed.isGroup,
+      added,
+      duplicatesSkipped,
+      merged: Boolean(mergeIntoChatId),
     }
   } catch (err) {
-    // Clean up a half-imported chat (mirror of the server's rollback)
-    await client.deleteChat(chatId).catch(() => undefined)
+    // Clean up a half-imported chat (mirror of the server's rollback).
+    // B1: never delete an existing chat we were only merging INTO.
+    if (!mergeIntoChatId) {
+      await client.deleteChat(chatId).catch(() => undefined)
+    }
     throw err
   }
 }

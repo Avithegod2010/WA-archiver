@@ -15,15 +15,19 @@ import {
   ArchiveRestore,
   BarChart3,
   CalendarHeart,
+  Check,
   CheckCheck,
   ChevronDown,
   ChevronRight,
   CircleDot,
   Command,
+  FileDown,
   FileText,
   Film,
+  FolderInput,
   Image as ImageIcon,
   Images,
+  ListChecks,
   Loader2,
   MapPin,
   MessagesSquare,
@@ -36,10 +40,12 @@ import {
   Settings2,
   Sparkles,
   Star,
+  StarOff,
   StickyNote,
   TextSearch,
   Trash2,
   Upload,
+  X,
   Ban,
   UserRound,
   Users,
@@ -67,10 +73,25 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog'
 import { FolderManagerDialog } from './FolderManagerDialog'
 import { SAVED_CHAT_ID, type ChatSummary } from './types'
 import { formatChatTime } from './display'
 import { cn } from '@/lib/utils'
+import { useData } from './data-provider'
+import {
+  bulkDeleteChats,
+  bulkExportChatsText,
+  bulkMoveChatsToFolder,
+  bulkSetChatFavorite,
+  bulkSetChatPin,
+} from '@/lib/chat-ops'
 import {
   EMPTY_FAVS_SNAPSHOT,
   EMPTY_FOLDERS_SNAPSHOT,
@@ -87,6 +108,7 @@ import {
   subscribeSeen,
   toggleFavChat,
   unreadFor,
+  type ChatFolder,
 } from './chat-folders'
 
 // Built-in folder ids (custom folders use their own generated ids)
@@ -208,11 +230,15 @@ function ChatRow({
   isArchived,
   unread,
   isFav,
+  selectMode = false,
+  selected = false,
   onSelect,
   onTogglePin,
   onToggleArchive,
   onToggleFav,
   onDelete,
+  onToggleSelect,
+  onEnterSelect,
 }: {
   chat: ChatSummary
   index: number
@@ -222,15 +248,67 @@ function ChatRow({
   /** Unread message count (0 = clean); badges only render on active rows. */
   unread: number
   isFav: boolean
+  /** B2: when true the row is a checkbox row — tap toggles the selection. */
+  selectMode?: boolean
+  selected?: boolean
   onSelect: (id: string) => void
   onTogglePin: (id: string, pinned: boolean) => void
   onToggleArchive: (id: string, archived: boolean) => void
   onToggleFav: (id: string) => void
   onDelete: (chat: ChatSummary) => void
+  onToggleSelect: (id: string) => void
+  /** Enter select mode with this chat preselected (long-press / hover ✚). */
+  onEnterSelect: (id: string) => void
 }) {
   const isSaved = chat.id === SAVED_CHAT_ID
   const hasUnread = !isArchived && unread > 0
   const customAvatar = useChatAvatar(isSaved ? '' : chat.id)
+
+  // Long-press (≈500ms) enters select mode with this chat preselected,
+  // mirroring the message-level select in ChatView. Pointer travel >12px
+  // (scroll intent) cancels the timer; the click that lands right after a
+  // fired long-press is swallowed once so the row doesn't also open.
+  const pressRef = useRef({ timer: 0, x: 0, y: 0, fired: false })
+
+  function cancelPress() {
+    if (pressRef.current.timer) {
+      window.clearTimeout(pressRef.current.timer)
+      pressRef.current.timer = 0
+    }
+  }
+
+  function handlePointerDown(e: React.PointerEvent) {
+    if (selectMode || e.button !== 0) return
+    pressRef.current.x = e.clientX
+    pressRef.current.y = e.clientY
+    pressRef.current.fired = false
+    cancelPress()
+    pressRef.current.timer = window.setTimeout(() => {
+      pressRef.current.timer = 0
+      pressRef.current.fired = true
+      onEnterSelect(chat.id)
+    }, 500)
+  }
+
+  function handlePointerMove(e: React.PointerEvent) {
+    if (!pressRef.current.timer) return
+    const dx = e.clientX - pressRef.current.x
+    const dy = e.clientY - pressRef.current.y
+    if (dx * dx + dy * dy > 144) cancelPress()
+  }
+
+  function handleClick() {
+    if (pressRef.current.fired) {
+      pressRef.current.fired = false
+      return
+    }
+    if (selectMode) {
+      if (!isSaved) onToggleSelect(chat.id)
+      return
+    }
+    onSelect(chat.id)
+  }
+
   return (
     <button
       data-chat-idx={index}
@@ -240,9 +318,31 @@ function ChatRow({
         'anim-fade-up group relative flex w-full items-center gap-3 px-3 py-2.5 text-left transition-colors hover:bg-(--wa-row-hover)',
         activeId === chat.id && 'bg-(--wa-row-active)',
         cursor === index &&
-          'ring-1 ring-inset ring-(--wa-accent)/70 bg-(--wa-accent)/[0.04] dark:bg-(--wa-panel-2)'
+          'ring-1 ring-inset ring-(--wa-accent)/70 bg-(--wa-accent)/[0.04] dark:bg-(--wa-panel-2)',
+        selectMode &&
+          selected &&
+          'bg-(--wa-accent)/[0.08] dark:bg-(--wa-accent)/[0.14]',
+        selectMode &&
+          (isSaved
+            ? 'cursor-not-allowed opacity-60'
+            : 'cursor-pointer select-none')
       )}
-      onClick={() => onSelect(chat.id)}
+      // B2 select mode: the row itself becomes a real checkbox control
+      // (role + aria-checked), keeping the same layout/row classes.
+      role={selectMode ? 'checkbox' : undefined}
+      aria-checked={selectMode ? selected : undefined}
+      aria-label={selectMode ? `Select ${chat.title}` : undefined}
+      aria-disabled={selectMode && isSaved ? true : undefined}
+      onClick={handleClick}
+      onPointerDown={handlePointerDown}
+      onPointerMove={handlePointerMove}
+      onPointerUp={cancelPress}
+      onPointerLeave={cancelPress}
+      onPointerCancel={cancelPress}
+      onContextMenu={(e) => {
+        // A fired long-press must not also open the text-selection menu
+        if (pressRef.current.fired) e.preventDefault()
+      }}
     >
       {activeId === chat.id && (
         <span
@@ -294,17 +394,57 @@ function ChatRow({
               sender={chat.isGroup ? chat.lastSender : null}
             />
           </div>
-          {/* Unread pill (WhatsApp-style: below the timestamp, swaps to the
-              hover actions while hovering) */}
-          {hasUnread && (
+          {/* B2 select mode: checkbox replaces the unread pill + hover
+              actions; the row carries role="checkbox" aria-checked. */}
+          {selectMode ? (
             <span
-              className="flex h-5 min-w-[20px] shrink-0 items-center justify-center rounded-full bg-(--wa-accent) px-1.5 text-[11px] font-bold leading-none tabular-nums text-white group-hover:hidden"
-              aria-label={`${unread} unread message${unread === 1 ? '' : 's'}`}
+              aria-hidden
+              className={cn(
+                'flex h-5 w-5 shrink-0 items-center justify-center rounded-[5px] border-2 transition-colors',
+                selected
+                  ? 'border-(--wa-accent) bg-(--wa-accent) text-white'
+                  : 'border-black/25 dark:border-white/30',
+                isSaved && 'opacity-40'
+              )}
             >
-              {unread > 999 ? '999+' : unread}
+              <Check
+                className={cn('h-3 w-3', selected ? 'opacity-100' : 'opacity-0')}
+              />
             </span>
-          )}
-          <span className="hidden shrink-0 items-center group-hover:flex">
+          ) : (
+            <>
+              {/* Unread pill (WhatsApp-style: below the timestamp, swaps to the
+                  hover actions while hovering) */}
+              {hasUnread && (
+                <span
+                  className="flex h-5 min-w-[20px] shrink-0 items-center justify-center rounded-full bg-(--wa-accent) px-1.5 text-[11px] font-bold leading-none tabular-nums text-white group-hover:hidden"
+                  aria-label={`${unread} unread message${unread === 1 ? '' : 's'}`}
+                >
+                  {unread > 999 ? '999+' : unread}
+                </span>
+              )}
+              <span className="hidden shrink-0 items-center group-hover:flex">
+            {/* B2: trailing "Select" hover action — enters select mode with
+                this chat preselected (mirrors ChatView's per-message entry). */}
+            <span
+              role="button"
+              tabIndex={0}
+              aria-label={`Select ${chat.title}`}
+              title="Select"
+              className="rounded p-1 text-(--wa-text-2) hover:bg-black/10 hover:text-(--wa-accent) dark:hover:bg-white/10"
+              onClick={(e) => {
+                e.stopPropagation()
+                onEnterSelect(chat.id)
+              }}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' || e.key === ' ') {
+                  e.stopPropagation()
+                  onEnterSelect(chat.id)
+                }
+              }}
+            >
+              <ListChecks className="h-4 w-4" />
+            </span>
             {!isSaved && (
               <span
                 role="button"
@@ -406,10 +546,12 @@ function ChatRow({
                   }
                 }}
               >
-                <Trash2 className="h-4 w-4" />
+                  <Trash2 className="h-4 w-4" />
+                </span>
+              )}
               </span>
-            )}
-          </span>
+            </>
+          )}
         </div>
       </div>
     </button>
@@ -523,6 +665,8 @@ export function ChatList({
   onOpenMemories,
   onOpenMediaHub,
   onOpenGlobalSearch,
+  onRefreshChats,
+  onAfterBulkDelete,
   bindImportTrigger,
 }: {
   chats: ChatSummary[]
@@ -540,11 +684,22 @@ export function ChatList({
   onOpenMemories: () => void
   onOpenMediaHub: () => void
   onOpenGlobalSearch: (query: string) => void
+  /** B2: re-fetch the chat list after a bulk mutation (pin/delete). */
+  onRefreshChats: () => void | Promise<void>
+  /** B2: post-bulk-delete hook — lets the parent close a deleted open chat. */
+  onAfterBulkDelete?: (deletedIds: string[]) => void | Promise<void>
   /** Lets the parent (guide) open the hidden import file picker. */
   bindImportTrigger?: (fn: () => void) => void
 }) {
+  const { data } = useData()
   const [query, setQuery] = useState('')
   const [pendingDelete, setPendingDelete] = useState<ChatSummary | null>(null)
+  // ---- B2: chat multi-select -------------------------------------------
+  const [selectMode, setSelectMode] = useState(false)
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set())
+  const [bulkBusy, setBulkBusy] = useState(false)
+  const [bulkDeleteOpen, setBulkDeleteOpen] = useState(false)
+  const [moveOpen, setMoveOpen] = useState(false)
   const [dragOver, setDragOver] = useState(false)
   const [cursor, setCursor] = useState(-1)
   const [archivedOpen, setArchivedOpen] = useState(false)
@@ -598,6 +753,68 @@ export function ChatList({
   const effectiveFolderId = folderExists ? activeFolderId : FOLDER_ALL
 
   const favSet = useMemo(() => new Set(favs), [favs])
+
+  // ---- B2: chat multi-select — state + derived sets ---------------------
+  const enterSelect = useCallback((preselectId?: string) => {
+    setSelectMode(true)
+    if (preselectId) setSelectedIds(new Set([preselectId]))
+  }, [])
+
+  const exitSelect = useCallback(() => {
+    setSelectMode(false)
+    setSelectedIds(new Set())
+  }, [])
+
+  const toggleSelectChat = useCallback((id: string) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }, [])
+
+  const selectedChats = useMemo(
+    () => chats.filter((c) => selectedIds.has(c.id)),
+    [chats, selectedIds]
+  )
+  // Per-op targets mirror the per-row hover-action gating exactly: Saved
+  // Messages can't be favorited/deleted, archived chats can't be pinned or
+  // foldered (folders only hold non-archived chats).
+  const favTargets = useMemo(
+    () => selectedChats.filter((c) => c.id !== SAVED_CHAT_ID),
+    [selectedChats]
+  )
+  const pinnable = useMemo(
+    () =>
+      selectedChats.filter(
+        (c) => !c.archived && c.id !== SAVED_CHAT_ID
+      ),
+    [selectedChats]
+  )
+  const movable = useMemo(
+    () => selectedChats.filter((c) => !c.archived),
+    [selectedChats]
+  )
+  const deletable = useMemo(
+    () => selectedChats.filter((c) => c.id !== SAVED_CHAT_ID),
+    [selectedChats]
+  )
+  const allFav =
+    favTargets.length > 0 && favTargets.every((c) => favSet.has(c.id))
+  const allPinned =
+    pinnable.length > 0 && pinnable.every((c) => c.pinned)
+
+  // Prune the selection when chats disappear (bulk delete / cross-tab);
+  // auto-exit select mode once the selection becomes empty.
+  useEffect(() => {
+    if (selectedIds.size === 0) return
+    const live = new Set(chats.map((c) => c.id))
+    const next = [...selectedIds].filter((id) => live.has(id))
+    if (next.length === selectedIds.size) return
+    setSelectedIds(new Set(next))
+    if (next.length === 0) setSelectMode(false)
+  }, [chats, selectedIds])
 
   // Per-chat unread + per-tab badge counts
   const unreadStats = useMemo(() => {
@@ -717,6 +934,9 @@ export function ChatList({
     setActiveFolderId(id)
     // List remounts — drop any keyboard cursor from the previous folder
     setCursor(-1)
+    // B2: a folder switch invalidates the selection context — clear it
+    // (selection is empty afterwards, so select mode exits with it)
+    if (selectMode) exitSelect()
   }
 
   const handleToggleFav = useCallback((id: string) => {
@@ -726,6 +946,114 @@ export function ChatList({
   function handleMarkAllRead() {
     markAllRead(chats)
     toast.success('All chats marked as read')
+  }
+
+  // ---- B2: bulk actions -------------------------------------------------
+  const plural = (n: number) => (n === 1 ? '' : 's')
+
+  function handleBulkFav() {
+    const ids = favTargets.map((c) => c.id)
+    if (ids.length === 0) return
+    const favorite = !allFav
+    const r = bulkSetChatFavorite(ids, favorite)
+    if (r.ok.length > 0) {
+      toast.success(
+        `${favorite ? 'Favorited' : 'Unfavorited'} ${r.ok.length} chat${plural(r.ok.length)}`
+      )
+    }
+  }
+
+  async function handleBulkPin() {
+    const ids = pinnable.map((c) => c.id)
+    if (ids.length === 0 || bulkBusy) return
+    const pinned = !allPinned
+    setBulkBusy(true)
+    try {
+      const r = await bulkSetChatPin(data, ids, pinned)
+      if (r.ok.length > 0) {
+        toast.success(
+          `${pinned ? 'Pinned' : 'Unpinned'} ${r.ok.length} chat${plural(r.ok.length)}`
+        )
+      }
+      if (r.failed.length > 0) {
+        toast.error(
+          `Could not update ${r.failed.length} chat${plural(r.failed.length)}`
+        )
+      }
+      if (r.ok.length > 0) await onRefreshChats()
+    } finally {
+      setBulkBusy(false)
+    }
+  }
+
+  function handleBulkMove(folder: ChatFolder) {
+    const ids = movable.map((c) => c.id)
+    if (ids.length === 0) return
+    const r = bulkMoveChatsToFolder(ids, folder.id)
+    if (r.ok.length > 0) {
+      toast.success(
+        `Moved ${r.ok.length} chat${plural(r.ok.length)} to ${folder.name}`
+      )
+      setMoveOpen(false)
+    } else {
+      toast.error('Could not update folders')
+    }
+  }
+
+  async function handleBulkDelete() {
+    const ids = deletable.map((c) => c.id)
+    setBulkDeleteOpen(false)
+    if (ids.length === 0 || bulkBusy) return
+    setBulkBusy(true)
+    try {
+      const r = await bulkDeleteChats(data, ids)
+      if (r.ok.length > 0) {
+        toast.success(`Deleted ${r.ok.length} chat${plural(r.ok.length)}`)
+        // The selection is gone with the chats — leave select mode
+        exitSelect()
+        await onAfterBulkDelete?.(r.ok)
+      }
+      if (r.failed.length > 0) {
+        toast.error(
+          `Could not delete ${r.failed.length} chat${plural(r.failed.length)}`
+        )
+      }
+    } finally {
+      setBulkBusy(false)
+    }
+  }
+
+  async function handleBulkExport() {
+    if (selectedChats.length === 0 || bulkBusy) return
+    setBulkBusy(true)
+    try {
+      const r = await bulkExportChatsText(
+        data,
+        selectedChats.map((c) => ({ id: c.id, title: c.title }))
+      )
+      if (r.blob) {
+        const url = URL.createObjectURL(r.blob)
+        const a = document.createElement('a')
+        a.href = url
+        a.download = r.filename
+        document.body.appendChild(a)
+        a.click()
+        a.remove()
+        window.setTimeout(() => URL.revokeObjectURL(url), 5000)
+        toast.success(`Exported ${r.ok.length} chat${plural(r.ok.length)}`)
+      } else {
+        toast.error('Could not export the selected chats')
+      }
+      if (r.failed.length > 0) {
+        toast.error(
+          `Could not export ${r.failed.length} chat${plural(r.failed.length)}`
+        )
+      }
+    } catch {
+      toast.error('Export failed')
+    } finally {
+      setBulkBusy(false)
+    }
   }
 
   // When the archived drawer opens, bring it into view (it renders in-flow at
@@ -790,7 +1118,8 @@ export function ChatList({
     [activeChats, archivedChats, archivedOpen]
   )
 
-  // Keyboard shortcuts: j/k or arrows navigate, Enter opens, / focuses search
+  // Keyboard shortcuts: j/k or arrows navigate, Enter opens (or toggles the
+  // selection in select mode), / focuses search, Esc exits select mode
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
       if (e.metaKey || e.ctrlKey || e.altKey) return
@@ -805,6 +1134,15 @@ export function ChatList({
       // Skip when the list pane is hidden (mobile chat open)
       if (!asideRef.current || asideRef.current.offsetParent === null) return
 
+      // B2: Escape exits select mode (after the dialog check above, so the
+      // app's Esc cascade — dialogs first — is respected)
+      if (e.key === 'Escape') {
+        if (selectMode) {
+          e.preventDefault()
+          exitSelect()
+        }
+        return
+      }
       if (e.key === '/') {
         e.preventDefault()
         searchInputRef.current?.focus()
@@ -822,12 +1160,21 @@ export function ChatList({
         // Only when the chat list itself has focus context (body)
         if (target && target !== document.body) return
         e.preventDefault()
-        onSelect(displayList[cursor].id)
+        if (selectMode) toggleSelectChat(displayList[cursor].id)
+        else onSelect(displayList[cursor].id)
       }
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [displayList, cursor, pendingDelete, onSelect])
+  }, [
+    displayList,
+    cursor,
+    pendingDelete,
+    onSelect,
+    selectMode,
+    exitSelect,
+    toggleSelectChat,
+  ])
 
   // Keep the highlighted row visible
   useEffect(() => {
@@ -859,11 +1206,15 @@ export function ChatList({
       isArchived={isArchived}
       unread={unreadStats.perChat.get(chat.id) ?? 0}
       isFav={favSet.has(chat.id)}
+      selectMode={selectMode}
+      selected={selectedIds.has(chat.id)}
       onSelect={onSelect}
       onTogglePin={onTogglePin}
       onToggleArchive={onToggleArchive}
       onToggleFav={handleToggleFav}
       onDelete={setPendingDelete}
+      onToggleSelect={toggleSelectChat}
+      onEnterSelect={enterSelect}
     />
   )
 
@@ -935,6 +1286,15 @@ export function ChatList({
                 <DropdownMenuLabel className="px-2 py-1 text-[10.5px] font-semibold uppercase tracking-wider text-(--wa-text-2)">
                   Explore
                 </DropdownMenuLabel>
+                {/* B2: enter chat multi-select */}
+                <DropdownMenuItem
+                  onClick={() => enterSelect()}
+                  className="gap-2"
+                  disabled={importing || chats.length === 0}
+                >
+                  <ListChecks className="h-4 w-4 text-(--wa-text-2)" />
+                  Select chats
+                </DropdownMenuItem>
                 <DropdownMenuItem
                   onClick={onOpenInsights}
                   className="gap-2"
@@ -1262,6 +1622,143 @@ export function ChatList({
         )}
       </div>
 
+      {/* B2: bulk-selection toolbar — an in-flow flex child at the bottom of
+          the sidebar (never covers list content or the app footer). All
+          controls are ≥44px with aria-labels. */}
+      {selectMode && (
+        <div
+          role="toolbar"
+          aria-label="Selected chat actions"
+          className="border-t border-black/10 bg-(--wa-panel-2) px-2 pt-1 dark:border-white/5 dark:bg-(--wa-panel-2)"
+          style={{ paddingBottom: 'max(0.25rem, env(safe-area-inset-bottom))' }}
+        >
+          <div className="flex items-center gap-1">
+            <Button
+              size="icon"
+              variant="ghost"
+              className="h-11 w-11 shrink-0"
+              onClick={exitSelect}
+              disabled={bulkBusy}
+              aria-label="Close selection"
+              title="Close (Esc)"
+            >
+              <X className="h-5 w-5 text-(--wa-text-2)" />
+            </Button>
+            <span
+              className="min-w-0 flex-1 truncate px-1 text-[13.5px] font-medium text-(--wa-text)"
+              aria-live="polite"
+            >
+              {selectedChats.length} selected
+            </span>
+            <Button
+              variant="ghost"
+              className="h-11 shrink-0 gap-1.5 rounded-full px-3 text-[13px] font-medium text-(--wa-text)"
+              onClick={() =>
+                setSelectedIds(
+                  new Set(
+                    displayList
+                      .filter((c) => c.id !== SAVED_CHAT_ID)
+                      .map((c) => c.id)
+                  )
+                )
+              }
+              disabled={bulkBusy || displayList.length === 0}
+              title="Select all chats in this view"
+              aria-label="Select all chats in this view"
+            >
+              <ListChecks className="h-4 w-4 text-(--wa-text-2)" />
+              Select all
+            </Button>
+            <Button
+              variant="ghost"
+              className="h-11 shrink-0 gap-1.5 rounded-full px-3 text-[13px] font-medium text-(--wa-text)"
+              onClick={() => setSelectedIds(new Set())}
+              disabled={bulkBusy || selectedChats.length === 0}
+              title="Clear selection"
+              aria-label="Clear selection"
+            >
+              <X className="h-4 w-4 text-(--wa-text-2)" />
+              Clear
+            </Button>
+          </div>
+          <div className="flex items-center gap-1 overflow-x-auto pb-1">
+            <Button
+              size="icon"
+              variant="ghost"
+              className="h-11 w-11 shrink-0"
+              onClick={handleBulkFav}
+              disabled={bulkBusy || favTargets.length === 0}
+              aria-label={
+                allFav
+                  ? 'Remove selected chats from favorites'
+                  : 'Add selected chats to favorites'
+              }
+              title={allFav ? 'Unfavorite' : 'Favorite'}
+            >
+              {allFav ? (
+                <StarOff className="h-5 w-5 text-[#f2a33c]" />
+              ) : (
+                <Star className="h-5 w-5 text-[#f2a33c]" />
+              )}
+            </Button>
+            <Button
+              size="icon"
+              variant="ghost"
+              className="h-11 w-11 shrink-0"
+              onClick={handleBulkPin}
+              disabled={bulkBusy || pinnable.length === 0}
+              aria-label={
+                allPinned ? 'Unpin selected chats' : 'Pin selected chats'
+              }
+              title={allPinned ? 'Unpin' : 'Pin'}
+            >
+              {allPinned ? (
+                <PinOff className="h-5 w-5 text-(--wa-accent)" />
+              ) : (
+                <Pin className="h-5 w-5 text-(--wa-accent)" />
+              )}
+            </Button>
+            <Button
+              size="icon"
+              variant="ghost"
+              className="h-11 w-11 shrink-0"
+              onClick={() => setMoveOpen(true)}
+              disabled={bulkBusy || movable.length === 0}
+              aria-label="Move selected chats to a folder"
+              title="Move to folder"
+            >
+              <FolderInput className="h-5 w-5 text-(--wa-text-2)" />
+            </Button>
+            <Button
+              size="icon"
+              variant="ghost"
+              className="h-11 w-11 shrink-0"
+              onClick={handleBulkExport}
+              disabled={bulkBusy || selectedChats.length === 0}
+              aria-label="Export selected chats as .txt"
+              title="Export as .txt"
+            >
+              {bulkBusy ? (
+                <Loader2 className="h-5 w-5 animate-spin text-(--wa-text-2)" />
+              ) : (
+                <FileDown className="h-5 w-5 text-(--wa-text-2)" />
+              )}
+            </Button>
+            <Button
+              size="icon"
+              variant="ghost"
+              className="h-11 w-11 shrink-0 hover:bg-rose-500/10"
+              onClick={() => setBulkDeleteOpen(true)}
+              disabled={bulkBusy || deletable.length === 0}
+              aria-label="Delete selected chats"
+              title="Delete"
+            >
+              <Trash2 className="h-5 w-5 text-rose-500" />
+            </Button>
+          </div>
+        </div>
+      )}
+
       {/* Drag overlay */}
       {dragOver && chats.length > 0 && (
         <div className="pointer-events-none absolute inset-0 z-20 flex items-center justify-center bg-(--wa-accent)/10 backdrop-blur-[1px]">
@@ -1295,6 +1792,92 @@ export function ChatList({
                 if (pendingDelete) onDelete(pendingDelete.id)
                 setPendingDelete(null)
               }}
+            >
+              Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* B2: move-to-folder picker — reads the same folder store as the
+          FolderManagerDialog (read-only use here; the bulk op writes via
+          chat-folders.setFolders). */}
+      <Dialog open={moveOpen} onOpenChange={setMoveOpen}>
+        <DialogContent className="sm:max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Move to folder</DialogTitle>
+            <DialogDescription>
+              {movable.length === 1
+                ? 'Pick a folder for the selected chat.'
+                : `Pick a folder for the ${movable.length} selected chats.`}
+            </DialogDescription>
+          </DialogHeader>
+          {folders.length === 0 ? (
+            <div className="flex flex-col items-center gap-3 py-4 text-center">
+              <p className="text-[13.5px] text-(--wa-text-2)">
+                No custom folders yet.
+              </p>
+              <Button
+                variant="secondary"
+                className="gap-2 rounded-full bg-(--wa-accent)/10 text-[13px] font-medium text-(--wa-accent-strong) hover:bg-(--wa-accent)/20 dark:bg-(--wa-accent)/15 dark:text-(--wa-accent)"
+                onClick={() => {
+                  setMoveOpen(false)
+                  setManagerOpen(true)
+                }}
+              >
+                <Settings2 className="h-4 w-4" />
+                Create a folder
+              </Button>
+            </div>
+          ) : (
+            <div className="wa-scroll max-h-72 space-y-0.5 overflow-y-auto">
+              {folders.map((f) => (
+                <button
+                  key={f.id}
+                  type="button"
+                  onClick={() => handleBulkMove(f)}
+                  disabled={bulkBusy}
+                  className="flex h-11 w-full items-center gap-3 rounded-lg px-2 text-left transition-colors hover:bg-(--wa-row-hover)"
+                >
+                  <span
+                    aria-hidden
+                    className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-black/5 text-[15px] dark:bg-white/10"
+                  >
+                    {f.emoji}
+                  </span>
+                  <span className="min-w-0 flex-1 truncate text-[14px] text-(--wa-text)">
+                    {f.name}
+                  </span>
+                  <span className="shrink-0 text-[12px] tabular-nums text-(--wa-text-2)">
+                    {f.chatIds.length}
+                  </span>
+                </button>
+              ))}
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
+
+      {/* B2: bulk delete confirmation */}
+      <AlertDialog
+        open={bulkDeleteOpen}
+        onOpenChange={(v) => !v && setBulkDeleteOpen(false)}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              Delete {deletable.length} chat{plural(deletable.length)}?
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              This cannot be undone. The chats and their messages will be
+              removed from this viewer.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-rose-600 text-white hover:bg-rose-700"
+              onClick={handleBulkDelete}
             >
               Delete
             </AlertDialogAction>

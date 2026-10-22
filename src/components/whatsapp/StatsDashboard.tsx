@@ -19,6 +19,7 @@ import {
   Group,
   Search,
   Smile,
+  Timer,
   Type,
   HardDrive,
   Quote,
@@ -84,10 +85,23 @@ interface IgnorePair {
   leftOnReadPct: number
 }
 
+interface ReplySpeedRow {
+  senderKey: string
+  name: string
+  medianMs: number
+  count: number
+}
+
+interface ReplySpeeds {
+  rows: ReplySpeedRow[]
+  myMedianMs?: number
+}
+
 interface StatsExtras {
   topWordsGlobal?: unknown
   emojiLeaderboard?: unknown
   ignoreGraph?: unknown
+  replySpeeds?: unknown
 }
 
 function pickArray<T>(value: unknown, is: (v: unknown) => v is T): T[] {
@@ -115,6 +129,26 @@ const isIgnorePair = (v: unknown): v is IgnorePair =>
   typeof (v as { aCount?: unknown }).aCount === 'number' &&
   typeof (v as { bReplies?: unknown }).bReplies === 'number' &&
   typeof (v as { leftOnReadPct?: unknown }).leftOnReadPct === 'number'
+
+const isReplySpeedRow = (v: unknown): v is ReplySpeedRow =>
+  typeof v === 'object' &&
+  v !== null &&
+  typeof (v as { senderKey?: unknown }).senderKey === 'string' &&
+  typeof (v as { name?: unknown }).name === 'string' &&
+  typeof (v as { medianMs?: unknown }).medianMs === 'number' &&
+  typeof (v as { count?: unknown }).count === 'number'
+
+function parseReplySpeeds(value: unknown): ReplySpeeds | null {
+  if (typeof value !== 'object' || value === null) return null
+  const raw = value as { rows?: unknown; myMedianMs?: unknown }
+  return {
+    rows: pickArray<ReplySpeedRow>(raw.rows, isReplySpeedRow),
+    myMedianMs:
+      typeof raw.myMedianMs === 'number' && Number.isFinite(raw.myMedianMs)
+        ? raw.myMedianMs
+        : undefined,
+  }
+}
 
 /** Warm palette for cloud glyphs (no blues/indigos by design). */
 const CLOUD_COLORS = [
@@ -324,6 +358,37 @@ function formatBytes(n: number): string {
   if (n < 1024 * 1024) return `${(n / 1024).toFixed(0)} KB`
   if (n < 1024 * 1024 * 1024) return `${(n / (1024 * 1024)).toFixed(1)} MB`
   return `${(n / (1024 * 1024 * 1024)).toFixed(2)} GB`
+}
+
+/** Humanized median reply time: "42s" · "3m 20s" · "2h 05m". */
+function fmtMedian(ms: number): string {
+  const totalSec = Math.max(0, Math.round(ms / 1000))
+  if (totalSec < 60) return `${totalSec}s`
+  const mins = Math.floor(totalSec / 60)
+  const secs = totalSec % 60
+  if (mins < 60) return `${mins}m ${String(secs).padStart(2, '0')}s`
+  const hrs = Math.floor(mins / 60)
+  return `${hrs}h ${String(mins % 60).padStart(2, '0')}m`
+}
+
+/** Spoken variant for row aria-labels: "42 seconds" / "3 minutes 20 seconds"
+ *  / "2 hours 5 minutes" (screen readers shouldn't read "3m 20s"). */
+function fmtMedianSpoken(ms: number): string {
+  const totalSec = Math.max(0, Math.round(ms / 1000))
+  if (totalSec < 60)
+    return `${totalSec} second${totalSec === 1 ? '' : 's'}`
+  const mins = Math.floor(totalSec / 60)
+  const secs = totalSec % 60
+  if (mins < 60) {
+    return secs > 0
+      ? `${mins} minute${mins === 1 ? '' : 's'} ${secs} second${secs === 1 ? '' : 's'}`
+      : `${mins} minute${mins === 1 ? '' : 's'}`
+  }
+  const hrs = Math.floor(mins / 60)
+  const rem = mins % 60
+  return rem > 0
+    ? `${hrs} hour${hrs === 1 ? '' : 's'} ${rem} minute${rem === 1 ? '' : 's'}`
+    : `${hrs} hour${hrs === 1 ? '' : 's'}`
 }
 
 /* ------------------------------- Heatmap ------------------------------- */
@@ -635,6 +700,67 @@ function IgnoreRow({ pair, index }: { pair: IgnorePair; index: number }) {
   )
 }
 
+/** One "Fastest repliers" row: rank → Avatar → name + humanized median →
+ *  a thin bar sized by INVERTED speed (fastest replier = widest bar). */
+function SpeedRow({
+  row,
+  rank,
+  fastestMs,
+  index,
+}: {
+  row: ReplySpeedRow
+  rank: number
+  fastestMs: number
+  index: number
+}) {
+  // width ∝ 1/median, normalized to the fastest row (100%); the 4% floor
+  // keeps the slowest visible, mirroring the other bar rows.
+  const pct =
+    row.medianMs > 0 && fastestMs > 0
+      ? Math.max((fastestMs / row.medianMs) * 100, 4)
+      : 4
+  return (
+    <li
+      className="wa-kpi-pop flex items-center gap-2.5"
+      style={{ animationDelay: `${index * 70}ms` }}
+      aria-label={`${row.name}, median reply ${fmtMedianSpoken(row.medianMs)}, ${row.count} replies`}
+    >
+      <span
+        className="w-5 shrink-0 text-center text-[12px] font-bold tabular-nums text-(--wa-text-2)"
+        aria-hidden
+      >
+        {rank}
+      </span>
+      <span className="shrink-0">
+        <Avatar name={row.name} size={26} />
+      </span>
+      <div className="min-w-0 flex-1">
+        <div className="mb-1 flex items-baseline justify-between gap-2">
+          <span className="truncate text-[12.5px] font-medium text-(--wa-text)">
+            {row.name}
+          </span>
+          <span className="shrink-0 text-[11.5px] font-semibold tabular-nums text-(--wa-accent-strong)">
+            {fmtMedian(row.medianMs)}
+          </span>
+        </div>
+        <div className="h-1.5 min-w-0 overflow-hidden rounded-full bg-black/5 dark:bg-white/10">
+          <div
+            className="wa-bar-grow h-full rounded-full transition-[width] duration-500"
+            style={{
+              width: `${pct}%`,
+              backgroundColor: 'var(--wa-accent)',
+              animationDelay: `${120 + index * 70}ms`,
+            }}
+          />
+        </div>
+        <p className="mt-0.5 text-[10.5px] tabular-nums text-(--wa-text-2)">
+          {row.count.toLocaleString()} {row.count === 1 ? 'reply' : 'replies'}
+        </p>
+      </div>
+    </li>
+  )
+}
+
 /* ------------------------------ Main dialog ----------------------------- */
 
 export function StatsDashboard({
@@ -764,6 +890,10 @@ export function StatsDashboard({
     isEmojiEntry
   )
   const ignoreGraph = pickArray<IgnorePair>(extras?.ignoreGraph, isIgnorePair)
+  // Reply-speed leaderboard — parsed defensively like the other extras so an
+  // older/cached payload without it degrades to the empty state. Rows arrive
+  // fastest-first with a 3-sample floor already applied.
+  const replySpeeds = parseReplySpeeds(extras?.replySpeeds)
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -1280,6 +1410,45 @@ export function StatsDashboard({
                       Playful estimate based on reply timing — a message counts
                       as &quot;left on read&quot; when the other person sends
                       nothing within 24 hours.
+                    </p>
+                  </Section>
+
+                  <Section
+                    title="Fastest repliers"
+                    icon={<Timer className="h-3 w-3" />}
+                    delay={940}
+                  >
+                    {replySpeeds && replySpeeds.rows.length > 0 ? (
+                      <>
+                        <ol className="space-y-2.5">
+                          {replySpeeds.rows.slice(0, 8).map((row, i) => (
+                            <SpeedRow
+                              key={row.senderKey}
+                              row={row}
+                              rank={i + 1}
+                              fastestMs={replySpeeds.rows[0].medianMs}
+                              index={i}
+                            />
+                          ))}
+                        </ol>
+                        {replySpeeds.myMedianMs != null && (
+                          <p className="mt-2 text-[10.5px] tabular-nums text-(--wa-text-2)">
+                            Your median reply:{' '}
+                            <b className="text-(--wa-text)">
+                              {fmtMedian(replySpeeds.myMedianMs)}
+                            </b>
+                          </p>
+                        )}
+                      </>
+                    ) : (
+                      <p className="rounded-xl bg-(--wa-panel-2)/60 px-3 py-4 text-center text-[12.5px] text-(--wa-text-2)">
+                        Not enough reply data yet
+                      </p>
+                    )}
+                    <p className="mt-2 text-[10.5px] leading-snug text-(--wa-text-2)">
+                      Median time from your message to each person&apos;s next
+                      one (replies within 6 hours, 3+ samples). Bars compare
+                      speed — the fastest replier is the widest.
                     </p>
                   </Section>
                 </>

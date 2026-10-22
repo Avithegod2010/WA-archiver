@@ -7,6 +7,7 @@ import {
   CloudUpload,
   FileArchive,
   FileText,
+  GitMerge,
   Loader2,
   RotateCcw,
   XCircle,
@@ -19,6 +20,10 @@ import {
   type ImportSelection,
   type LocalImportProgress,
 } from '@/lib/data'
+import {
+  findMergeCandidates,
+  type ImportMergeCandidate,
+} from '@/lib/import-dedup'
 import { useData } from './data-provider'
 import { ImportPreviewStep } from './ImportPreviewStep'
 import {
@@ -175,7 +180,9 @@ export function ImportPanel({
 }: ImportPanelProps) {
   // Device transport imports run fully in this tab (importFileToDevice);
   // server transport keeps the streaming /api/import/stream NDJSON flow.
-  const { mode } = useData()
+  // (dataClient is the transport; local `data` shadows it inside import
+  // closures as the parsed preview result — keep the two apart.)
+  const { mode, data: dataClient } = useData()
   const [phase, setPhase] = useState<Phase>('idle')
   const [fileName, setFileName] = useState('')
   const [chatTitle, setChatTitle] = useState('')
@@ -190,6 +197,15 @@ export function ImportPanel({
   const [stage, setStage] = useState<LocalImportProgress['phase'] | null>(null)
   // Idea #13 — parsed-but-not-committed export awaiting a selection.
   const [previewData, setPreviewData] = useState<ImportPreviewData | null>(null)
+  // B1 — existing chats matching the parsed export (device preview only).
+  const [mergeCandidates, setMergeCandidates] = useState<
+    ImportMergeCandidate[]
+  >([])
+  // B1 — merge stats of the finished run (success screen + toast).
+  const [mergeStats, setMergeStats] = useState<{
+    added: number
+    duplicatesSkipped: number
+  } | null>(null)
   // "Include audio files" — sent as the `includeAudio` form field ('0' skips
   // voice-note files on the server; '1'/absent keeps the default behavior).
   // Deliberately NOT reset between imports so a retry keeps the choice.
@@ -217,6 +233,8 @@ export function ImportPanel({
     setDragOver(false)
     setStage(null)
     setPreviewData(null)
+    setMergeCandidates([])
+    setMergeStats(null)
     stickRef.current = true
     runIdRef.current += 1
   }, [])
@@ -273,6 +291,22 @@ export function ImportPanel({
               },
             })
             if (runIdRef.current !== runId) return
+            // B1 — surface existing chats this export could merge into.
+            // Matching is best-effort: a failed listChats just means no
+            // merge option (plain import keeps working).
+            let candidates: ImportMergeCandidate[] = []
+            try {
+              const chats = await dataClient.listChats()
+              candidates = findMergeCandidates({
+                title: data.summary.title,
+                sourceFile: file.name,
+                chats,
+              })
+            } catch {
+              candidates = []
+            }
+            if (runIdRef.current !== runId) return
+            setMergeCandidates(candidates)
             setPreviewData(data)
             setPhase('preview')
             setStage(null)
@@ -349,12 +383,16 @@ export function ImportPanel({
         }
       })()
     },
-    [reset, includeAudio, mode]
+    [reset, includeAudio, mode, dataClient]
   )
 
-  /** Idea #13 — commit the previewed import with the chosen selection. */
+  /**
+   * Idea #13 — commit the previewed import with the chosen selection.
+   * B1 — `mergeIntoChatId` folds the filtered transcript into an existing
+   * chat (dedup by message key) instead of creating a new one.
+   */
   const commitImport = useCallback(
-    (selection: ImportSelection) => {
+    (selection: ImportSelection, mergeIntoChatId?: string) => {
       if (!previewData || phase === 'running') return
       setPhase('running')
       setStage('media')
@@ -363,6 +401,7 @@ export function ImportPanel({
         try {
           const result = await commitDeviceImport(previewData, selection, {
             includeAudio,
+            mergeIntoChatId,
             onProgress: (p) => {
               if (runIdRef.current !== runId) return
               setStage(p.phase)
@@ -382,9 +421,20 @@ export function ImportPanel({
           setStage('done')
           setPhase('success')
           setPreviewData(null)
-          toast.success(
-            `Imported ${result.messages.toLocaleString()} messages`
-          )
+          if (result.merged) {
+            setMergeStats({
+              added: result.added,
+              duplicatesSkipped: result.duplicatesSkipped,
+            })
+            toast.success(
+              `Merged: ${result.added.toLocaleString()} new, ${result.duplicatesSkipped.toLocaleString()} duplicates skipped`
+            )
+          } else {
+            setMergeStats(null)
+            toast.success(
+              `Imported ${result.messages.toLocaleString()} messages`
+            )
+          }
         } catch (err) {
           if (runIdRef.current !== runId) return
           setErrorMsg(
@@ -557,6 +607,7 @@ export function ImportPanel({
           <ImportPreviewStep
             data={previewData}
             busy={false}
+            mergeCandidates={mergeCandidates}
             onCommit={commitImport}
             onCancel={reset}
           />
@@ -651,12 +702,24 @@ export function ImportPanel({
         {phase === 'success' && (
           <div className="flex flex-col items-center gap-4 py-2 text-center">
             <span className="flex h-14 w-14 items-center justify-center rounded-full bg-(--wa-accent)/15 text-(--wa-accent)">
-              <CheckCircle2 className="h-8 w-8" aria-hidden />
+              {mergeStats ? (
+                <GitMerge className="h-8 w-8" aria-hidden />
+              ) : (
+                <CheckCircle2 className="h-8 w-8" aria-hidden />
+              )}
             </span>
             <div>
               <p className="text-base font-semibold text-(--wa-text)">
-                Imported {importedCount.toLocaleString()} messages
+                {mergeStats
+                  ? `Merged ${mergeStats.added.toLocaleString()} new messages`
+                  : `Imported ${importedCount.toLocaleString()} messages`}
               </p>
+              {mergeStats && (
+                <p className="mt-0.5 text-sm text-(--wa-text-2)">
+                  {mergeStats.duplicatesSkipped.toLocaleString()} duplicates
+                  skipped
+                </p>
+              )}
               <p className="mt-1 text-sm text-(--wa-text-2)">
                 {fileName}
                 {chatTitle ? ` → ${chatTitle}` : ''}
