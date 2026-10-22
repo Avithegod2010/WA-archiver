@@ -5,6 +5,22 @@
  * defines the CSS variable values per theme (light & dark variants).
  */
 
+import {
+  DENSITIES,
+  BUBBLE_STYLES,
+  getBubbleStyle,
+  getDensity,
+  setBubbleStyle,
+  setDensity,
+  type BubbleStyleKey,
+  type DensityKey,
+} from './display'
+import {
+  GLOBAL_WALLPAPER_KEY,
+  writeWallpaper,
+  type WallpaperConfig,
+} from './wallpaper'
+
 export const APP_THEMES = {
   classic: {
     label: 'WhatsApp',
@@ -215,4 +231,166 @@ export function applyAccentOverride(hex: string | null) {
   }
   root.style.setProperty('--wa-accent', hex)
   root.style.setProperty('--wa-accent-strong', darkenHex(hex))
+}
+
+/* ------------------------------------------------------------------ */
+/* Theme studio (C1 #13) — saved "whole look" presets                  */
+/*                                                                     */
+/* A preset captures the current look in one entry: theme + accent +   */
+/* bubble style + density + the app-wide wallpaper config (raw JSON,   */
+/* only when the user actually set one). Stored in localStorage under  */
+/* 'wa-viewer:custom-themes' (allowlisted in personal-data.ts), capped */
+/* at 12 entries with unique names.                                    */
+/* ------------------------------------------------------------------ */
+
+export const CUSTOM_THEMES_KEY = 'wa-viewer:custom-themes'
+export const CUSTOM_THEMES_MAX = 12
+export const CUSTOM_THEME_EVENT = 'wa-custom-themes'
+
+export interface CustomThemePreset {
+  id: string
+  name: string
+  createdAt: number
+  themeId: AppThemeKey
+  /** Custom accent override captured with the look (null = theme default). */
+  accent: string | null
+  bubbleStyle: BubbleStyleKey
+  density: DensityKey
+  /** Raw JSON WallpaperConfig of the app-wide default wallpaper, if set. */
+  wallpaper: string | null
+}
+
+function isBubbleStyle(v: unknown): v is BubbleStyleKey {
+  return typeof v === 'string' && v in BUBBLE_STYLES
+}
+
+function isDensity(v: unknown): v is DensityKey {
+  return typeof v === 'string' && v in DENSITIES
+}
+
+function isCustomThemePreset(v: unknown): v is CustomThemePreset {
+  if (!v || typeof v !== 'object') return false
+  const p = v as Partial<CustomThemePreset>
+  return (
+    typeof p.id === 'string' &&
+    p.id.length > 0 &&
+    typeof p.name === 'string' &&
+    p.name.length > 0 &&
+    typeof p.createdAt === 'number' &&
+    typeof p.themeId === 'string' &&
+    p.themeId in APP_THEMES &&
+    (p.accent === null || (typeof p.accent === 'string' && HEX6_RE.test(p.accent))) &&
+    isBubbleStyle(p.bubbleStyle) &&
+    isDensity(p.density) &&
+    (p.wallpaper === null || typeof p.wallpaper === 'string')
+  )
+}
+
+/** Read the saved presets (tolerant: unknown/corrupt entries are dropped). */
+export function listCustomThemes(): CustomThemePreset[] {
+  try {
+    const raw = localStorage.getItem(CUSTOM_THEMES_KEY)
+    if (!raw) return []
+    const arr: unknown = JSON.parse(raw)
+    if (!Array.isArray(arr)) return []
+    return arr.filter(isCustomThemePreset).slice(0, CUSTOM_THEMES_MAX)
+  } catch {
+    return []
+  }
+}
+
+export type SaveCustomThemeResult =
+  | { ok: true; preset: CustomThemePreset }
+  | { ok: false; reason: 'limit' | 'name-taken' | 'storage' }
+
+/** Save a captured look. Names are unique (case-insensitive), list capped. */
+export function saveCustomTheme(input: {
+  name: string
+  themeId: AppThemeKey
+  accent: string | null
+  bubbleStyle: BubbleStyleKey
+  density: DensityKey
+  wallpaper: string | null
+}): SaveCustomThemeResult {
+  const name = input.name.trim().slice(0, 40)
+  if (!name) return { ok: false, reason: 'name-taken' }
+  const list = listCustomThemes()
+  if (list.length >= CUSTOM_THEMES_MAX) return { ok: false, reason: 'limit' }
+  if (list.some((p) => p.name.toLowerCase() === name.toLowerCase())) {
+    return { ok: false, reason: 'name-taken' }
+  }
+  const preset: CustomThemePreset = {
+    id: `ct-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`,
+    createdAt: Date.now(),
+    name,
+    themeId: input.themeId,
+    accent: input.accent,
+    bubbleStyle: input.bubbleStyle,
+    density: input.density,
+    wallpaper: input.wallpaper,
+  }
+  try {
+    localStorage.setItem(CUSTOM_THEMES_KEY, JSON.stringify([...list, preset]))
+  } catch {
+    return { ok: false, reason: 'storage' }
+  }
+  window.dispatchEvent(new Event(CUSTOM_THEME_EVENT))
+  return { ok: true, preset }
+}
+
+/** Remove one saved preset by id (no-op when the id is unknown). */
+export function deleteCustomTheme(id: string): void {
+  try {
+    const next = listCustomThemes().filter((p) => p.id !== id)
+    localStorage.setItem(CUSTOM_THEMES_KEY, JSON.stringify(next))
+  } catch {
+    /* storage unavailable */
+  }
+  window.dispatchEvent(new Event(CUSTOM_THEME_EVENT))
+}
+
+/** Snapshot the live look so the theme studio can save it as a preset. */
+export function captureCurrentLook(): {
+  themeId: AppThemeKey
+  accent: string | null
+  bubbleStyle: BubbleStyleKey
+  density: DensityKey
+  wallpaper: string | null
+} {
+  let wallpaper: string | null = null
+  try {
+    wallpaper = localStorage.getItem(GLOBAL_WALLPAPER_KEY)
+  } catch {
+    wallpaper = null
+  }
+  return {
+    themeId: getAppTheme(),
+    accent: getAccentOverride(),
+    bubbleStyle: getBubbleStyle(),
+    density: getDensity(),
+    wallpaper: wallpaper && wallpaper.trim() ? wallpaper : null,
+  }
+}
+
+/**
+ * Apply a saved look end-to-end via the existing setters (theme attribute,
+ * accent inline style, bubble/density events, wallpaper store). Only the
+ * wallpaper is conditional — presets captured without one leave the current
+ * wallpaper untouched.
+ */
+export function applyCustomTheme(preset: CustomThemePreset): void {
+  setAppTheme(preset.themeId)
+  applyThemeAttribute(preset.themeId)
+  setAccentOverride(preset.accent)
+  applyAccentOverride(preset.accent)
+  setBubbleStyle(preset.bubbleStyle)
+  setDensity(preset.density)
+  if (preset.wallpaper) {
+    try {
+      const cfg = JSON.parse(preset.wallpaper) as Partial<WallpaperConfig>
+      writeWallpaper('', cfg)
+    } catch {
+      /* malformed captured wallpaper — skip it, the rest still applies */
+    }
+  }
 }

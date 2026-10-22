@@ -14,12 +14,14 @@ import {
 } from 'lucide-react'
 import {
   commitDeviceImport,
-  previewDeviceImport,
   LocalImportError,
   type ImportPreviewData,
   type ImportSelection,
   type LocalImportProgress,
 } from '@/lib/data'
+// W1 — device-mode preview parsing runs in a Web Worker (with a transparent
+// fallback to the previous main-thread path inside parseExportFile itself).
+import { parseExportFile } from '@/lib/parse-worker-client'
 import {
   findMergeCandidates,
   type ImportMergeCandidate,
@@ -277,7 +279,11 @@ export function ImportPanel({
         const runId = runIdRef.current
         void (async () => {
           try {
-            const data = await previewDeviceImport(file, {
+            // W1 — the CPU-bound parse now runs in a Web Worker via
+            // parseExportFile (falls back to previewDeviceImport on the main
+            // thread whenever the worker is unavailable). Media extraction
+            // stays on the main thread in commitDeviceImport below.
+            const data = await parseExportFile(file, {
               onProgress: (p) => {
                 if (runIdRef.current !== runId) return
                 setStage(p.phase)

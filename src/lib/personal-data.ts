@@ -30,6 +30,7 @@ const EXACT_KEYS = new Set([
   'wa-viewer:auto-reply',
   'wa-viewer:auto-clean',
   'wa-viewer:wallpaper',
+  'wa-viewer:custom-themes',
   'wa-viewer:folders',
   'wa-viewer:active-folder',
   'wa-viewer:fav-chats',
