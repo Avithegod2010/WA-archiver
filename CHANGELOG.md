@@ -3,6 +3,26 @@
 All notable changes to WA Archiver are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [1.5.0] — 2026-10-22
+
+### Added — The power pack (18 upgrades)
+- **Bulk chat actions** — multi-select chats from the sidebar (menu, hover action or long-press): delete, favorite, pin, move to folder and combined .txt export with per-chat headers.
+- **Import merge & dedup** — re-importing an updated export offers "Merge into existing chat": title/source-file matching, per-message fingerprint dedup, and an honest "N new, M duplicates skipped" report (device and server transports).
+- **Web Worker parser** — export parsing + zip text extraction moved off the main thread; large imports no longer freeze the UI. Automatic main-thread fallback.
+- **Real voice waveforms** — voice notes decode actual audio peaks (48 buckets, LRU-cached) with the classic pseudo bars as fallback; seek/keyboard behavior unchanged.
+- **PWA offline fallback** — branded offline page + service-worker navigation fallback (network-first; cache bumped to v3).
+- **Android open/share intents** — the APK registers for .txt/.zip VIEW, SEND and SEND_MULTIPLE; files route into the import flow via a new JS bridge.
+- **Theme studio** — visual preview cards for all 17 themes, "save current look" custom presets (theme + accent + bubble + density + wallpaper) with apply/delete, synced through personal-data transfer.
+- **i18n groundwork** — locale framework with English + हिन्दी (61 keys), language picker in Settings, lang attribute sync; more surfaces migrate incrementally.
+- **Fastest repliers** — new Insights panel: median reply time per person (6h window, ≥3 samples) plus your own median.
+- **Landing page** — "Export from WhatsApp in 60 seconds" guide + 7-question FAQ.
+- **Full reactions grid** — the long-press popup offers all 12 reactions in a 4×3 grid with a proper focus trap.
+- **Videos tab** in the per-chat media gallery, with duration badges.
+- **New shortcuts** — `m` opens the media hub, `Ctrl/⌘+Shift+F` searches across all chats; shortcut dialog updated.
+- **Release automation** — tag builds extract the matching CHANGELOG section into the GitHub release body.
+- **Accessibility** — long-press sheet focus trap, real version labels, checkbox roles in select mode, spoken-form aria labels on new panels.
+- versionCode 6.
+
 ## [1.4.0] — 2026-10-19
 
 ### Changed — Name restored to WA Archiver

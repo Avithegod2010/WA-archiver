@@ -79,7 +79,7 @@ scripts/build-capacitor.mjs during the CI build.
 
 ## Checklist before you hit Submit on GitLab
 
-- [x] Signed release APK on GitHub Releases (v1.4.0, versionCode 5 — WA Archiver)
+- [x] Signed release APK on GitHub Releases (v1.5.0, versionCode 6 — WA Archiver)
 - [x] Trademark-clean branding: "WA Archiver" name + appId
   `io.github.avithegod2010.waarchiver` (no "WhatsApp" in name/ID; descriptive
   use only)
@@ -94,4 +94,4 @@ scripts/build-capacitor.mjs during the CI build.
       `https://avithegod2010.github.io/WA-archiver/`, topics add
       `chat-reader` `chat-archive` `f-droid` `izzonydroid`
 - [ ] **(You)** GitLab account + submit the issue
-- [ ] **(You)** After acceptance: keep tagging releases (`v1.4.1`, …) — Izzy auto-updates
+- [ ] **(You)** After acceptance: keep tagging releases (`v1.5.1`, …) — Izzy auto-updates

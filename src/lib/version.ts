@@ -4,10 +4,10 @@
  * the same number. Bump all three together on release.
  */
 
-export const APP_VERSION = '1.4.0'
+export const APP_VERSION = '1.5.0'
 
 /** GitHub Releases page — wired into the guide/about dialog. */
 export const RELEASES_URL = 'https://github.com/Avithegod2010/WA-archiver/releases'
 
 /** Short marketing line for the current release (shown next to the version). */
-export const RELEASE_TAGLINE = 'Back to the WA-archiver name'
+export const RELEASE_TAGLINE = 'The power pack — 18 upgrades'

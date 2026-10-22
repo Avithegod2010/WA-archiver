@@ -1,0 +1,11 @@
+WA Archiver v1.5 — the power pack.
+
+- Merge re-imported exports into existing chats (dedup included)
+- Select many chats at once: delete, pin, folder, combined .txt export
+- Parsing moved to a Web Worker — huge imports stay smooth
+- Real audio waveforms on voice notes
+- Theme studio: preview all 17 themes, save custom looks
+- Hindi (हिन्दी) UI groundwork + language picker
+- Insights: fastest-repliers leaderboard
+- 12-reaction grid, videos tab, offline page, Android share-in
+- New keys: m = media hub, Ctrl+Shift+F = global search

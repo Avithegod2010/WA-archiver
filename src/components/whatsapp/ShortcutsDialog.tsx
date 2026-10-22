@@ -27,6 +27,7 @@ const GROUPS: ShortcutGroup[] = [
       { keys: ['?'], label: 'Show keyboard shortcuts' },
       { keys: ['d'], label: 'Toggle dark / light mode' },
       { keys: ['i'], label: 'Insights dashboard' },
+      { keys: ['m'], label: 'Media hub — photos, videos & docs' },
       { keys: ['g'], label: 'Open the guide' },
     ],
   },
@@ -35,6 +36,7 @@ const GROUPS: ShortcutGroup[] = [
     rows: [
       { keys: ['Ctrl / ⌘', 'K'], label: 'Command palette — jump to chats & run actions' },
       { keys: ['/'], label: 'Focus chat search' },
+      { keys: ['Ctrl / ⌘', '⇧', 'F'], label: 'Search across all chats' },
       { keys: ['j / k'], label: 'Move up / down the chat list' },
       { keys: ['↑ / ↓'], label: 'Move up / down the chat list' },
       { keys: ['Enter'], label: 'Open selected chat' },

@@ -1099,6 +1099,11 @@ function WhatsAppAppInner() {
       openChat(list[prev].id)
     },
     onShowShortcuts: () => setShortcutsOpen(true),
+    onOpenMediaHub: () => setMediaHubOpen(true),
+    onOpenGlobalSearch: () => {
+      setGlobalSearchQuery('')
+      setGlobalSearchOpen(true)
+    },
   })
 
   /** Open a chat from a global-search hit and jump straight to the message. */

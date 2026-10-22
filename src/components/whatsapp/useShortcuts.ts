@@ -11,6 +11,8 @@ export interface ShortcutHandlers {
   onNextChat: () => void
   onPrevChat: () => void
   onShowShortcuts: () => void
+  onOpenMediaHub: () => void
+  onOpenGlobalSearch: () => void
 }
 
 function isTypingTarget(target: EventTarget | null): boolean {
@@ -43,11 +45,16 @@ export function useShortcuts(handlers: ShortcutHandlers) {
 
       const mod = e.metaKey || e.ctrlKey
       if (mod) {
-        // Only Ctrl/Cmd+K passes through — and never while a dialog is open
-        if (e.key.toLowerCase() === 'k' && !e.altKey && !e.shiftKey) {
+        // Only Ctrl/Cmd+K and Ctrl/Cmd+Shift+F pass through — never while a dialog is open
+        const key = e.key.toLowerCase()
+        if (key === 'k' && !e.altKey && !e.shiftKey) {
           if (isDialogOpen()) return
           e.preventDefault()
           handlersRef.current.onOpenPalette()
+        } else if (key === 'f' && e.shiftKey && !e.altKey) {
+          if (isDialogOpen()) return
+          e.preventDefault()
+          handlersRef.current.onOpenGlobalSearch()
         }
         return
       }
@@ -85,6 +92,11 @@ export function useShortcuts(handlers: ShortcutHandlers) {
         case 'G':
           e.preventDefault()
           handlersRef.current.onOpenGuide()
+          break
+        case 'm':
+        case 'M':
+          e.preventDefault()
+          handlersRef.current.onOpenMediaHub()
           break
       }
     }
