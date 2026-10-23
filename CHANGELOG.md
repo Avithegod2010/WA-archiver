@@ -3,6 +3,32 @@
 All notable changes to WA Archiver are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [1.6.0] — 2026-10-23
+
+### Added
+- **Year-in-review share cards** — the per-chat rewind dialog now exports a
+  story-sized 1080×1350 PNG card: message count hero, busiest day, top
+  month, longest streak, loudest voice, signature emoji and words typed —
+  rendered fully on-device with the same teal-gradient look as the dialog.
+- **Starred-messages export** — the starred dialog gains one-tap
+  `.txt` and `.json` exports (timestamped, sender-attributed,
+  filename slugged to the chat).
+- **Three new languages — उर्दू (Urdu), मराठी (Marathi), தமிழ் (Tamil)** —
+  the i18n layer now covers 5 languages × 277 strings with compile-time
+  key parity. Urdu flips the whole interface RTL automatically.
+- **Per-ABI APK builds** — releases now ship slim `arm64-v8a`,
+  `armeabi-v7a` and `x86_64` APKs alongside the universal one;
+  pick the arm64 APK on any modern phone.
+
+### Changed
+- **APK size audit** — removed the two never-used threaded ONNX Runtime
+  WASM variants (the app is not cross-origin isolated and pins
+  `numThreads=1`): whisper assets shrink 38 MB → 20 MB before
+  compression, cutting the universal APK download.
+  `WHISPER_ALL_VARIANTS=1` restores them for special builds.
+- Version drift fix: the in-app version now tracks package.json/gradle
+  (1.6.0) — the About dialog no longer lags a release behind.
+
 ## [1.5.1] — 2026-10-23
 
 ### Fixed

@@ -77,26 +77,35 @@ jobs:
             ./gradlew assembleDebug --no-daemon --stacktrace
           fi
 
-      - name: Name the APK
+      - name: Name the APKs (universal + per-ABI)
         id: apk
         run: |
           VERSION=$(node -p "require('./package.json').version")
+          mkdir -p apk-out
           if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
-            SRC=android/app/build/outputs/apk/release/app-release.apk
-            if [ ! -f "$SRC" ]; then
-              echo "Signed release APK missing — falling back to debug APK"
-              SRC=android/app/build/outputs/apk/debug/app-debug.apk
+            # ABI splits (v1.6.0): assembleRelease emits one APK per ABI plus
+            # the universal build. Attach all of them to the versioned Release.
+            SRC_DIR=android/app/build/outputs/apk/release
+            if [ -z "$(ls "$SRC_DIR"/*.apk 2>/dev/null)" ]; then
+              echo "Release APKs missing — falling back to debug APKs"
+              SRC_DIR=android/app/build/outputs/apk/debug
             fi
+            for f in "$SRC_DIR"/*.apk; do
+              base=$(basename "$f")   # app-universal-release.apk | app-arm64-v8a-release.apk | …
+              variant=${base#app-}    # universal-release.apk | arm64-v8a-release.apk | …
+              variant=${variant%.apk} # universal-release    | arm64-v8a-release    | …
+              cp "$f" "apk-out/WA-Archiver-${GITHUB_REF#refs/tags/}-${variant}.apk"
+            done
           else
-            SRC=android/app/build/outputs/apk/debug/app-debug.apk
+            # Rolling "latest" build: only the universal debug APK keeps the
+            # pre-release tidy (per-ABI debug builds add noise, not value).
+            SRC=android/app/build/outputs/apk/debug/app-universal-debug.apk
+            [ -f "$SRC" ] || SRC=android/app/build/outputs/apk/debug/app-debug.apk
+            [ -f "$SRC" ] || SRC=$(ls android/app/build/outputs/apk/debug/*universal*.apk 2>/dev/null | head -1)
+            cp "$SRC" "apk-out/WA-Archiver-v${VERSION}-debug-${GITHUB_SHA::7}.apk"
           fi
-          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
-            APK="WA-Archiver-${GITHUB_REF#refs/tags/}-release.apk"
-          else
-            APK="WA-Archiver-v${VERSION}-debug-${GITHUB_SHA::7}.apk"
-          fi
-          cp "$SRC" "$APK"
-          echo "file=$APK" >> "$GITHUB_OUTPUT"
+          ls -la apk-out
+          echo "dir=apk-out" >> "$GITHUB_OUTPUT"
 
       # Tag builds: pull the body of this version's section out of
       # CHANGELOG.md (Keep-a-Changelog: "## [1.4.0] — 2026-10-19" … until the
@@ -122,15 +131,15 @@ jobs:
             echo "No CHANGELOG section for $VERSION — release will use auto-generated notes"
           fi
 
-      - name: Attach APK to GitHub Release
+      - name: Attach APKs to GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -e
-          APK_FILE="${{ steps.apk.outputs.file }}"
+          APK_DIR="${{ steps.apk.outputs.dir }}"
           if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
             TAG="${GITHUB_REF#refs/tags/}"
-            echo "Attaching $APK_FILE to versioned release $TAG"
+            echo "Attaching $(ls "$APK_DIR" | wc -l) APK(s) to versioned release $TAG"
             # Prefer the CHANGELOG section for this version (release-notes.md,
             # written by the extract step above); fall back to GitHub's
             # auto-generated notes when there is no matching entry.
@@ -138,12 +147,12 @@ jobs:
               gh release create "$TAG" \
                 --title "WA Archiver $TAG" \
                 --notes-file release-notes.md \
-                "$APK_FILE"
+                "$APK_DIR"/*
             else
               gh release create "$TAG" \
                 --title "WA Archiver $TAG" \
                 --generate-notes \
-                "$APK_FILE"
+                "$APK_DIR"/*
             fi
           else
             TAG="latest"
@@ -164,14 +173,14 @@ jobs:
                 while IFS= read -r asset; do
                   [ -n "$asset" ] && gh release delete-asset "$TAG" "$asset" -y || true
                 done
-              gh release upload "$TAG" "$APK_FILE" --clobber
+              gh release upload "$TAG" "$APK_DIR"/* --clobber
               gh release edit "$TAG" --title "$TITLE" --notes "$NOTES" --prerelease
             else
               gh release create "$TAG" \
                 --title "$TITLE" \
                 --notes "$NOTES" \
                 --prerelease \
-                "$APK_FILE"
+                "$APK_DIR"/*
             fi
           fi
 
@@ -179,6 +188,6 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: whatsapp-viewer-apk
-          path: ${{ startsWith(github.ref, 'refs/tags/v') && 'android/app/build/outputs/apk/release/app-release.apk' || 'android/app/build/outputs/apk/debug/app-debug.apk' }}
+          path: apk-out
           if-no-files-found: error
           retention-days: 7

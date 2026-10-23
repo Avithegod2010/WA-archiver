@@ -28,16 +28,27 @@ await copyFile(
   path.join(pub, 'transformers.min.js')
 )
 
-// Every ORT 1.14 wasm backend variant — numThreads=1 uses the plain/simd
-// binaries, but shipping all four keeps the engine working in any WebView.
-const WASM_FILES = [
+// ORT wasm backend variants. The app is NOT cross-origin isolated (no
+// SharedArrayBuffer) and pins numThreads=1 (see src/lib/whisper-asr.ts),
+// so the *threaded* variants can never be used — copying them only
+// bloated the APK (~19 MB raw). We ship the SIMD + plain variants:
+//   • ort-wasm-simd.wasm — every WebView since Android 7 / Chrome 91
+//   • ort-wasm.wasm      — ancient no-SIMD WebViews, kept as fallback
+// Set WHISPER_ALL_VARIANTS=1 to restore all four (debug/Docker only).
+const ALL_WASM_FILES = [
   'ort-wasm.wasm',
   'ort-wasm-simd.wasm',
   'ort-wasm-threaded.wasm',
   'ort-wasm-simd-threaded.wasm',
 ]
+const WASM_FILES =
+  process.env.WHISPER_ALL_VARIANTS === '1'
+    ? ALL_WASM_FILES
+    : ['ort-wasm.wasm', 'ort-wasm-simd.wasm']
 await Promise.all(
   WASM_FILES.map((f) => copyFile(path.join(ortDist, f), path.join(pub, f)))
 )
 
-console.log('[copy-whisper] public/whisper/ is up to date (transformers + ort wasm)')
+console.log(
+  `[copy-whisper] public/whisper/ is up to date (transformers + ${WASM_FILES.length} ort wasm variants)`
+)

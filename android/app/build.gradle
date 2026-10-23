@@ -26,13 +26,27 @@ android {
         applicationId "io.github.avithegod2010.waarchiver"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 7
-        versionName "1.5.1"
+        versionCode 8
+        versionName "1.6.0"
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         aaptOptions {
              // Files and dirs to omit from the packaged assets dir, modified to accommodate modern web apps.
              // Default: https://android.googlesource.com/platform/frameworks/base/+/282e181b58cf72b6ca770dc7ca5f91f135444502/tools/aapt/AaptAssets.cpp#61
             ignoreAssetsPattern = '!.svn:!.git:!.ds_store:!*.scc:.*:!CVS:!thumbs.db:!picasa.ini:!*~'
+        }
+    }
+    // Per-ABI splits (v1.6.0 APK size audit): one slim APK per CPU ABI plus
+    // a universal APK. The web assets dominate the size, but each per-ABI
+    // build still drops the other ABIs' native libs (Capacitor + WebView
+    // glue + sql.js native driver), saving a few MB per download.
+    // CI attaches all outputs to the GitHub Release; users on arm64
+    // (virtually every modern phone) should grab the arm64-v8a APK.
+    splits {
+        abi {
+            enable true
+            reset()
+            include 'armeabi-v7a', 'arm64-v8a', 'x86_64'
+            universalApk true
         }
     }
     buildTypes {

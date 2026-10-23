@@ -5,6 +5,8 @@ import { toast } from 'sonner'
 import {
   Ban,
   BarChart3,
+  Download,
+  FileJson,
   FileText,
   Film,
   ImageIcon,
@@ -26,6 +28,17 @@ import { Avatar } from './Avatar'
 import { useData, useMessageNormalizer } from './data-provider'
 import type { ChatMessage } from './types'
 import { cn } from '@/lib/utils'
+import { downloadBlob } from '@/lib/wordcloud-png'
+
+function slugify(title: string): string {
+  return (
+    title
+      .toLowerCase()
+      .replace(/[^a-z0-9\u0900-\u097f\u0b80-\u0bff\u0600-\u06ff]+/g, '-')
+      .replace(/^-+|-+$/g, '')
+      .slice(0, 40) || 'chat'
+  )
+}
 
 const TYPE_LABEL: Record<string, string> = {
   image: 'Photo',
@@ -170,6 +183,69 @@ export function StarredMessages({
     toast.success('Message unstarred')
   }
 
+  /** Trigger a client-side download of the starred list (TXT or JSON). */
+  function exportStarred(fmt: 'txt' | 'json') {
+    if (!items || items.length === 0) {
+      toast.error('Nothing to export yet')
+      return
+    }
+    try {
+      const stamp = new Date().toISOString()
+      const slug = slugify(chatTitle)
+      if (fmt === 'json') {
+        const payload = {
+          kind: 'whatsapp-viewer-starred',
+          version: 1,
+          exportedAt: stamp,
+          chat: { id: chatId, title: chatTitle, isGroup },
+          count: items.length,
+          messages: items.map((m) => ({
+            id: m.id,
+            ts: m.ts,
+            sender: m.sender,
+            body: m.body,
+            type: m.type,
+            mediaName: m.mediaName ?? null,
+          })),
+        }
+        downloadBlob(
+          new Blob([JSON.stringify(payload, null, 2)], {
+            type: 'application/json',
+          }),
+          `starred-${slug}.json`
+        )
+      } else {
+        const lines: string[] = [
+          `Starred messages — ${chatTitle}`,
+          `Exported ${new Date().toLocaleString()} · ${items.length} messages · via WA Archiver`,
+          '',
+        ]
+        for (const m of items) {
+          const when = new Date(m.ts).toLocaleString([], {
+            day: 'numeric',
+            month: 'short',
+            year: 'numeric',
+            hour: '2-digit',
+            minute: '2-digit',
+          })
+          lines.push(`[${when}] ${m.sender ?? 'System'}:`)
+          const label = TYPE_LABEL[m.type]
+          const body = m.body || (label ? label : '')
+          for (const l of body.split('\n')) lines.push(`  ${l}`)
+          if (m.mediaName && m.body) lines.push(`  (attachment: ${m.mediaName})`)
+          lines.push('')
+        }
+        downloadBlob(
+          new Blob([lines.join('\n')], { type: 'text/plain' }),
+          `starred-${slug}.txt`
+        )
+      }
+      toast.success('Starred messages exported')
+    } catch {
+      toast.error('Could not export starred messages')
+    }
+  }
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="flex max-h-[80vh] flex-col overflow-hidden sm:max-w-md">
@@ -181,6 +257,29 @@ export function StarredMessages({
           <DialogDescription>
             Kept in {chatTitle} — click one to jump to it in the chat.
           </DialogDescription>
+
+          {items != null && items.length > 0 && (
+            <div className="flex shrink-0 gap-2 pt-1">
+              <button
+                type="button"
+                onClick={() => exportStarred('txt')}
+                className="inline-flex items-center gap-1.5 rounded-md border border-black/[0.06] px-2.5 py-1.5 text-[12px] font-medium text-(--wa-text-2) transition-colors hover:bg-(--wa-accent)/10 hover:text-(--wa-accent-strong) dark:border-white/10"
+                title="Download starred messages as a .txt file"
+              >
+                <Download className="h-3.5 w-3.5" aria-hidden />
+                Export .txt
+              </button>
+              <button
+                type="button"
+                onClick={() => exportStarred('json')}
+                className="inline-flex items-center gap-1.5 rounded-md border border-black/[0.06] px-2.5 py-1.5 text-[12px] font-medium text-(--wa-text-2) transition-colors hover:bg-(--wa-accent)/10 hover:text-(--wa-accent-strong) dark:border-white/10"
+                title="Download starred messages as .json"
+              >
+                <FileJson className="h-3.5 w-3.5" aria-hidden />
+                Export .json
+              </button>
+            </div>
+          )}
         </DialogHeader>
 
         <div className="wa-scroll -mx-1 min-h-0 flex-1 overflow-y-auto px-1">

@@ -16,23 +16,34 @@
 import { useCallback, useSyncExternalStore } from 'react'
 import { strings as enStrings, type TranslationKey } from './locales/en'
 import { strings as hiStrings } from './locales/hi'
+import { strings as urStrings } from './locales/ur'
+import { strings as mrStrings } from './locales/mr'
+import { strings as taStrings } from './locales/ta'
 
-export type Locale = 'en' | 'hi'
+export type Locale = 'en' | 'hi' | 'ur' | 'mr' | 'ta'
 
 export interface LocaleMeta {
   code: Locale
   label: string
+  /** Text direction — Urdu renders RTL; i18n keeps <html dir> in sync. */
+  dir: 'ltr' | 'rtl'
 }
 
 /** Picker metadata — `label` is intentionally NOT translated (endonyms). */
 export const LOCALES: LocaleMeta[] = [
-  { code: 'en', label: 'English' },
-  { code: 'hi', label: 'हिन्दी' },
+  { code: 'en', label: 'English', dir: 'ltr' },
+  { code: 'hi', label: 'हिन्दी', dir: 'ltr' },
+  { code: 'ur', label: 'اردو', dir: 'rtl' },
+  { code: 'mr', label: 'मराठी', dir: 'ltr' },
+  { code: 'ta', label: 'தமிழ்', dir: 'ltr' },
 ]
 
 const STRINGS: Record<Locale, Record<TranslationKey, string>> = {
   en: enStrings,
   hi: hiStrings,
+  ur: urStrings,
+  mr: mrStrings,
+  ta: taStrings,
 }
 
 const DEFAULT_LOCALE: Locale = 'en'
@@ -41,8 +52,10 @@ export const LOCALE_STORAGE_KEY = 'wa-viewer:locale'
 
 export type TParams = Record<string, string | number>
 
+const LOCALE_CODES = LOCALES.map((l) => l.code)
+
 function isLocale(v: unknown): v is Locale {
-  return v === 'en' || v === 'hi'
+  return typeof v === 'string' && (LOCALE_CODES as string[]).includes(v)
 }
 
 /** Read the persisted locale (SSR-safe: returns the default off-client). */
@@ -68,10 +81,13 @@ export function setLocale(l: Locale) {
   window.dispatchEvent(new Event(LOCALE_EVENT))
 }
 
-/** Keep <html lang> in sync (safe to call anywhere; no-op off-client). */
+/** Keep <html lang> (and <html dir> for RTL locales) in sync. */
 export function syncDocumentLang(locale?: Locale): void {
   if (typeof document === 'undefined') return
-  document.documentElement.lang = locale ?? getLocale()
+  const l = locale ?? getLocale()
+  document.documentElement.lang = l
+  const dir = LOCALES.find((m) => m.code === l)?.dir ?? 'ltr'
+  document.documentElement.dir = dir
 }
 
 /** Subscribe to locale changes (event + cross-tab storage). */

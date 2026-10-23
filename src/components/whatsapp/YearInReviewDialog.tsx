@@ -5,7 +5,9 @@ import { motion } from 'framer-motion'
 import {
   CalendarDays,
   CalendarRange,
+  Download,
   Flame,
+  Loader2,
   PartyPopper,
   Quote,
   Type,
@@ -19,8 +21,14 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
+import { toast } from 'sonner'
 import type { ChatMessage } from './types'
 import { cn } from '@/lib/utils'
+import {
+  renderYearReviewPng,
+  yearReviewFileName,
+} from '@/lib/yearreview-png'
+import { downloadBlob } from '@/lib/wordcloud-png'
 
 /** Local YYYY-MM-DD day key (timezone-safe, matches ChatView's dayKey). */
 function dayKeyOf(iso: string): string {
@@ -211,6 +219,29 @@ export function YearInReviewDialog({
   const stats = useMemo(() => (open ? computeStats(scoped) : EMPTY_STATS), [open, scoped])
   const avgPerDay =
     stats.activeDays > 0 ? Math.round(stats.count / stats.activeDays) : 0
+  const [exporting, setExporting] = useState(false)
+
+  /** Share-card PNG (1080×1350, on-device canvas render). */
+  const exportPng = async () => {
+    if (exporting || stats.count === 0) return
+    setExporting(true)
+    try {
+      const blob = await renderYearReviewPng({
+        yearLabel,
+        chatTitle,
+        messageCount: stats.count,
+        activeDays: stats.activeDays,
+        stats: cards.map((c) => ({ label: c.label, value: c.value, sub: c.sub })),
+        footerText: 'Made with WA Archiver — private & on-device',
+      })
+      downloadBlob(blob, yearReviewFileName(yearLabel, chatTitle))
+      toast.success('Share card saved as PNG')
+    } catch {
+      toast.error('Could not render the share card')
+    } finally {
+      setExporting(false)
+    }
+  }
 
   const cards: Array<{
     icon: React.ReactNode
@@ -329,7 +360,7 @@ export function YearInReviewDialog({
             No messages in this period.
           </p>
         ) : (
-          <div className="grid grid-cols-1 gap-2.5 px-5 pb-5 pt-3 sm:grid-cols-2">
+          <div className="grid grid-cols-1 gap-2.5 px-5 pt-3 sm:grid-cols-2">
             {cards.map((c, i) => (
               <motion.div
                 key={c.label}
@@ -356,6 +387,30 @@ export function YearInReviewDialog({
                 )}
               </motion.div>
             ))}
+          </div>
+        )}
+
+        {/* Share-card export */}
+        {stats.count > 0 && (
+          <div className="border-t border-black/5 px-5 pb-5 pt-3 dark:border-white/10">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => void exportPng()}
+              disabled={exporting}
+              className="w-full gap-1.5"
+              title="Render these stats as a 1080×1350 shareable PNG"
+            >
+              {exporting ? (
+                <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
+              ) : (
+                <Download className="h-4 w-4" aria-hidden />
+              )}
+              {exporting ? 'Rendering share card…' : 'Download share card (PNG)'}
+            </Button>
+            <p className="mt-1.5 text-center text-[11px] text-(--wa-text-2)">
+              Story-sized 1080×1350 card — rendered on-device, nothing uploads.
+            </p>
           </div>
         )}
       </DialogContent>
