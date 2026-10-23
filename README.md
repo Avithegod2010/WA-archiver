@@ -233,7 +233,9 @@ intermediary server. No key? Everything else keeps working.
 - [x] ~~CSV export for chats & starred messages~~ *(v1.7)*
 - [x] ~~Play Store App Bundle (.aab) + per-ABI APKs + in-app update checker~~ *(v1.7)*
 - [x] ~~Year-in-review share cards (PNG)~~ *(v1.6)*
-- [ ] Encrypted backups — optional passphrase (AES-GCM) on JSON backups
+- [x] ~~Encrypted backups — optional passphrase (AES-GCM) on JSON backups~~ *(v1.8)*
+- [x] ~~Smart collections: Media / Active this week / Biggest~~ *(v1.8)*
+- [x] ~~Per-chat themes (17 themes, scoped to one chat)~~ *(v1.8)*
 - [ ] Message editing / unsend with "edited" tags
 - [ ] Export round-trip for location & contact cards, scheduled messages
 - [ ] Cloud-ready persistence mode (one-click deploy to free hosts)
