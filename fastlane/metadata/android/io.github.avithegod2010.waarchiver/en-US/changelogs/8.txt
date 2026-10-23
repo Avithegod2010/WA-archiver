@@ -1,0 +1,6 @@
+WA Archiver v1.6 — the recap release.
+
+- Year-in-review share cards (wrapped-style rewind per chat)
+- Starred messages export (.txt)
+- Urdu, Marathi and Tamil join the language picker
+- APK size audit + leaner build

@@ -1,6 +1,6 @@
 # IzzyOnDroid submission — paste-ready draft
 
-**Everything below is filled in and fact-checked against the v1.8.0 release.**
+**Everything below is filled in and fact-checked against the v1.8.1 release.**
 You only need a (free) GitLab account and ~10 minutes.
 
 ---
@@ -30,8 +30,8 @@ You only need a (free) GitLab account and ~10 minutes.
 **License:** MIT
 **APKs:** signed release APKs attached to GitHub Releases
 (latest: https://github.com/Avithegod2010/WA-archiver/releases/latest —
-WA-Archiver-v1.8.0-release.aab + per-ABI APKs (arm64-v8a / armeabi-v7a / x86_64 /
-universal), versionCode 10, APK Signature v2)
+WA-Archiver-v1.8.1-release.aab + per-ABI APKs (arm64-v8a / armeabi-v7a / x86_64 /
+universal), versionCode 11, APK Signature v2)
 **Changelogs:** fastlane format, checked in at
 fastlane/metadata/android/io.github.avithegod2010.waarchiver/en-US/ (title, short and
 full descriptions, changelogs for recent versionCodes, icon + 5 phone

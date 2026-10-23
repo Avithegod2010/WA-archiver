@@ -51,8 +51,8 @@ export type IntentRouterHandlers = {
   onFiles(files: File[], text?: string): void
   /**
    * Launcher shortcut tapped (MainActivity forwards {kind:'shortcut'}).
-   * Target is the raw extra value — 'import' | 'search' | 'insights';
-   * unknown targets are ignored by the consumer.
+   * Target is the raw extra value — 'import' | 'search' | 'insights' |
+   * 'media' | 'saved'; unknown targets are ignored by the consumer.
    */
   onShortcut?(target: string): void
 }

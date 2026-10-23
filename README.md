@@ -3,6 +3,7 @@
 <img src="docs/assets/banner.svg" alt="WA Archiver — read, explore and enrich your exported WhatsApp chats, privately and locally" width="100%">
 
 [![Release](https://img.shields.io/github/v/release/Avithegod2010/WA-archiver?color=00A884&label=release&logo=github)](https://github.com/Avithegod2010/WA-archiver/releases/latest)
+[![Build APK](https://github.com/Avithegod2010/WA-archiver/actions/workflows/android-apk.yml/badge.svg)](https://github.com/Avithegod2010/WA-archiver/actions/workflows/android-apk.yml)
 [![License](https://img.shields.io/badge/license-MIT-00A884.svg)](LICENSE)
 [![Platform](https://img.shields.io/badge/platform-Web%20%7C%20Android-075E54.svg)](#-android-app-offline-apk)
 [![Next.js](https://img.shields.io/badge/Next.js-16-black?logo=next.js)](https://nextjs.org)
@@ -236,9 +237,9 @@ intermediary server. No key? Everything else keeps working.
 - [x] ~~Encrypted backups — optional passphrase (AES-GCM) on JSON backups~~ *(v1.8)*
 - [x] ~~Smart collections: Media / Active this week / Biggest~~ *(v1.8)*
 - [x] ~~Per-chat themes (17 themes, scoped to one chat)~~ *(v1.8)*
-- [ ] Message editing / unsend with "edited" tags
-- [ ] Export round-trip for location & contact cards, scheduled messages
-- [ ] Cloud-ready persistence mode (one-click deploy to free hosts)
+- [x] ~~Message editing / unsend with "edited" tags~~ *(v1.8)*
+- [x] ~~Export round-trip: location, contact, poll, deleted + scheduled sends~~ *(v1.8.1)*
+- [x] ~~Cloud-ready persistence: WebDAV / Google Drive / S3 sync, auto-push, snapshot history (all E2EE)~~ *(v1.8–1.8.1)*
 - [ ] One-bundle multi-device transfer
 
 ---

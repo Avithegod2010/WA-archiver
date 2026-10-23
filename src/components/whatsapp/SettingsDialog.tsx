@@ -40,6 +40,7 @@ import {
   Upload,
 } from 'lucide-react'
 import { aiHeaders, getGeminiKey, setGeminiKey } from '@/lib/ai-client'
+import { autoPushIfEnabled } from '@/lib/cloud-sync'
 import { runDeviceAi } from '@/lib/device-ai'
 import { isOnline, offlineAiMessage } from '@/lib/online'
 import {
@@ -665,6 +666,10 @@ export function SettingsDialog({
       const at = Date.now()
       writeLastBackupAt(at)
       setLastBackupAt(at)
+      // Auto-push (v1.8.1): keep the cloud copy fresh after every export.
+      void autoPushIfEnabled(data).then((r) => {
+        if (r.pushed) toast.success('Cloud copy updated automatically')
+      })
     } catch {
       toast.error('Backup needs a connection')
     } finally {

@@ -36,6 +36,7 @@ import {
   HeartHandshake,
   Forward,
   Hash,
+  History,
   Images,
   Languages,
   ListChecks,
@@ -100,7 +101,14 @@ import {
 import { runDeviceAi } from '@/lib/device-ai'
 import { suggestReplies } from '@/lib/smart-replies'
 import { chatCsvBlob } from '@/lib/export-csv'
-import { safeFileTitle } from '@/lib/export-text'
+import {
+  buildWhatsAppText,
+  safeFileTitle,
+  type ExportMessage,
+} from '@/lib/export-text'
+import { verifyRoundTrip, type RoundTripReport } from '@/lib/export-verify'
+import { recordMsgChange } from '@/lib/msg-changes'
+import { ChangesPanelDialog } from './ChangesPanelDialog'
 import { downloadBlob } from '@/lib/wordcloud-png'
 import { useData, useMessageNormalizer } from './data-provider'
 
@@ -703,6 +711,12 @@ export function ChatView({
   /** Message pending an unsend confirmation (tombstone flow). */
   const [unsendTarget, setUnsendTarget] = useState<ChatMessage | null>(null)
   const [unsendBusy, setUnsendBusy] = useState(false)
+  /** Per-chat edit/unsend history ("Message changes" panel). */
+  const [changesOpen, setChangesOpen] = useState(false)
+  /** Round-trip export self-test ("Verify my export"). */
+  const [verifyOpen, setVerifyOpen] = useState(false)
+  const [verifyBusy, setVerifyBusy] = useState(false)
+  const [verifyReport, setVerifyReport] = useState<RoundTripReport | null>(null)
 
   /* ---- 10-i: word cloud / movie mode / accent theme / link previews ---- */
   const [wordCloudOpen, setWordCloudOpen] = useState(false)
@@ -1403,6 +1417,41 @@ export function ChatView({
 
   function handleExport() {
     if (!detail) return
+    // Device mode (static APK bundle) has no /api routes — build the SAME
+    // WhatsApp-format .txt client-side from the DataClient transcript
+    // (messages + pending scheduled sends, exactly like the server route).
+    if (mode === 'device') {
+      void (async () => {
+        try {
+          const rows = await data.getChatTranscript(detail.chat.id)
+          if (!rows || rows.length === 0) {
+            toast.error('No messages to export')
+            return
+          }
+          const text = buildWhatsAppText(
+            rows.map(
+              (r): ExportMessage => ({
+                ts: new Date(r.ts),
+                sender: r.sender,
+                body: r.body,
+                type: r.type,
+                mediaName: r.mediaName,
+                edited: r.edited,
+                scheduledFor: r.scheduledFor ? new Date(r.scheduledFor) : null,
+              })
+            )
+          )
+          downloadBlob(
+            new Blob([text], { type: 'text/plain;charset=utf-8' }),
+            `WhatsApp Chat - ${safeFileTitle(detail.chat.title)}.txt`
+          )
+          toast.success('Chat exported as .txt — check your downloads')
+        } catch {
+          toast.error('Could not export this chat')
+        }
+      })()
+      return
+    }
     const a = document.createElement('a')
     a.href = `/api/chats/${detail.chat.id}/export`
     a.download = ''
@@ -1410,6 +1459,34 @@ export function ChatView({
     a.click()
     a.remove()
     toast.success('Chat exported as .txt — check your downloads')
+  }
+
+  /** Round-trip self-test: rebuild + re-parse the export, report fidelity. */
+  async function handleVerifyExport() {
+    if (!detail || verifyBusy) return
+    setVerifyBusy(true)
+    try {
+      const rows = await data.getChatTranscript(detail.chat.id)
+      const msgs: ExportMessage[] = rows.map((r) => ({
+        ts: new Date(r.ts),
+        sender: r.sender,
+        body: r.body,
+        type: r.type,
+        mediaName: r.mediaName,
+        edited: r.edited,
+        scheduledFor: r.scheduledFor ? new Date(r.scheduledFor) : null,
+      }))
+      if (msgs.length === 0) {
+        toast.error('No messages to verify')
+        return
+      }
+      setVerifyReport(verifyRoundTrip(msgs))
+      setVerifyOpen(true)
+    } catch {
+      toast.error('Could not verify the export')
+    } finally {
+      setVerifyBusy(false)
+    }
   }
 
   function handleToggleStar(id: string, starred: boolean) {
@@ -1806,6 +1883,14 @@ export function ChatView({
     try {
       const updated = await data.markMessageEdited(editing.id, trimmed)
       const newBody = updated?.body ?? trimmed
+      recordMsgChange({
+        chatId,
+        messageId: editing.id,
+        kind: 'edited',
+        sender: editing.sender,
+        before: editing.body,
+        after: newBody,
+      })
       setDetail((d) =>
         d
           ? {
@@ -1836,8 +1921,19 @@ export function ChatView({
     const trimmed = body.trim()
     if (!trimmed) return false
     try {
+      const prev = messages.find((m) => m.id === id)
       const updated = await data.markMessageEdited(id, trimmed)
       const newBody = updated?.body ?? trimmed
+      if (prev) {
+        recordMsgChange({
+          chatId,
+          messageId: id,
+          kind: 'edited',
+          sender: prev.sender,
+          before: prev.body,
+          after: newBody,
+        })
+      }
       setDetail((d) =>
         d
           ? {
@@ -1869,6 +1965,14 @@ export function ChatView({
     try {
       const updated = await data.unsendMessage(target.id)
       if (updated) {
+        recordMsgChange({
+          chatId,
+          messageId: target.id,
+          kind: 'unsent',
+          sender: target.sender,
+          before: target.body,
+          after: null,
+        })
         setDetail((d) =>
           d
             ? {
@@ -2985,6 +3089,18 @@ export function ChatView({
                 Export .csv (spreadsheet)
               </DropdownMenuItem>
               <DropdownMenuSeparator />
+              <DropdownMenuItem
+                onClick={() => void handleVerifyExport()}
+                disabled={verifyBusy}
+                className="gap-2"
+              >
+                {verifyBusy ? (
+                  <Loader2 className="h-4 w-4 animate-spin text-(--wa-text-2)" />
+                ) : (
+                  <ShieldCheck className="h-4 w-4 text-(--wa-text-2)" />
+                )}
+                Verify round-trip (self-test)
+              </DropdownMenuItem>
               <DropdownMenuItem onClick={openPrint} className="gap-2">
                 <Printer className="h-4 w-4 text-(--wa-text-2)" />
                 Print / Save as PDF
@@ -3138,6 +3254,14 @@ export function ChatView({
               >
                 <PartyPopper className="h-4 w-4 text-(--wa-text-2)" />
                 Year in review
+              </DropdownMenuItem>
+              {/* Unsend + edit history log (v1.8.1). */}
+              <DropdownMenuItem
+                onClick={() => setChangesOpen(true)}
+                className="gap-2"
+              >
+                <History className="h-4 w-4 text-(--wa-text-2)" />
+                Message changes
               </DropdownMenuItem>
 
               <DropdownMenuLabel className="px-2 py-1 text-[10.5px] font-semibold uppercase tracking-wider text-(--wa-text-2)">
@@ -4113,6 +4237,80 @@ export function ChatView({
           if (!v) setAiMsg(null)
         }}
       />
+
+      {/* Per-chat edit / unsend history log (v1.8.1) */}
+      <ChangesPanelDialog
+        open={changesOpen}
+        onOpenChange={setChangesOpen}
+        chatId={chatId}
+        chatTitle={chat.title}
+      />
+
+      {/* Round-trip export self-test result (v1.8.1) */}
+      <Dialog open={verifyOpen} onOpenChange={setVerifyOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-base">
+              <ShieldCheck className="h-4 w-4 text-(--wa-accent)" aria-hidden />
+              Export round-trip report
+            </DialogTitle>
+            <DialogDescription>
+              The .txt export was rebuilt and re-parsed through the standard
+              WhatsApp parser — here is how faithfully every message type
+              survives the export → import cycle.
+            </DialogDescription>
+          </DialogHeader>
+          {verifyReport && (
+            <div className="flex flex-col gap-3">
+              <div className="flex items-center gap-3 rounded-md bg-(--wa-accent)/10 p-3">
+                <span className="text-2xl font-bold text-(--wa-accent-strong) dark:text-(--wa-accent)">
+                  {verifyReport.fidelityPct}%
+                </span>
+                <span className="text-[12px] leading-snug text-(--wa-text-2)">
+                  type fidelity · {verifyReport.typeMatched}/
+                  {verifyReport.total} messages re-parsed as the same type (
+                  {verifyReport.reparsed} rows recovered)
+                </span>
+              </div>
+              <ul className="flex flex-wrap gap-1.5">
+                {verifyReport.byType.map((t) => (
+                  <li
+                    key={t.type}
+                    className={`rounded-full px-2 py-0.5 text-[11px] font-medium ${
+                      t.matched === t.count
+                        ? 'bg-(--wa-accent)/10 text-(--wa-accent-strong) dark:text-(--wa-accent)'
+                        : 'bg-amber-500/15 text-amber-600 dark:text-amber-400'
+                    }`}
+                    title={`${t.matched}/${t.count} round-tripped`}
+                  >
+                    {t.type} {t.matched}/{t.count}
+                  </li>
+                ))}
+              </ul>
+              {verifyReport.losses.length > 0 && (
+                <div className="rounded-md border border-black/[0.06] p-2 text-[11.5px] leading-snug text-(--wa-text-2) dark:border-white/10">
+                  <p className="mb-1 font-semibold text-(--wa-text)">
+                    Known / detected losses
+                  </p>
+                  <ul className="list-inside list-disc">
+                    {verifyReport.losses.map((l) => (
+                      <li key={l.idx}>
+                        #{l.idx} · {l.type} → {l.became}
+                        {l.note ? ` — ${l.note}` : ''}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+              <p className="text-[10.5px] leading-snug text-(--wa-text-2)">
+                The same transcript builder that produced your .txt download
+                was re-parsed, so this is exactly what a re-import of the file
+                would restore.
+              </p>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
 
       {/* Word cloud (10-i) — most used words; picking seeds in-chat search */}
       <WordCloudDialog

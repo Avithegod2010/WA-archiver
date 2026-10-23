@@ -7,6 +7,7 @@ import { checkForUpdate, markUpdateSeen } from '@/lib/update-check'
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
 import { useTheme } from 'next-themes'
 import { toast } from 'sonner'
+import { autoPushIfEnabled } from '@/lib/cloud-sync'
 import {
   ALargeSmall,
   BarChart3,
@@ -277,6 +278,10 @@ function WhatsAppAppInner() {
       a.remove()
       setTimeout(() => URL.revokeObjectURL(url), 1000)
       writeLastBackupAt()
+      // Auto-push (v1.8.1): keep the cloud copy fresh after every export.
+      void autoPushIfEnabled(data).then((r) => {
+        if (r.pushed) toast.success('Cloud copy updated automatically')
+      })
     } catch {
       /* offline / failed — the reminder simply returns next session */
     }
@@ -1002,9 +1007,19 @@ function WhatsAppAppInner() {
           setGlobalSearchQuery('')
           setGlobalSearchOpen(true)
         } else if (target === 'insights') setStatsOpen(true)
+        else if (target === 'media') {
+          setMediaHubChat(null)
+          setMediaHubOpen(true)
+        } else if (target === 'saved') {
+          void (async () => {
+            const savedId = await resolveSavedChatId()
+            if (savedId) await openChat(savedId)
+            else setImportPanelOpen(true)
+          })()
+        }
       },
     })
-  }, [mounted, importFiles, resolveSavedChatId, postTextToSaved, refreshChats, t])
+  }, [mounted, importFiles, resolveSavedChatId, postTextToSaved, refreshChats, openChat, t])
 
   const loadDemo = useCallback(() => {
     setDemoPickerOpen(true)
@@ -1023,8 +1038,14 @@ function WhatsAppAppInner() {
   const handleImportPanelImported = useCallback(
     async (_chatIds: string[]) => {
       await refreshChats()
+      // Auto-push (v1.8.1): when enabled, the cloud copy follows every
+      // import so it is never stale. Fire-and-forget — never blocks the UI.
+      void autoPushIfEnabled(data).then((r) => {
+        if (r.pushed) toast.success('Cloud copy updated automatically')
+        else if (r.error) toast.warning(`Auto-push skipped — ${r.error}`)
+      })
     },
-    [refreshChats]
+    [refreshChats, data]
   )
 
   const deleteChat = useCallback(

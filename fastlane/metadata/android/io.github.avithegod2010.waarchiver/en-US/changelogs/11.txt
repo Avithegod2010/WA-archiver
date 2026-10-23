@@ -1,0 +1,9 @@
+WA Archiver v1.8.1 — cloud sync, everywhere.
+
+- Google Drive + S3/R2/B2 join WebDAV as sync providers (still E2EE)
+- Auto-push: cloud copy updates after every import/export
+- Snapshot history: timestamped server copies, restore any of them
+- "Message changes" panel: every edit/unsend logged with before/after
+- "Verify round-trip": re-parses your export and reports type fidelity
+- New launcher shortcuts: Media hub + Saved Messages
+- APK .txt exports now include scheduled sends (full server parity)

@@ -74,6 +74,18 @@ export interface ImportParsedInput {
   mediaMap?: Map<string, string>
 }
 
+/** One transcript row for export paths (messages + pending scheduled). */
+export interface TranscriptMessage {
+  ts: string
+  sender: string | null
+  body: string
+  type: string
+  mediaName: string | null
+  edited: boolean
+  /** deliverAt ISO for a pending scheduled send, else null. */
+  scheduledFor: string | null
+}
+
 /** A scheduled (auto-send later) message row. */
 export interface ScheduledItem {
   id: string
@@ -203,6 +215,13 @@ export interface DataClient {
   // ---- chats ------------------------------------------------------------
   listChats(): Promise<ChatSummary[]>
   getChatDetail(id: string): Promise<ChatDetail>
+  /**
+   * Full chat transcript in export order: stored messages PLUS pending
+   * scheduled sends (deliverAt becomes ts, flagged via scheduledFor) —
+   * parity with the server export route so device-mode .txt exports are
+   * identical to the web build's.
+   */
+  getChatTranscript(id: string): Promise<TranscriptMessage[]>
   createChat(input: {
     title: string
     isGroup?: boolean

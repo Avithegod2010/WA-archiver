@@ -30,6 +30,7 @@ export type {
   SearchResult,
   SendMessageInput,
   StarredItem,
+  TranscriptMessage,
 } from './types'
 export { DataError } from './types'
 export { LocalDataClient, getLocalClient } from './local/client'

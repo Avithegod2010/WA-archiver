@@ -1,0 +1,7 @@
+WA Archiver v1.5.1.
+
+- Backup reply links: star a message, jump back from the backup
+- Word cloud as PNG download
+- Devanagari PDF font fix (Hindi prints correctly)
+- Android launcher shortcuts: Import / Search / Insights
+- EXIF capture dates shown for photos

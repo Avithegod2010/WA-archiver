@@ -28,6 +28,7 @@ import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { useData } from './data-provider'
+import { autoPushIfEnabled } from '@/lib/cloud-sync'
 import {
   decryptFromSyncFile,
   encryptToSyncFile,
@@ -78,6 +79,10 @@ export function SyncVaultCard({
       setTimeout(() => URL.revokeObjectURL(url), 1000)
       writeLastBackupAt()
       setLastAt(Date.now())
+      // Auto-push (v1.8.1): keep the cloud copy fresh after every export.
+      void autoPushIfEnabled(data).then((r) => {
+        if (r.pushed) toast.success('Cloud copy updated automatically')
+      })
       toast.success('Encrypted sync file downloaded — keep it + the passphrase safe')
       setPassphrase('')
       setConfirm('')

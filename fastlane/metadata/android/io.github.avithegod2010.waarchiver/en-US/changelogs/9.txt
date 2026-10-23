@@ -1,0 +1,8 @@
+WA Archiver v1.7 — Play-ready + media everywhere.
+
+- Play Store App Bundle (.aab) attached to every release
+- Auto-update checker: one-time toast when a new version is out
+- Media Hub: shared albums + date-range filter, opens pre-filtered per chat
+- Device-mode CSV & JSON chat export (works offline in the APK)
+- Starred-messages CSV export
+- On-demand whisper transcription (~19 MB smaller APK)

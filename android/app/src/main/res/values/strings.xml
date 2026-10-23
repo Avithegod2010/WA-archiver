@@ -6,6 +6,10 @@
     <string name="custom_url_scheme">io.github.avithegod2010.waarchiver</string>
 
     <!-- Launcher shortcuts (res/xml/shortcuts.xml) -->
+    <string name="shortcut_media_short">Media</string>
+    <string name="shortcut_media_long">Media hub</string>
+    <string name="shortcut_saved_short">Saved</string>
+    <string name="shortcut_saved_long">Saved Messages</string>
     <string name="shortcut_import_short">Import chats</string>
     <string name="shortcut_import_long">Import chats</string>
     <string name="shortcut_search_short">Search</string>

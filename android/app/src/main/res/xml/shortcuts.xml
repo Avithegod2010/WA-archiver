@@ -1,24 +1,11 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!-- Static app shortcuts (Android 7.1+ / API 25). Long-press the launcher
-     icon to see: Import chats, Search messages, Insights. Each fires
-     ACTION_SHORTCUT with an extra `target`; MainActivity forwards it into
-     the WebView as {kind:'shortcut', target} (intent-router.ts). On API 24
-     the meta-data reference is simply ignored — no crash, no shortcuts. -->
+     icon to see: Search, Media hub, Saved Messages, Import chats,
+     Insights. Each fires ACTION_SHORTCUT with an extra `target`;
+     MainActivity forwards it into the WebView as {kind:'shortcut', target}
+     (intent-router.ts → WhatsAppApp onShortcut). On API 24 the meta-data
+     reference is simply ignored — no crash, no shortcuts. -->
 <shortcuts xmlns:android="http://schemas.android.com/apk/res/android">
-
-    <shortcut
-        android:shortcutId="import"
-        android:enabled="true"
-        android:icon="@drawable/ic_shortcut_import"
-        android:shortcutShortLabel="@string/shortcut_import_short"
-        android:shortcutLongLabel="@string/shortcut_import_long">
-        <intent
-            android:action="io.github.avithegod2010.waarchiver.SHORTCUT"
-            android:targetPackage="io.github.avithegod2010.waarchiver"
-            android:targetClass="io.github.avithegod2010.waarchiver.MainActivity">
-            <extra android:name="target" android:value="import" />
-        </intent>
-    </shortcut>
 
     <shortcut
         android:shortcutId="search"
@@ -31,6 +18,48 @@
             android:targetPackage="io.github.avithegod2010.waarchiver"
             android:targetClass="io.github.avithegod2010.waarchiver.MainActivity">
             <extra android:name="target" android:value="search" />
+        </intent>
+    </shortcut>
+
+    <shortcut
+        android:shortcutId="media"
+        android:enabled="true"
+        android:icon="@drawable/ic_shortcut_media"
+        android:shortcutShortLabel="@string/shortcut_media_short"
+        android:shortcutLongLabel="@string/shortcut_media_long">
+        <intent
+            android:action="io.github.avithegod2010.waarchiver.SHORTCUT"
+            android:targetPackage="io.github.avithegod2010.waarchiver"
+            android:targetClass="io.github.avithegod2010.waarchiver.MainActivity">
+            <extra android:name="target" android:value="media" />
+        </intent>
+    </shortcut>
+
+    <shortcut
+        android:shortcutId="saved"
+        android:enabled="true"
+        android:icon="@drawable/ic_shortcut_saved"
+        android:shortcutShortLabel="@string/shortcut_saved_short"
+        android:shortcutLongLabel="@string/shortcut_saved_long">
+        <intent
+            android:action="io.github.avithegod2010.waarchiver.SHORTCUT"
+            android:targetPackage="io.github.avithegod2010.waarchiver"
+            android:targetClass="io.github.avithegod2010.waarchiver.MainActivity">
+            <extra android:name="target" android:value="saved" />
+        </intent>
+    </shortcut>
+
+    <shortcut
+        android:shortcutId="import"
+        android:enabled="true"
+        android:icon="@drawable/ic_shortcut_import"
+        android:shortcutShortLabel="@string/shortcut_import_short"
+        android:shortcutLongLabel="@string/shortcut_import_long">
+        <intent
+            android:action="io.github.avithegod2010.waarchiver.SHORTCUT"
+            android:targetPackage="io.github.avithegod2010.waarchiver"
+            android:targetClass="io.github.avithegod2010.waarchiver.MainActivity">
+            <extra android:name="target" android:value="import" />
         </intent>
     </shortcut>
 

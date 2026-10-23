@@ -8,9 +8,10 @@
  *   • favorite         → chat-folders toggleFavChat(id)  (localStorage store)
  *   • move to folder   → chat-folders getFolders / setFolders (same store the
  *                        FolderManagerDialog reads/writes)
- *   • .txt export      → DataClient.getChatDetail(id) + buildWhatsAppText
+ *   • .txt export      → DataClient.getChatTranscript(id) + buildWhatsAppText
  *                        (the same transcript builder the per-chat export
- *                        route uses), falling back to the per-chat API route
+ *                        route uses, scheduled sends included), falling back
+ *                        to getChatDetail / the per-chat API route
  *                        GET /api/chats/:id/export when the DataClient cannot
  *                        serve the chat's messages.
  *
@@ -21,7 +22,7 @@
  * Client-only module: imported by ChatList (never from server code).
  */
 
-import type { DataClient } from '@/lib/data'
+import type { DataClient, TranscriptMessage } from '@/lib/data'
 import { buildWhatsAppText, type ExportMessage } from '@/lib/export-text'
 import type { ChatMessage } from '@/components/whatsapp/types'
 import {
@@ -151,6 +152,21 @@ function toExportMessage(m: ChatMessage): ExportMessage {
   }
 }
 
+/** Transcript row (incl. pending scheduled sends) → ExportMessage. */
+function fromTranscript(r: TranscriptMessage): ExportMessage {
+  const d = new Date(r.ts)
+  const sched = r.scheduledFor ? new Date(r.scheduledFor) : null
+  return {
+    ts: Number.isNaN(d.getTime()) ? new Date(0) : d,
+    sender: r.sender,
+    body: r.body,
+    type: r.type,
+    mediaName: r.mediaName,
+    edited: r.edited,
+    scheduledFor: sched && !isNaN(sched.getTime()) ? sched : null,
+  }
+}
+
 /**
  * Build ONE combined WhatsApp-format .txt for all selected chats, with a
  * "== <chat title> ==" header per chat. Primary path: DataClient
@@ -171,8 +187,21 @@ export async function bulkExportChatsText(
     let text: string | null = null
     try {
       try {
-        const detail = await data.getChatDetail(chat.id)
-        text = buildWhatsAppText(detail.messages.map(toExportMessage))
+        // Preferred: the full transcript (messages + pending scheduled sends,
+        // same merge the server export route does) so bulk .txt exports are
+        // identical across transports.
+        let rows: TranscriptMessage[] | null = null
+        try {
+          rows = await data.getChatTranscript(chat.id)
+        } catch {
+          rows = null
+        }
+        if (rows) {
+          text = buildWhatsAppText(rows.map(fromTranscript))
+        } else {
+          const detail = await data.getChatDetail(chat.id)
+          text = buildWhatsAppText(detail.messages.map(toExportMessage))
+        }
       } catch {
         // DataClient could not serve this chat — try the per-chat API route
         const res = await fetch(

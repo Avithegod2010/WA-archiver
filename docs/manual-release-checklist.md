@@ -26,8 +26,9 @@ The bundle is attached to every GitHub Release since **v1.7.0** as
    - Content rating questionnaire → Everyone
    - Target audience: 13+ · Ads: **No ads**
 6. **Production → Create release**: upload
-   `WA-Archiver-v1.8.0-release.aab` (versionCode 10), release notes =
-   the v1.8.0 section of `CHANGELOG.md`.
+   `WA-Archiver-v1.8.1-release.aab` (versionCode 11), release notes =
+   the v1.8.1 section of `CHANGELOG.md` (the CI also appends the
+   v1.8.0…v1.8.1 compare link automatically).
 7. Submit for review. First review typically 1–7 days.
 
 > Tips: Data-safety "No data collected" matches PRIVACY.md exactly — reviewers
@@ -37,7 +38,7 @@ The bundle is attached to every GitHub Release since **v1.7.0** as
 ## 2. IzzyOnDroid submission (≈ 10 min)
 
 Paste-ready text lives in **`docs/izzy-submission-draft.md`** (updated to
-v1.8.0). Short version:
+v1.8.1). Short version:
 
 1. Free GitLab account → <https://gitlab.com>
 2. New issue at <https://gitlab.com/IzzyOnDroid/repo/-/issues/new>
@@ -51,7 +52,10 @@ Per release, before uploading to Play:
 - [ ] Install the arm64 APK from the latest release (or the .aab via bundletool)
 - [ ] Import a real WhatsApp export zip (with media)
 - [ ] Search, star, edit + unsend a message, export .txt round-trip (re-import it)
-- [ ] Settings → Cloud sync (WebDAV): push + pull & restore
+- [ ] Settings → Cloud sync: test connection + push + pull & restore (WebDAV;
+      also smoke-test Google Drive / S3 if you use them, snapshot restore too)
+- [ ] Chat tools → "Message changes" shows your edits/unsends · export menu →
+      "Verify round-trip" reports ≥ 90% fidelity
 - [ ] Settings → Encrypted sync file: export + restore
 - [ ] App lock on/off, dark mode, per-chat wallpaper/theme
 - [ ] Voice note transcription (first run downloads the whisper model)

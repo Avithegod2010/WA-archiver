@@ -3,6 +3,47 @@
 All notable changes to WA Archiver are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [1.8.1] — 2026-10-25
+
+### Added
+- **Cloud sync providers: Google Drive & S3** — the storage-adapter layer
+  now has three interchangeable providers behind the same test / push /
+  pull UI: WebDAV (as before), Google Drive v3 (paste an OAuth access
+  token, optional destination folder) and any S3-compatible bucket
+  (AWS SigV4 signing — works with AWS, Cloudflare R2, Backblaze B2, Minio).
+  The provider only ever stores AES-GCM ciphertext.
+- **Auto-push on import/export** — optional "sync automatically after
+  every import/export" toggle in the Cloud sync card, so the cloud copy is
+  never stale. The sync passphrase is kept device-local only when enabled;
+  every background push toasts once when it lands.
+- **Multi-file snapshot history** — every push can also store a
+  timestamped `wa-archiver-YYYYMMDD-HHMMSS.wasync` snapshot; the oldest
+  beyond the keep-count are pruned automatically, and any snapshot can be
+  restored from a picker in the Cloud sync card (WebDAV, Drive and S3 all
+  support list + delete through the adapter).
+- **Message changes panel** — per-chat "Message changes" tool listing
+  every local edit and unsend with before / after content and a timestamp
+  (the audit trail behind the tombstones). Stored on-device, clearable.
+- **Export round-trip self-test** — "Verify round-trip" in the export
+  menu rebuilds the chat's .txt and re-parses it through the standard
+  WhatsApp parser, then reports type-fidelity (e.g. location → location,
+  contact → contact, deleted → deleted) with a per-type breakdown and an
+  honest list of known losses.
+- **New launcher shortcuts** — long-press the app icon to jump straight
+  to the Media hub or Saved Messages (alongside Search, Import and
+  Insights).
+- **CI release notes** — versioned releases now append a "Full changelog"
+  compare link (`vPrev…vNew`) under the CHANGELOG section, and the README
+  carries a build-status badge.
+
+### Changed
+- **Device-mode .txt export reaches full parity** — a new
+  `DataClient.getChatTranscript()` merges pending scheduled sends into the
+  transcript (their delivery time becomes the message time, flagged
+  "[Scheduled for …]"), so the APK's per-chat and multi-chat .txt exports
+  are byte-compatible with the server route's output (scheduled rows were
+  previously web-only).
+
 ## [1.8.0] — 2026-10-24
 
 ### Added

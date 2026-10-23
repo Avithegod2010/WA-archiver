@@ -1,0 +1,8 @@
+WA Archiver v1.8 — local-first power tools.
+
+- Encrypted backups: AES-GCM + PBKDF2, passphrase never leaves the device
+- Smart collections: Media, Active this week, Biggest
+- Per-chat themes: any look for any single chat
+- Message editing + unsend (WhatsApp-style tombstones)
+- Round-trip .txt export (location/contact/poll/deleted re-import cleanly)
+- Cloud sync to any WebDAV server (end-to-end encrypted)

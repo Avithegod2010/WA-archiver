@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Shortcut icon — brand teal on transparent (adaptive-safe).
+     Media hub: a photo/stack glyph (Material "photo_library"). -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp" android:height="24dp"
+    android:viewportWidth="24" android:viewportHeight="24">
+  <path android:fillColor="#008069" android:pathData="M21,5H6.5C5.4,5 4.5,5.9 4.5,7V17C4.5,18.1 5.4,19 6.5,19H21C22.1,19 23,18.1 23,17V7C23,5.9 22.1,5 21,5zM21,17H6.5V7H21V17zM2,7H0V19C0,20.66 1.34,22 3,22H20V20H3L2,7zM12.5,8.5C12.5,9.6 11.6,10.5 10.5,10.5S8.5,9.6 8.5,8.5S9.4,6.5 10.5,6.5S12.5,7.4 12.5,8.5zM6.5,15L9.5,11L11.5,13.5L14.5,9.5L21,15H6.5z"/>
+</vector>

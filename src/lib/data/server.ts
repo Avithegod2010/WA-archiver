@@ -29,6 +29,7 @@ import {
   type SearchResult,
   type SendMessageInput,
   type StarredItem,
+  type TranscriptMessage,
 } from './types'
 
 const SAVED_CHAT_ID = 'saved-messages'
@@ -60,6 +61,44 @@ export class ServerDataClient implements DataClient {
 
   async getChatDetail(id: string): Promise<ChatDetail> {
     return json<ChatDetail>(await get(`/api/chats/${encodeURIComponent(id)}/messages`))
+  }
+
+  /**
+   * Messages + pending scheduled sends merged, chronological (export parity
+   * with the server route — the scheduled rows carry a "[Scheduled …]"
+   * prefix when built into a .txt by buildWhatsAppText).
+   */
+  async getChatTranscript(id: string): Promise<TranscriptMessage[]> {
+    const detail = await this.getChatDetail(id)
+    let scheduled: ScheduledItem[] = []
+    try {
+      scheduled = (await this.listScheduled(id)).filter(
+        (s) => s.status === 'pending'
+      )
+    } catch {
+      /* scheduled rows are additive — never fail the export for them */
+    }
+    const rows: TranscriptMessage[] = detail.messages.map((m) => ({
+      ts: m.ts,
+      sender: m.sender,
+      body: m.body,
+      type: m.type,
+      mediaName: m.mediaName,
+      edited: !!m.edited,
+      scheduledFor: null,
+    }))
+    for (const s of scheduled) {
+      rows.push({
+        ts: s.deliverAt,
+        sender: s.sender,
+        body: s.body,
+        type: 'text',
+        mediaName: null,
+        edited: false,
+        scheduledFor: s.deliverAt,
+      })
+    }
+    return rows.sort((a, b) => a.ts.localeCompare(b.ts))
   }
 
   async createChat(input: {

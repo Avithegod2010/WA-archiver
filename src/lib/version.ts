@@ -4,10 +4,10 @@
  * the same number. Bump all three together on release.
  */
 
-export const APP_VERSION = '1.8.0'
+export const APP_VERSION = '1.8.1'
 
 /** GitHub Releases page — wired into the guide/about dialog. */
 export const RELEASES_URL = 'https://github.com/Avithegod2010/WA-archiver/releases'
 
 /** Short marketing line for the current release (shown next to the version). */
-export const RELEASE_TAGLINE = 'Encrypted backups, smart collections & per-chat themes'
+export const RELEASE_TAGLINE = 'Cloud sync (Drive/S3), auto-push, change log & export self-test'

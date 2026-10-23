@@ -36,6 +36,10 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v7
+        with:
+          # Full history + tags — the release step computes the previous tag
+          # for the "Full changelog" compare link.
+          fetch-depth: 0
 
       - name: Set up Bun
         uses: oven-sh/setup-bun@v2
@@ -145,6 +149,15 @@ jobs:
             echo "Release notes: CHANGELOG section for $VERSION ($(wc -l < release-notes.md) lines)"
           else
             echo "No CHANGELOG section for $VERSION — release will use auto-generated notes"
+          fi
+          # "Full changelog" compare link (diff preview) under the notes body.
+          PREV_TAG=$(git describe --tags --abbrev=0 "${GITHUB_REF}^" 2>/dev/null || true)
+          if [[ -n "$PREV_TAG" && "$PREV_TAG" != "$GITHUB_REF" ]]; then
+            {
+              echo ''
+              echo '**Full changelog:** https://github.com/$GITHUB_REPOSITORY/compare/$PREV_TAG...${GITHUB_REF#refs/tags/}'
+            } >> release-notes.md
+            echo 'Compare link appended: $PREV_TAG → ${GITHUB_REF#refs/tags/}'
           fi
 
       - name: Attach APKs to GitHub Release
