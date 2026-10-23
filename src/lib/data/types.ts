@@ -243,6 +243,12 @@ export interface DataClient {
     reactions: Record<string, string[]> | null
   ): Promise<ChatMessage | null>
   markMessageEdited(id: string, body: string): Promise<ChatMessage | null>
+  /**
+   * Unsend a message: replace it with a WhatsApp-style tombstone
+   * ("This message was deleted") instead of hard-deleting the row, so the
+   * transcript keeps an audit trail. Drops any stored media behind it.
+   */
+  unsendMessage(id: string): Promise<ChatMessage | null>
   /** Copy a message (incl. its media blob) into another chat. */
   forwardMessage(id: string, targetChatId: string): Promise<ChatMessage | null>
 

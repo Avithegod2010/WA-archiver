@@ -191,10 +191,55 @@ export async function GET(
   const messages = await db.message.findMany({
     where: { chatId: id },
     orderBy: [{ idx: 'asc' }],
-    select: { ts: true, sender: true, body: true, type: true, mediaName: true },
+    select: {
+      ts: true,
+      sender: true,
+      body: true,
+      type: true,
+      mediaName: true,
+      edited: true,
+    },
   })
 
-  const text = buildWhatsAppText(messages)
+  // Pending scheduled sends are part of the chat's future transcript — merge
+  // them into the .txt with a "[Scheduled for …]" prefix (round-trips as a
+  // plain message from You when the file is re-imported).
+  const scheduled = await db.scheduledMessage.findMany({
+    where: { chatId: id, status: 'pending' },
+    orderBy: [{ deliverAt: 'asc' }],
+    select: { body: true, sender: true, deliverAt: true },
+  })
+
+  const merged: Array<{
+    ts: Date
+    sender: string | null
+    body: string
+    type: string
+    mediaName: string | null
+    edited: boolean
+    scheduledFor?: Date | null
+  }> = [
+    ...messages.map((m) => ({
+      ts: m.ts,
+      sender: m.sender,
+      body: m.body,
+      type: m.type,
+      mediaName: m.mediaName,
+      edited: m.edited,
+      scheduledFor: null,
+    })),
+    ...scheduled.map((s) => ({
+      ts: s.deliverAt,
+      sender: s.sender,
+      body: s.body,
+      type: 'text',
+      mediaName: null,
+      edited: false,
+      scheduledFor: s.deliverAt,
+    })),
+  ].sort((a, b) => a.ts.getTime() - b.ts.getTime())
+
+  const text = buildWhatsAppText(merged)
 
   if (format === 'html') {
     const rows = await db.message.findMany({

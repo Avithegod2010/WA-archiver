@@ -902,6 +902,44 @@ export class LocalDataClient implements DataClient {
     return this.serializedById(e, id)
   }
 
+  /**
+   * Unsend → WhatsApp-style tombstone (not a hard delete): the row stays in
+   * place so the transcript keeps an audit trail, exactly like the parser's
+   * "This message was deleted" handling. Any stored media blob is dropped.
+   */
+  async unsendMessage(id: string): Promise<ChatMessage | null> {
+    const e = await this.db()
+    const row = await e.first(
+      'SELECT chatId, mediaPath FROM "Message" WHERE id = ?',
+      [id]
+    ) as unknown as { chatId: string; mediaPath: string | null } | undefined
+    if (!row) return null
+    const chatId = str(row.chatId)
+    if (row.mediaPath) {
+      try {
+        await deleteMediaBlobs(chatId, [row.mediaPath])
+      } catch {
+        /* blob already gone — the tombstone still applies */
+      }
+    }
+    await e.run(
+      `UPDATE "Message" SET
+         body = 'This message was deleted',
+         type = 'deleted',
+         mediaPath = NULL,
+         mediaName = NULL,
+         edited = 0,
+         starred = 0,
+         pinned = 0,
+         reactions = NULL
+       WHERE id = ?`,
+      [id]
+    )
+    await this.refreshAggregates(e, chatId)
+    await this.engine.flush()
+    return this.serializedById(e, id)
+  }
+
   // ---- media ----------------------------------------------------------------
 
   async putMedia(

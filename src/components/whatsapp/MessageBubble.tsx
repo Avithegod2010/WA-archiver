@@ -22,6 +22,7 @@ import {
   Forward,
   Languages,
   MapPin,
+  MessageSquareX,
   Mic,
   Pencil,
   Phone,
@@ -1062,6 +1063,8 @@ interface BubbleMenuProps {
   onForwardSaved?: (msg: ChatMessage) => void
   onBookmark?: (msg: ChatMessage) => void
   onEditMessage?: (msg: ChatMessage) => void
+  /** Unsend starter (context menu + action sheet). */
+  onUnsend?: (msg: ChatMessage) => void
   /** Inline-edit starter (bubble-local composer, outgoing text only). */
   onStartInlineEdit?: (msg: ChatMessage) => void
   onReply?: (msg: ChatMessage) => void
@@ -1078,6 +1081,7 @@ function BubbleMenu({
   onForwardSaved,
   onBookmark,
   onEditMessage,
+  onUnsend,
   onStartInlineEdit,
   onReply,
   onReact,
@@ -1187,6 +1191,14 @@ function BubbleMenu({
           className="gap-2"
         >
           <Bookmark className="h-4 w-4 text-(--wa-accent)" /> Bookmark message
+        </ContextMenuItem>
+      )}
+      {onUnsend && msg.type !== 'deleted' && (
+        <ContextMenuItem
+          onClick={() => onUnsend(msg)}
+          className="gap-2 text-red-600 dark:text-red-400"
+        >
+          <MessageSquareX className="h-4 w-4" /> Unsend
         </ContextMenuItem>
       )}
       <ContextMenuItem onClick={() => copyMessage(msg)} className="gap-2">
@@ -1396,6 +1408,7 @@ export function MessageBubble({
   onBookmark,
   onEditMessage,
   onEditSave,
+  onUnsend,
   onReply,
   linkPreview,
   onReact,
@@ -1423,6 +1436,8 @@ export function MessageBubble({
   onEditMessage?: (msg: ChatMessage) => void
   /** Inline edit saver — resolves true when the edit was persisted. */
   onEditSave?: (id: string, body: string) => Promise<boolean>
+  /** Unsend → tombstone (long-press action sheet). */
+  onUnsend?: (msg: ChatMessage) => void
   /** Reply starter (swipe-to-reply, context menu, action sheet). */
   onReply?: (m: ChatMessage) => void
   /** Client-injected link preview (text messages only). */
@@ -1509,6 +1524,7 @@ export function MessageBubble({
         onBookmark={onBookmark}
         onEditMessage={onEditMessage}
         onEditSave={onEditSave}
+        onUnsend={onUnsend}
         onReply={onReply}
         linkPreview={linkPreview}
         onReact={onReact}
@@ -1716,6 +1732,7 @@ export function MessageBubble({
               onForwardSaved={onForwardSaved}
               onBookmark={onBookmark}
               onEditMessage={onEditMessage}
+              onUnsend={onUnsend}
               onStartInlineEdit={canInlineEdit ? startEdit : undefined}
               onReply={swipeEnabled ? onReply : undefined}
               onReact={onReact}
@@ -1749,6 +1766,7 @@ export function MessageBubble({
               }
             : undefined
         }
+        onUnsend={onUnsend}
         onReact={onReact}
         onToggleStar={onToggleStar}
         onForwardSaved={onForwardSaved}
@@ -1778,6 +1796,7 @@ function OutgoingBubble({
   onBookmark,
   onEditMessage,
   onEditSave,
+  onUnsend,
   onReply,
   linkPreview,
   onReact,
@@ -1800,6 +1819,7 @@ function OutgoingBubble({
   onBookmark?: (msg: ChatMessage) => void
   onEditMessage?: (msg: ChatMessage) => void
   onEditSave?: (id: string, body: string) => Promise<boolean>
+  onUnsend?: (msg: ChatMessage) => void
   onReply?: (m: ChatMessage) => void
   linkPreview?: ChatMessage['linkPreview']
   onReact?: (msgId: string, emoji: string) => void
@@ -2008,6 +2028,7 @@ function OutgoingBubble({
               onForwardSaved={onForwardSaved}
               onBookmark={onBookmark}
               onEditMessage={onEditMessage}
+              onUnsend={onUnsend}
               onStartInlineEdit={canInlineEdit ? startEdit : undefined}
               onReply={swipeEnabled ? onReply : undefined}
               onReact={onReact}
@@ -2033,6 +2054,7 @@ function OutgoingBubble({
               }
             : undefined
         }
+        onUnsend={onUnsend}
         onReact={onReact}
         onToggleStar={onToggleStar}
         onForwardSaved={onForwardSaved}

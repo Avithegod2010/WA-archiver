@@ -700,6 +700,9 @@ export function ChatView({
   const [editSaving, setEditSaving] = useState(false)
   const [deleteConfirm, setDeleteConfirm] = useState(false)
   const [deleteBusy, setDeleteBusy] = useState(false)
+  /** Message pending an unsend confirmation (tombstone flow). */
+  const [unsendTarget, setUnsendTarget] = useState<ChatMessage | null>(null)
+  const [unsendBusy, setUnsendBusy] = useState(false)
 
   /* ---- 10-i: word cloud / movie mode / accent theme / link previews ---- */
   const [wordCloudOpen, setWordCloudOpen] = useState(false)
@@ -1851,6 +1854,42 @@ export function ChatView({
     } catch {
       toast.error('Could not edit message')
       return false
+    }
+  }
+
+  /**
+   * Unsend → WhatsApp-style tombstone ("This message was deleted").
+   * The row is NOT hard-deleted: the transcript keeps the audit trail and
+   * re-exports cleanly through the parser's deleted-message round-trip.
+   */
+  async function executeUnsend() {
+    const target = unsendTarget
+    if (!target || unsendBusy) return
+    setUnsendBusy(true)
+    try {
+      const updated = await data.unsendMessage(target.id)
+      if (updated) {
+        setDetail((d) =>
+          d
+            ? {
+                ...d,
+                messages: d.messages.map((m) =>
+                  m.id === target.id ? { ...m, ...updated, id: m.id } : m
+                ),
+              }
+            : d
+        )
+        if (replyTo?.id === target.id) setReplyTo(null)
+        toast.success('Message unsent — now shows as deleted')
+        onChatChanged?.()
+      } else {
+        toast.error('Message not found')
+      }
+    } catch {
+      toast.error('Could not unsend message')
+    } finally {
+      setUnsendBusy(false)
+      setUnsendTarget(null)
     }
   }
 
@@ -3612,6 +3651,9 @@ export function ChatView({
                 }
                 onEditMessage={readOnly || selecting ? undefined : openEdit}
                 onEditSave={readOnly || selecting ? undefined : saveEditApi}
+                onUnsend={
+                  readOnly || selecting ? undefined : (m) => setUnsendTarget(m)
+                }
                 highlight={query.trim() || undefined}
                 highlightRegex={regexMode && !!query.trim()}
                 selectMode={selecting}
@@ -4010,6 +4052,38 @@ export function ChatView({
               disabled={deleteBusy}
             >
               {deleteBusy ? 'Deleting…' : 'Delete'}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Unsend confirmation — tombstone, keeps the archive audit trail */}
+      <AlertDialog
+        open={unsendTarget !== null}
+        onOpenChange={(o) => {
+          if (!o) setUnsendTarget(null)
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Unsend this message?</AlertDialogTitle>
+            <AlertDialogDescription>
+              It will be replaced with “This message was deleted” in this
+              transcript — attached media is removed too. The entry itself
+              stays in the archive as a record that a message was unsent.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-rose-600 text-white hover:bg-rose-700"
+              onClick={(e) => {
+                e.preventDefault()
+                void executeUnsend()
+              }}
+              disabled={unsendBusy}
+            >
+              {unsendBusy ? 'Unsending…' : 'Unsend'}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

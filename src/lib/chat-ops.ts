@@ -147,6 +147,7 @@ function toExportMessage(m: ChatMessage): ExportMessage {
     body: m.body,
     type: m.type,
     mediaName: m.mediaName,
+    edited: !!m.edited,
   }
 }
 

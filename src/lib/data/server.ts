@@ -190,6 +190,17 @@ export class ServerDataClient implements DataClient {
     return data.message ?? null
   }
 
+  /** Unsend → tombstone via the shared PATCH route ({ unsend: true }). */
+  async unsendMessage(id: string): Promise<ChatMessage | null> {
+    const res = await fetch(`/api/messages/${encodeURIComponent(id)}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ unsend: true }),
+    })
+    const data = await json<{ message?: ChatMessage | null }>(res)
+    return data.message ?? null
+  }
+
   async forwardMessage(id: string, targetChatId: string): Promise<ChatMessage | null> {
     const res = await fetch(`/api/messages/${encodeURIComponent(id)}/forward`, {
       method: 'POST',

@@ -193,6 +193,12 @@ function classifySenderMessage(body: string): {
     }
   }
 
+  // Contact card (our own export convention — "Contact: name") so the
+  // .txt export round-trips; real exports use .vcf attachments instead.
+  if (/^contact:\s*\S/i.test(text)) {
+    return { type: 'contact', mediaName: null, body: text }
+  }
+
   // Location
   if (
     /^location:/i.test(text) ||

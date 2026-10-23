@@ -1,6 +1,6 @@
 # IzzyOnDroid submission — paste-ready draft
 
-**Everything below is filled in and fact-checked against the v1.2.0 release.**
+**Everything below is filled in and fact-checked against the v1.8.0 release.**
 You only need a (free) GitLab account and ~10 minutes.
 
 ---
@@ -13,7 +13,7 @@ You only need a (free) GitLab account and ~10 minutes.
 3. Paste the block below into the description (trim anything the template
    already covers), title it: `App request: WA Archiver`.
 4. Submit. Typical review time: a few days. Once accepted, Izzy indexes the
-   **v1.2.0** release immediately and picks up every future release
+   **latest** release immediately and picks up every future release
    automatically (it watches your GitHub releases; versionCode must increase).
 
 ---
@@ -29,11 +29,12 @@ You only need a (free) GitLab account and ~10 minutes.
 **Issue tracker:** https://github.com/Avithegod2010/WA-archiver/issues
 **License:** MIT
 **APKs:** signed release APKs attached to GitHub Releases
-(latest: https://github.com/Avithegod2010/WA-archiver/releases/tag/v1.2.0 —
-WhatsApp-Viewer-v1.2.0-release.apk, versionCode 3, APK Signature v2)
+(latest: https://github.com/Avithegod2010/WA-archiver/releases/latest —
+WA-Archiver-v1.8.0-release.aab + per-ABI APKs (arm64-v8a / armeabi-v7a / x86_64 /
+universal), versionCode 10, APK Signature v2)
 **Changelogs:** fastlane format, checked in at
 fastlane/metadata/android/io.github.avithegod2010.waarchiver/en-US/ (title, short and
-full descriptions, changelogs for versionCodes 1–3, icon + 5 phone
+full descriptions, changelogs for recent versionCodes, icon + 5 phone
 screenshots)
 
 **Summary:** Import standard WhatsApp chat exports (.zip/.txt, media
@@ -79,14 +80,14 @@ scripts/build-capacitor.mjs during the CI build.
 
 ## Checklist before you hit Submit on GitLab
 
-- [x] Signed release APK on GitHub Releases (v1.5.0, versionCode 6 — WA Archiver)
+- [x] Signed release APK + AAB on GitHub Releases (v1.8.0, versionCode 10)
 - [x] Trademark-clean branding: "WA Archiver" name + appId
   `io.github.avithegod2010.waarchiver` (no "WhatsApp" in name/ID; descriptive
   use only)
 - [x] LICENSE (MIT) in repo root
 - [x] fastlane metadata: title / descriptions / changelogs / icon / screenshots
 - [x] Privacy policy: PRIVACY.md (linked from README + landing page)
-- [x] No trackers/analytics (dex-scanned v1.2.0 APK — zero hits)
+- [x] No trackers/analytics (dex-scanned release APK — zero hits)
 - [x] Issue tracker open
 - [ ] **(You)** Repo "About" metadata — the PAT can't set it (needs admin scope):
       About ⚙️ → description *"WA Archiver — read your exported WhatsApp chats

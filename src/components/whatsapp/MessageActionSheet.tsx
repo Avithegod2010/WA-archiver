@@ -15,6 +15,7 @@ import {
   Download,
   Languages,
   ListChecks,
+  MessageSquareX,
   Pencil,
   Pin,
   PinOff,
@@ -156,6 +157,8 @@ interface MessageActionSheetProps {
   onReply?: (msg: ChatMessage) => void
   /** Starts an inline edit for this message (outgoing text only). */
   onEdit?: (msg: ChatMessage) => void
+  /** Unsend this message → WhatsApp-style tombstone (viewer-local). */
+  onUnsend?: (msg: ChatMessage) => void
   /** Selection-mode starter — alternative to onToggleSelect. */
   onSelect?: (msg: ChatMessage) => void
   onReact?: (msgId: string, emoji: string) => void
@@ -189,6 +192,7 @@ export function MessageActionSheet({
   src,
   onReply,
   onEdit,
+  onUnsend,
   onSelect,
   onReact,
   onToggleStar,
@@ -437,6 +441,16 @@ export function MessageActionSheet({
               label="Edit message"
               onClick={() => {
                 onEdit(msg)
+                close()
+              }}
+            />
+          )}
+          {onUnsend && msg.type !== 'deleted' && (
+            <PopupRow
+              icon={<MessageSquareX className="h-4.5 w-4.5 text-red-600 dark:text-red-400" />}
+              label="Unsend"
+              onClick={() => {
+                onUnsend(msg)
                 close()
               }}
             />

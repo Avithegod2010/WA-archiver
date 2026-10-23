@@ -66,6 +66,7 @@ import { GettingStartedDialog, openGettingStarted } from './GettingStartedDialog
 import { StorageDialog } from './StorageDialog'
 import { SnapshotsCard } from './SnapshotsCard'
 import { SyncVaultCard } from './SyncVaultCard'
+import { CloudSyncCard } from './CloudSyncCard'
 import {
   Dialog,
   DialogContent,
@@ -1404,6 +1405,7 @@ export function SettingsDialog({
 
         {/* Idea #11 — encrypted portable sync file (E2E) */}
         <SyncVaultCard onRefreshChats={onRefreshChats} />
+        <CloudSyncCard onRefreshChats={onRefreshChats} />
 
         <div className="h-px bg-black/10 dark:bg-white/10" />
 
