@@ -9,6 +9,13 @@
  *  - System messages (no sender) are detected as `system`.
  */
 
+import {
+  linkReactionsAndReplies,
+  REACTION_BODY_RE,
+  type ReplyQuote,
+  type RoundtripReaction,
+} from './whatsapp-roundtrip'
+
 export type MessageType =
   | 'text'
   | 'system'
@@ -33,6 +40,12 @@ export interface ParsedMessage {
   mediaName: string | null
   /** For polls: option labels detected from `Option: N votes` lines. */
   pollOptions?: string[] | null
+  /** Reactions folded onto this message by the round-trip link pass. */
+  reactions?: Record<string, string[]> | null
+  /** Quote of the message this one replies to (resolved to replyToId on import). */
+  replyQuote?: ReplyQuote | null
+  /** Intermediate marker while a `reacted … to …` row is unlinked. */
+  reaction?: RoundtripReaction | null
 }
 
 export interface ParseResult {
@@ -291,6 +304,25 @@ export function parseWhatsAppText(raw: string): ParseResult {
       continue
     }
 
+    // Reaction rows ("Alice: reacted 👍 to \"…\"") skip type detection —
+    // the round-trip linker folds them into their target message below.
+    const reactionMatch = rest.match(REACTION_BODY_RE)
+    if (reactionMatch) {
+      messages.push({
+        ts,
+        sender,
+        body: rest.trim(),
+        type: 'text',
+        mediaName: null,
+        reaction: {
+          emoji: (reactionMatch[1] ?? '').trim(),
+          by: sender,
+          target: reactionMatch[2]?.trim() ?? '',
+        },
+      })
+      continue
+    }
+
     const cls = classifySenderMessage(rest)
     messages.push({
       ts,
@@ -302,9 +334,13 @@ export function parseWhatsAppText(raw: string): ParseResult {
     })
   }
 
+  // Fold reactions into their targets + resolve `[Replied to …]` prefixes
+  // (v1.9 — reactions & reply threads now round-trip through .txt too).
+  const linked = linkReactionsAndReplies(messages)
+
   // Participants ordered by message count
   const counts = new Map<string, number>()
-  for (const msg of messages) {
+  for (const msg of linked) {
     if (msg.sender) counts.set(msg.sender, (counts.get(msg.sender) ?? 0) + 1)
   }
   const participants = [...counts.entries()]
@@ -312,14 +348,14 @@ export function parseWhatsAppText(raw: string): ParseResult {
     .map(([name]) => name)
 
   // Group detection: 3+ distinct senders, or explicit group system notices
-  const hasGroupNotice = messages.some(
+  const hasGroupNotice = linked.some(
     (m) =>
       m.type === 'system' &&
       /(created group|joined using this group|changed the subject)/i.test(m.body)
   )
   const isGroup = participants.length > 2 || hasGroupNotice
 
-  return { messages, participants, isGroup, dateOrder: order }
+  return { messages: linked, participants, isGroup, dateOrder: order }
 }
 
 /** Derive a chat title from the export filename. */

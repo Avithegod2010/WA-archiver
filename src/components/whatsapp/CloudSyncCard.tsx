@@ -20,10 +20,12 @@
  * Android webview in the APK build.
  */
 
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import {
+  CheckCircle2,
   CloudDownload,
   CloudUpload,
+  Download,
   Eye,
   EyeOff,
   History,
@@ -31,6 +33,7 @@ import {
   Link2,
   Loader2,
   PlugZap,
+  QrCode,
   RefreshCw,
   ShieldCheck,
   Zap,
@@ -48,11 +51,14 @@ import {
 } from '@/components/ui/select'
 import { Switch } from '@/components/ui/switch'
 import { useData } from './data-provider'
+import { useT } from '@/lib/i18n'
 import {
   cloudFileUrl,
+  filterBackupJson,
   getCloudSyncConfig,
   listSnapshots,
   proxyAvailable,
+  pullEnvelopeText,
   pullFromCloud,
   pushToCloud,
   saveCloudSyncConfig,
@@ -60,6 +66,15 @@ import {
   type CloudProvider,
   type CloudSyncConfig,
 } from '@/lib/cloud-sync'
+import {
+  buildConsentUrl,
+  defaultRedirectUri,
+  exchangeAuthCode,
+  ensureFreshGdriveToken,
+  readOAuthRedirectCode,
+} from '@/lib/gdrive-oauth'
+import { TransferDialog } from './TransferDialog'
+import type { ChatSummary } from './types'
 import { writeLastBackupAt, formatRelativeTime } from './backup-reminder'
 
 const HISTORY_OPTIONS = ['0', '3', '5', '10'] as const
@@ -71,6 +86,7 @@ export function CloudSyncCard({
   onRefreshChats?: () => void | Promise<void>
 }) {
   const { data, mode } = useData()
+  const t = useT()
   const saved = useMemo(() => getCloudSyncConfig(), [])
 
   const [provider, setProvider] = useState<CloudProvider>(
@@ -92,6 +108,33 @@ export function CloudSyncCard({
   const [gdriveFolderId, setGdriveFolderId] = useState(
     saved?.gdriveFolderId ?? ''
   )
+  const [gdriveClientId, setGdriveClientId] = useState(
+    saved?.gdriveClientId ?? ''
+  )
+  const [gdriveClientSecret, setGdriveClientSecret] = useState(
+    saved?.gdriveClientSecret ?? ''
+  )
+  const [gdriveRedirect, setGdriveRedirect] = useState('')
+  const [gdriveConnecting, setGdriveConnecting] = useState(false)
+  const [gdriveRefreshToken, setGdriveRefreshToken] = useState(
+    saved?.gdriveRefreshToken ?? ''
+  )
+
+  // selective sync (v1.9)
+  const [syncSelectedOnly, setSyncSelectedOnly] = useState(
+    saved?.syncSelectedOnly ?? false
+  )
+  const [syncChatIds, setSyncChatIds] = useState<string[]>(
+    saved?.syncChatIds ?? []
+  )
+  const [selectOpen, setSelectOpen] = useState(false)
+  const [chats, setChats] = useState<ChatSummary[] | null>(null)
+
+  // incremental snapshots (v1.9)
+  const [incremental, setIncremental] = useState(saved?.incremental ?? false)
+
+  // one-bundle transfer (v1.9)
+  const [transferOpen, setTransferOpen] = useState(false)
 
   const [passphrase, setPassphrase] = useState('')
   const [showPw, setShowPw] = useState(false)
@@ -110,6 +153,68 @@ export function CloudSyncCard({
   const pwOk = passphrase.length >= 8
   const proxy = proxyAvailable()
 
+  // v1.9 — finish the Google OAuth redirect: ?code=… lands back on this
+  // page after consent; exchange it for a refresh token and store it.
+  useEffect(() => {
+    const code = readOAuthRedirectCode()
+    if (!code) return
+    const cfg = getCloudSyncConfig()
+    const clientId = cfg?.gdriveClientId ?? gdriveClientId.trim()
+    const clientSecret = cfg?.gdriveClientSecret ?? gdriveClientSecret.trim()
+    if (!clientId || !clientSecret) return
+    let alive = true
+    setGdriveConnecting(true)
+    void exchangeAuthCode({
+      code,
+      clientId,
+      clientSecret,
+      redirectUri: gdriveRedirect || defaultRedirectUri(),
+    })
+      .then((out) => {
+        if (!alive) return
+        setGdriveToken(out.accessToken)
+        if (out.refreshToken) setGdriveRefreshToken(out.refreshToken)
+        toast.success(
+          out.refreshToken
+            ? 'Google Drive connected — the token now refreshes itself'
+            : 'Google Drive connected (no refresh token — re-connect later)'
+        )
+      })
+      .catch((err: unknown) =>
+        toast.error(
+          err instanceof Error ? err.message : 'Google token exchange failed'
+        )
+      )
+      .finally(() => {
+        if (alive) setGdriveConnecting(false)
+      })
+    return () => {
+      alive = false
+    }
+     
+  }, [])
+
+  // Chat list for the selective-sync picker (loaded lazily).
+  useEffect(() => {
+    if (!selectOpen || chats) return
+    let alive = true
+    void data
+      .listChats()
+      .then((list) => {
+        if (alive) setChats(list)
+      })
+      .catch(() => {
+        if (alive) setChats([])
+      })
+    return () => {
+      alive = false
+    }
+  }, [selectOpen, chats, data])
+
+  // Wrap provider requests with the refresh-token rotation (v1.9).
+  const freshConfig = async (): Promise<CloudSyncConfig> =>
+    ensureFreshGdriveToken(currentConfig())
+
   const fieldsOk = useMemo(() => {
     if (provider === 'webdav')
       return url.trim().length > 8 && filename.trim().length > 0
@@ -121,8 +226,26 @@ export function CloudSyncCard({
         s3SecretKey.trim().length > 0 &&
         filename.trim().length > 0
       )
-    return gdriveToken.trim().length > 10 && filename.trim().length > 0
-  }, [provider, url, s3Bucket, s3Region, s3AccessKey, s3SecretKey, filename, gdriveToken])
+    return (
+      (gdriveToken.trim().length > 10 ||
+        (gdriveRefreshToken.trim().length > 10 &&
+          gdriveClientId.trim().length > 0 &&
+          gdriveClientSecret.trim().length > 0)) &&
+      filename.trim().length > 0
+    )
+  }, [
+    provider,
+    url,
+    s3Bucket,
+    s3Region,
+    s3AccessKey,
+    s3SecretKey,
+    filename,
+    gdriveToken,
+    gdriveRefreshToken,
+    gdriveClientId,
+    gdriveClientSecret,
+  ])
 
   const currentConfig = (): CloudSyncConfig => ({
     provider,
@@ -144,10 +267,16 @@ export function CloudSyncCard({
     s3Prefix: s3Prefix.trim() || 'wa-archiver/',
     gdriveToken: gdriveToken.trim(),
     gdriveFolderId: gdriveFolderId.trim(),
+    gdriveClientId: gdriveClientId.trim(),
+    gdriveClientSecret: gdriveClientSecret.trim(),
+    gdriveRefreshToken: gdriveRefreshToken.trim(),
     historyKeep,
     autoPush,
     // passphrase persists only while auto-push is on (device-local)
     syncPassphrase: autoPush && pwOk ? passphrase : saved?.syncPassphrase ?? '',
+    syncSelectedOnly,
+    syncChatIds,
+    incremental,
     lastPushAt: lastPush,
     lastPullAt: lastPull,
   })
@@ -196,7 +325,7 @@ export function CloudSyncCard({
     if (busy || !fieldsOk) return
     setBusy('test')
     try {
-      const r = await testCloudConnection(currentConfig())
+      const r = await testCloudConnection(await freshConfig())
       if (r.ok) toast.success(r.message)
       else toast.error(r.message)
     } finally {
@@ -208,9 +337,9 @@ export function CloudSyncCard({
     if (busy || !fieldsOk || !pwOk) return
     setBusy('push')
     try {
-      const cfg = currentConfig()
+      const cfg = await freshConfig()
       const blob = await data.exportBackup()
-      const json = await blob.text()
+      const json = filterBackupJson(await blob.text(), cfg)
       const at = await pushToCloud(cfg, json, passphrase, { history: true })
       persist({ ...cfg, lastPushAt: at })
       setLastPush(at)
@@ -232,7 +361,7 @@ export function CloudSyncCard({
     if (busy || !fieldsOk || !pwOk) return
     setBusy('pull')
     try {
-      const cfg = currentConfig()
+      const cfg = await freshConfig()
       const json = await pullFromCloud(cfg, passphrase)
       await restoreJson(json)
       const at = Date.now()
@@ -268,12 +397,32 @@ export function CloudSyncCard({
     if (busy || !fieldsOk || !pwOk || !snapPick) return
     setBusy('pull')
     try {
-      const cfg = currentConfig()
+      const cfg = await freshConfig()
       const json = await pullFromCloud(cfg, passphrase, snapPick)
       await restoreJson(json)
       setPassphrase('')
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Snapshot restore failed')
+    } finally {
+      setBusy(null)
+    }
+  }
+
+  const doSaveSnapshotFile = async () => {
+    if (busy || !fieldsOk || !snapPick) return
+    setBusy('pull')
+    try {
+      const cfg = await freshConfig()
+      const envelope = await pullEnvelopeText(cfg, snapPick)
+      const blob = new Blob([envelope], { type: 'application/json' })
+      const a = document.createElement('a')
+      a.href = URL.createObjectURL(blob)
+      a.download = snapPick
+      a.click()
+      URL.revokeObjectURL(a.href)
+      toast.success('Snapshot saved as ' + snapPick)
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Download failed')
     } finally {
       setBusy(null)
     }
@@ -293,7 +442,7 @@ export function CloudSyncCard({
     >
       <h3 className="flex items-center gap-1.5 text-[13px] font-semibold text-(--wa-text)">
         <CloudUpload className="h-3.5 w-3.5 text-(--wa-accent)" aria-hidden />
-        Cloud sync
+        {t('cloud.title')}
         <span className="inline-flex items-center gap-0.5 rounded-full bg-(--wa-accent)/10 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-(--wa-accent-strong) dark:text-(--wa-accent)">
           <ShieldCheck className="h-2.5 w-2.5" aria-hidden />
           E2EE
@@ -454,8 +603,96 @@ export function CloudSyncCard({
               className="col-span-full h-9 text-[13px]"
               aria-label="Google Drive folder id"
             />
+            <div className="col-span-full flex flex-col gap-1.5 rounded-md bg-black/[0.03] p-2 dark:bg-white/[0.05]">
+              <p className="flex items-center gap-1.5 text-[11px] font-semibold text-(--wa-text)">
+                <CheckCircle2
+                  className={
+                    'h-3.5 w-3.5 ' +
+                    (gdriveRefreshToken
+                      ? 'text-(--wa-accent)'
+                      : 'text-(--wa-text-2)')
+                  }
+                  aria-hidden
+                />
+                {gdriveRefreshToken
+                  ? 'Refresh-token flow connected — access tokens auto-rotate'
+                  : 'One-time connect (recommended over paste-a-token)'}
+              </p>
+              <Input
+                value={gdriveClientId}
+                onChange={(e) => setGdriveClientId(e.target.value)}
+                placeholder="Google Cloud OAuth client ID (…apps.googleusercontent.com)"
+                autoComplete="off"
+                spellCheck={false}
+                className="h-8 text-[11.5px]"
+                aria-label="Google OAuth client id"
+              />
+              <Input
+                type="password"
+                value={gdriveClientSecret}
+                onChange={(e) => setGdriveClientSecret(e.target.value)}
+                placeholder="Google Cloud OAuth client secret (device-local only)"
+                autoComplete="off"
+                className="h-8 text-[11.5px]"
+                aria-label="Google OAuth client secret"
+              />
+              <Input
+                value={gdriveRedirect}
+                onChange={(e) => setGdriveRedirect(e.target.value)}
+                placeholder={
+                  'Redirect URI registered in Google Cloud (' +
+                  defaultRedirectUri() +
+                  ')'
+                }
+                spellCheck={false}
+                className="h-8 text-[11.5px]"
+                aria-label="Google OAuth redirect URI"
+              />
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-8 gap-1.5 self-start text-[11.5px]"
+                disabled={
+                  gdriveConnecting ||
+                  gdriveClientId.trim().length < 10 ||
+                  gdriveClientSecret.trim().length < 10
+                }
+                onClick={() => {
+                  const redirect =
+                    gdriveRedirect.trim() || defaultRedirectUri()
+                  if (!redirect) {
+                    toast.error('Redirect URI unavailable in this context')
+                    return
+                  }
+                  // Persist credentials first — the redirect comes back to a
+                  // FRESH page load which reads them from the config.
+                  saveCloudSyncConfig({
+                    ...currentConfig(),
+                    gdriveClientId: gdriveClientId.trim(),
+                    gdriveClientSecret: gdriveClientSecret.trim(),
+                  })
+                  window.location.href = buildConsentUrl({
+                    clientId: gdriveClientId.trim(),
+                    redirectUri: redirect,
+                  })
+                }}
+              >
+                {gdriveConnecting ? (
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden />
+                ) : (
+                  <KeyRound className="h-3.5 w-3.5" aria-hidden />
+                )}
+                Connect Google Drive
+              </Button>
+              <p className="text-[10px] leading-snug text-(--wa-text-2)">
+                Create the client at console.cloud.google.com (type: Web
+                application, scope drive.file, redirect = this page URL). The
+                secret never leaves this device. Paste-a-token below still
+                works as a fallback.
+              </p>
+            </div>
             <p className="col-span-full text-[10.5px] leading-snug text-(--wa-text-2)">
-              Tip: paste a short-lived token from{' '}
+              Fallback: paste a short-lived token from{' '}
               <a
                 href="https://developers.google.com/oauthplayground"
                 target="_blank"
@@ -464,8 +701,7 @@ export function CloudSyncCard({
               >
                 OAuth Playground
               </a>{' '}
-              (scope: drive.file). Tokens expire — re-paste when pushes fail
-              with 401.
+              (scope: drive.file).
             </p>
           </>
         )}
@@ -515,7 +751,7 @@ export function CloudSyncCard({
             className="flex items-center gap-1.5 text-[12px] font-medium"
           >
             <Zap className="h-3.5 w-3.5 text-(--wa-accent)" aria-hidden />
-            Sync automatically after every import / export
+            {t('cloud.autopush')}
           </Label>
           <Switch
             id="cloud-autopush"
@@ -548,7 +784,7 @@ export function CloudSyncCard({
             className="flex items-center gap-1.5 text-[12px] font-medium"
           >
             <History className="h-3.5 w-3.5 text-(--wa-accent)" aria-hidden />
-            Keep timestamped snapshots (last)
+            {t('cloud.history')}
           </Label>
           <Select
             value={String(historyKeep)}
@@ -575,6 +811,103 @@ export function CloudSyncCard({
             ? `Every push also stores wa-archiver-<date>.wasync; the oldest ${historyKeep > 1 ? `${historyKeep} are kept` : 'snapshot is kept'}. Restore any snapshot below.`
             : 'Off. Only the live file is kept on the server.'}
         </p>
+        <div className="flex items-center justify-between gap-3">
+          <Label
+            htmlFor="cloud-incremental"
+            className="flex items-center gap-1.5 text-[12px] font-medium"
+          >
+            <Zap className="h-3.5 w-3.5 text-(--wa-accent)" aria-hidden />
+            {t('cloud.incremental')}
+          </Label>
+          <Switch
+            id="cloud-incremental"
+            checked={incremental}
+            onCheckedChange={setIncremental}
+          />
+        </div>
+        <p className="text-[10.5px] leading-snug text-(--wa-text-2)">
+          {incremental
+            ? 'On. Timestamped snapshots only upload chats changed since the previous one (full snapshot every 5th push).'
+            : 'Off. Every snapshot is a full copy of the archive.'}
+        </p>
+
+        {/* Selective per-chat sync (v1.9) */}
+        <div className="flex items-center justify-between gap-3">
+          <Label
+            htmlFor="cloud-selective"
+            className="flex items-center gap-1.5 text-[12px] font-medium"
+          >
+            <ShieldCheck className="h-3.5 w-3.5 text-(--wa-accent)" aria-hidden />
+            {t('cloud.selective')}
+          </Label>
+          <Switch
+            id="cloud-selective"
+            checked={syncSelectedOnly}
+            onCheckedChange={(v) => {
+              setSyncSelectedOnly(v)
+              if (v) setSelectOpen(true)
+            }}
+          />
+        </div>
+        {syncSelectedOnly && (
+          <div className="flex flex-col gap-1.5">
+            <button
+              type="button"
+              onClick={() => setSelectOpen((v) => !v)}
+              className="self-start text-[11.5px] font-medium text-(--wa-accent-strong) underline underline-offset-2 dark:text-(--wa-accent)"
+            >
+              {selectOpen ? 'Hide chat list' : `Choose chats (${syncChatIds.length} selected)`}
+            </button>
+            {selectOpen && (
+              <div className="wa-scroll max-h-56 overflow-y-auto rounded-md border border-black/[0.06] p-1.5 dark:border-white/10">
+                {chats === null && (
+                  <p className="p-2 text-[11.5px] text-(--wa-text-2)">
+                    Loading chats…
+                  </p>
+                )}
+                {chats?.length === 0 && (
+                  <p className="p-2 text-[11.5px] text-(--wa-text-2)">
+                    No chats yet — import first, then pick what syncs.
+                  </p>
+                )}
+                {chats?.map((c) => {
+                  const checked = syncChatIds.includes(c.id)
+                  return (
+                    <label
+                      key={c.id}
+                      className="flex cursor-pointer items-center gap-2 rounded px-2 py-1.5 text-[12px] hover:bg-black/[0.03] dark:hover:bg-white/5"
+                    >
+                      <input
+                        type="checkbox"
+                        checked={checked}
+                        onChange={() =>
+                          setSyncChatIds((prev) =>
+                            checked
+                              ? prev.filter((x) => x !== c.id)
+                              : [...prev, c.id]
+                          )
+                        }
+                        className="h-3.5 w-3.5 accent-(--wa-accent)"
+                        aria-label={c.title}
+                      />
+                      <span className="min-w-0 flex-1 truncate text-(--wa-text)">
+                        {c.title}
+                      </span>
+                      <span className="text-[10.5px] text-(--wa-text-2)">
+                        {c.messageCount.toLocaleString()}
+                      </span>
+                    </label>
+                  )
+                })}
+              </div>
+            )}
+            <p className="text-[10.5px] leading-snug text-(--wa-text-2)">
+              {syncChatIds.length > 0
+                ? `Only ${syncChatIds.length} chat${syncChatIds.length === 1 ? '' : 's'} will be encrypted into the envelope — pushes stay small.`
+                : 'No chats selected yet — with an empty selection EVERYTHING syncs.'}
+            </p>
+          </div>
+        )}
       </div>
 
       <div className="flex flex-wrap gap-2">
@@ -591,7 +924,7 @@ export function CloudSyncCard({
           ) : (
             <PlugZap className="h-4 w-4" aria-hidden />
           )}
-          Test connection
+          {t('cloud.test')}
         </Button>
         <Button
           variant="outline"
@@ -606,7 +939,7 @@ export function CloudSyncCard({
           ) : (
             <CloudUpload className="h-4 w-4" aria-hidden />
           )}
-          Push to cloud
+          {t('cloud.push')}
         </Button>
         <Button
           variant="outline"
@@ -621,7 +954,7 @@ export function CloudSyncCard({
           ) : (
             <CloudDownload className="h-4 w-4" aria-hidden />
           )}
-          Pull &amp; restore
+          {t('cloud.pull')}
         </Button>
         {historyKeep > 0 && (
           <Button
@@ -637,7 +970,7 @@ export function CloudSyncCard({
             ) : (
               <RefreshCw className="h-4 w-4" aria-hidden />
             )}
-            Snapshots
+            {t('cloud.snapshots')}
           </Button>
         )}
       </div>
@@ -673,10 +1006,45 @@ export function CloudSyncCard({
             ) : (
               <CloudDownload className="h-4 w-4" aria-hidden />
             )}
-            Restore
+            {t('snapshots.restore')}
+          </Button>
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => void doSaveSnapshotFile()}
+            disabled={busy !== null || !snapPick}
+            className="gap-1.5"
+            title="Download the encrypted .wasync file (no decryption needed)"
+          >
+            <Download className="h-4 w-4" aria-hidden />
+            {t('snapshots.save')}
           </Button>
         </div>
       )}
+
+      {/* One-bundle multi-device transfer (v1.9) */}
+      <div className="flex flex-col gap-1.5 rounded-md border border-dashed border-black/10 p-2 dark:border-white/15">
+        <div className="flex items-center justify-between gap-2">
+          <p className="flex items-center gap-1.5 text-[12px] font-medium text-(--wa-text)">
+            <QrCode className="h-3.5 w-3.5 text-(--wa-accent)" aria-hidden />
+            {t('cloud.transfer')}
+          </p>
+          <Button
+            variant="outline"
+            size="sm"
+            className="h-7 gap-1.5 px-2 text-[11.5px]"
+            disabled={!fieldsOk}
+            onClick={() => setTransferOpen(true)}
+          >
+            <QrCode className="h-3.5 w-3.5" aria-hidden />
+            {t('cloud.pair')}
+          </Button>
+        </div>
+        <p className="text-[10.5px] leading-snug text-(--wa-text-2)">
+          Show a QR / copy a pairing code — the other device adopts this
+          provider config + passphrase and pulls the same encrypted bundle.
+        </p>
+      </div>
 
       {(lastPush != null || lastPull != null) && (
         <p className="text-[11px] text-(--wa-text-2)">
@@ -690,6 +1058,40 @@ export function CloudSyncCard({
           {lastPull != null && <>Last restore: {formatRelativeTime(lastPull)}.</>}
         </p>
       )}
+      <TransferDialog
+        open={transferOpen}
+        onOpenChange={setTransferOpen}
+        buildConfig={() => ({
+          ...currentConfig(),
+          syncPassphrase:
+            passphrase || saved?.syncPassphrase || '',
+        })}
+        passphrase={passphrase || saved?.syncPassphrase || ''}
+        onAdopted={(cfg) => {
+          setProvider(cfg.provider ?? 'webdav')
+          setUrl(cfg.url)
+          setUsername(cfg.username ?? '')
+          setPassword(cfg.password ?? '')
+          setFilename(cfg.filename || 'wa-archiver.wasync')
+          setS3Region(cfg.s3Region ?? '')
+          setS3Bucket(cfg.s3Bucket ?? '')
+          setS3AccessKey(cfg.s3AccessKey ?? '')
+          setS3SecretKey(cfg.s3SecretKey ?? '')
+          setS3Endpoint(cfg.s3Endpoint ?? '')
+          setS3Prefix(cfg.s3Prefix ?? 'wa-archiver/')
+          setGdriveToken(cfg.gdriveToken ?? '')
+          setGdriveRefreshToken(cfg.gdriveRefreshToken ?? '')
+          setGdriveClientId(cfg.gdriveClientId ?? '')
+          setGdriveClientSecret(cfg.gdriveClientSecret ?? '')
+          setGdriveFolderId(cfg.gdriveFolderId ?? '')
+          setHistoryKeep(cfg.historyKeep ?? 0)
+          setIncremental(cfg.incremental === true)
+          setSyncSelectedOnly(cfg.syncSelectedOnly === true)
+          setSyncChatIds(cfg.syncChatIds ?? [])
+          if (cfg.syncPassphrase) setPassphrase(cfg.syncPassphrase)
+          saveCloudSyncConfig(cfg)
+        }}
+      />
     </section>
   )
 }

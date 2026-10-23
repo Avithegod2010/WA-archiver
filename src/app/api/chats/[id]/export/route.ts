@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
 import { buildWhatsAppText, safeFileTitle } from '@/lib/export-text'
 import { buildChatHtml } from '@/lib/export-html'
-import { MESSAGE_SELECT, withReplyTos } from '@/lib/message-dto'
+import { MESSAGE_SELECT, parseReactions, withReplyTos } from '@/lib/message-dto'
 import { resolveMediaPath } from '@/lib/media-store'
 import JSZip from 'jszip'
 import path from 'path'
@@ -198,8 +198,27 @@ export async function GET(
       type: true,
       mediaName: true,
       edited: true,
+      reactions: true,
+      replyToId: true,
     },
   })
+
+  // Resolve reply targets (v1.9 round-trip: quotes re-encode as prefixes).
+  const replyIds = [
+    ...new Set(messages.map((m) => m.replyToId).filter((v): v is string => !!v)),
+  ]
+  const replyRows = replyIds.length
+    ? await db.message.findMany({
+        where: { id: { in: replyIds } },
+        select: { id: true, sender: true, body: true },
+      })
+    : []
+  const replyMap = new Map(
+    replyRows.map((r) => [
+      r.id,
+      { sender: r.sender ?? '', body: r.body ?? '' },
+    ])
+  )
 
   // Pending scheduled sends are part of the chat's future transcript — merge
   // them into the .txt with a "[Scheduled for …]" prefix (round-trips as a
@@ -218,6 +237,8 @@ export async function GET(
     mediaName: string | null
     edited: boolean
     scheduledFor?: Date | null
+    reactions?: Record<string, string[]> | null
+    replyTo?: { sender: string; body: string } | null
   }> = [
     ...messages.map((m) => ({
       ts: m.ts,
@@ -227,6 +248,8 @@ export async function GET(
       mediaName: m.mediaName,
       edited: m.edited,
       scheduledFor: null,
+      reactions: parseReactions(m.reactions),
+      replyTo: m.replyToId ? (replyMap.get(m.replyToId) ?? null) : null,
     })),
     ...scheduled.map((s) => ({
       ts: s.deliverAt,

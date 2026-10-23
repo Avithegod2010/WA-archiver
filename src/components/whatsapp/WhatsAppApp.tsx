@@ -107,6 +107,7 @@ import { useShortcuts } from './useShortcuts'
 import { WhatsAppLogo } from './icons'
 import { SAVED_CHAT_ID, type ChatDetail, type ChatSummary } from './types'
 import { DataError, importFileToDevice } from '@/lib/data'
+import { applyFolderRulesToAll } from '@/lib/folder-rules'
 import {
   findMergeCandidates,
   type ImportMergeCandidate,
@@ -793,6 +794,17 @@ function WhatsAppAppInner() {
     return () => window.removeEventListener('wa-audio-dock-open', onDockOpen)
   }, [openChat])
 
+  // v1.9 — notification tap deep-link: open the chat a scheduled message
+  // was delivered into (fired by scheduled-notify via ScheduledDispatchPoller).
+  useEffect(() => {
+    const onOpenChat = (e: Event) => {
+      const chatId = (e as CustomEvent<{ chatId?: string }>).detail?.chatId
+      if (typeof chatId === 'string' && chatId) void openChat(chatId)
+    }
+    window.addEventListener('wa-open-chat', onOpenChat)
+    return () => window.removeEventListener('wa-open-chat', onOpenChat)
+  }, [openChat])
+
   // Restore the last opened chat across reloads (key is transport-scoped —
   // a device-mode chat id must never be restored in server mode or vice versa)
   useEffect(() => {
@@ -968,6 +980,16 @@ function WhatsAppAppInner() {
       }
 
       await refreshChats()
+      // v1.9 folder auto-rules: file anything new by title regex (idempotent
+      // — chats already in their folder are skipped).
+      try {
+        const fresh = await data.listChats()
+        applyFolderRulesToAll(
+          fresh.map((c) => ({ id: c.id, title: c.title }))
+        )
+      } catch {
+        /* rules are additive — never block the import flow */
+      }
       if (lastChatId) await openChat(lastChatId)
       setImporting(false)
     },
@@ -1038,6 +1060,15 @@ function WhatsAppAppInner() {
   const handleImportPanelImported = useCallback(
     async (_chatIds: string[]) => {
       await refreshChats()
+      // v1.9 folder auto-rules — file the new chats before anything else.
+      try {
+        const fresh = await data.listChats()
+        applyFolderRulesToAll(
+          fresh.map((c) => ({ id: c.id, title: c.title }))
+        )
+      } catch {
+        /* rules are additive — never block the import flow */
+      }
       // Auto-push (v1.8.1): when enabled, the cloud copy follows every
       // import so it is never stale. Fire-and-forget — never blocks the UI.
       void autoPushIfEnabled(data).then((r) => {

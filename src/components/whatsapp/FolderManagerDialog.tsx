@@ -15,7 +15,16 @@ import { Input } from '@/components/ui/input'
 import { Avatar, SavedAvatar } from './Avatar'
 import { SAVED_CHAT_ID, type ChatSummary } from './types'
 import { cn } from '@/lib/utils'
+import { useT } from '@/lib/i18n'
 import { getFolders, setFolders, type ChatFolder } from './chat-folders'
+import {
+  applyFolderRulesToAll,
+  genRuleId,
+  getFolderRules,
+  saveFolderRules,
+  type FolderRule,
+} from '@/lib/folder-rules'
+import { Regex, Wand2 } from 'lucide-react'
 
 const FOLDER_EMOJIS = [
   '📁',
@@ -74,6 +83,7 @@ export function FolderManagerDialog({
 
 function ManagerBody({ chats }: { chats: ChatSummary[] }) {
   // Folders only ever contain non-archived chats
+  const t = useT()
   const pickable = useMemo(() => chats.filter((c) => !c.archived), [chats])
   const pickableIds = useMemo(
     () => new Set(pickable.map((c) => c.id)),
@@ -81,6 +91,10 @@ function ManagerBody({ chats }: { chats: ChatSummary[] }) {
   )
 
   const [folders, setLocalFolders] = useState<ChatFolder[]>(() => getFolders())
+  const [rules, setRules] = useState<FolderRule[]>(() => getFolderRules())
+  const [rulePattern, setRulePattern] = useState('')
+  const [ruleFolderId, setRuleFolderId] = useState('')
+  const [rulesOpen, setRulesOpen] = useState(false)
   // null = list view, 'new' = create, folder id = edit
   const [editingId, setEditingId] = useState<string | null>(null)
   const [name, setName] = useState('')
@@ -119,6 +133,58 @@ function ManagerBody({ chats }: { chats: ChatSummary[] }) {
       else next.add(id)
       return next
     })
+  }
+
+  function addRule(): void {
+    const pattern = rulePattern.trim()
+    if (!pattern) {
+      toast.error('Write a title pattern first (regular expression)')
+      return
+    }
+    const target = ruleFolderId || folders[0]?.id
+    if (!target) {
+      toast.error('Create a folder first — rules file chats into folders')
+      return
+    }
+    try {
+      void new RegExp(pattern, 'i')
+    } catch {
+      toast.error('That pattern is not a valid regular expression')
+      return
+    }
+    const rule: FolderRule = {
+      id: genRuleId(),
+      pattern,
+      flags: 'i',
+      folderId: target,
+      enabled: true,
+    }
+    const next = [...rules, rule]
+    setRules(next)
+    saveFolderRules(next)
+    setRulePattern('')
+    // Retro-fit: existing chats matching the new rule get filed immediately.
+    const filed = applyFolderRulesToAll(
+      pickable.map((c) => ({ id: c.id, title: c.title }))
+    )
+    setLocalFolders(getFolders())
+    toast.success(
+      filed > 0
+        ? `Rule added — ${filed} chat${filed === 1 ? '' : 's'} filed automatically`
+        : 'Rule added — new imports matching it will be filed automatically'
+    )
+  }
+
+  function toggleRule(id: string): void {
+    const next = rules.map((r) => (r.id === id ? { ...r, enabled: !r.enabled } : r))
+    setRules(next)
+    saveFolderRules(next)
+  }
+
+  function deleteRule(id: string): void {
+    const next = rules.filter((r) => r.id !== id)
+    setRules(next)
+    saveFolderRules(next)
   }
 
   const trimmedName = name.trim()
@@ -410,6 +476,124 @@ function ManagerBody({ chats }: { chats: ChatSummary[] }) {
                   </Button>
                 </div>
               ))
+            )}
+          </div>
+
+          {/* Auto-file rules (v1.9) — regex → folder on import */}
+          <div className="rounded-xl border border-dashed border-black/15 p-3 dark:border-white/15">
+            <button
+              type="button"
+              onClick={() => setRulesOpen((v) => !v)}
+              className="flex w-full items-center justify-between gap-2 text-left"
+              aria-expanded={rulesOpen}
+            >
+              <span className="flex items-center gap-1.5 text-[13px] font-semibold text-(--wa-text)">
+                <Wand2 className="h-3.5 w-3.5 text-(--wa-accent)" aria-hidden />
+                {t('folders.rules.title')}
+                {rules.length > 0 && (
+                  <span className="rounded-full bg-(--wa-accent)/10 px-1.5 py-0.5 text-[10px] font-semibold text-(--wa-accent-strong) dark:text-(--wa-accent)">
+                    {rules.length}
+                  </span>
+                )}
+              </span>
+              <span className="text-[11px] text-(--wa-text-2)">
+                {rulesOpen ? 'Hide' : 'Show'}
+              </span>
+            </button>
+            <p className="mt-1 text-[11.5px] leading-snug text-(--wa-text-2)">
+              File new imports automatically: chats whose title matches a
+              pattern land in the folder you pick.
+            </p>
+            {rulesOpen && (
+              <div className="mt-2 flex flex-col gap-2">
+                {rules.length > 0 && (
+                  <ul className="flex flex-col gap-1.5">
+                    {rules.map((r) => {
+                      const folder = folders.find((f) => f.id === r.folderId)
+                      return (
+                        <li
+                          key={r.id}
+                          className="flex items-center gap-2 rounded-lg bg-black/[0.03] px-2.5 py-2 dark:bg-white/[0.05]"
+                        >
+                          <Regex
+                            className={
+                              'h-3.5 w-3.5 shrink-0 ' +
+                              (r.enabled
+                                ? 'text-(--wa-accent)'
+                                : 'text-(--wa-text-2)')
+                            }
+                            aria-hidden
+                          />
+                          <span className="min-w-0 flex-1">
+                            <span className="block truncate font-mono text-[11.5px] text-(--wa-text)">
+                              /{r.pattern}/{r.flags}
+                            </span>
+                            <span className="block truncate text-[10.5px] text-(--wa-text-2)">
+                              → {folder ? `${folder.emoji} ${folder.name}` : 'deleted folder'}
+                            </span>
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => toggleRule(r.id)}
+                            className="text-[10.5px] font-medium text-(--wa-text-2) underline underline-offset-2 hover:text-(--wa-text)"
+                            aria-label={r.enabled ? 'Disable rule' : 'Enable rule'}
+                          >
+                            {r.enabled ? t('folders.rules.on') : t('folders.rules.off')}
+                          </button>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-7 w-7 text-(--wa-text-2) hover:text-rose-500"
+                            onClick={() => deleteRule(r.id)}
+                            aria-label="Delete rule"
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </Button>
+                        </li>
+                      )
+                    })}
+                  </ul>
+                )}
+                <div className="flex flex-col gap-1.5 sm:flex-row">
+                  <Input
+                    value={rulePattern}
+                    onChange={(e) => setRulePattern(e.target.value)}
+                    placeholder={t('folders.rules.pattern')}
+                    spellCheck={false}
+                    className="h-8 flex-1 font-mono text-[12px]"
+                    aria-label="Rule pattern"
+                  />
+                  <select
+                    value={ruleFolderId}
+                    onChange={(e) => setRuleFolderId(e.target.value)}
+                    aria-label="Target folder"
+                    className="h-8 rounded-md border border-black/10 bg-white px-2 text-[12px] text-(--wa-text) dark:border-white/15 dark:bg-(--wa-panel-2)"
+                  >
+                    <option value="">
+                      {folders[0] ? `Default: ${folders[0].name}` : 'No folders yet'}
+                    </option>
+                    {folders.map((f) => (
+                      <option key={f.id} value={f.id}>
+                        {f.emoji} {f.name}
+                      </option>
+                    ))}
+                  </select>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="h-8 gap-1.5 px-2 text-[12px]"
+                    disabled={folders.length === 0}
+                    onClick={addRule}
+                  >
+                    <Plus className="h-3.5 w-3.5" aria-hidden />
+                    {t('folders.rules.add')}
+                  </Button>
+                </div>
+                <p className="text-[10.5px] leading-snug text-(--wa-text-2)">
+                  First matching rule wins. Matching is case-insensitive; new
+                  imports are filed at the moment they land.
+                </p>
+              </div>
             )}
           </div>
 

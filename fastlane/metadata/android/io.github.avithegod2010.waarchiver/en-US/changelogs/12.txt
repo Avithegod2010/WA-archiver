@@ -1,0 +1,9 @@
+Scheduled delivery on Android: pending messages now fire a native notification at their time (works with the app closed) and tapping it delivers + opens the chat.
+
+Move to another device: pair via QR or a one-line code — the other device adopts your sync config + passphrase and pulls the same encrypted bundle.
+
+Google Drive: real OAuth refresh-token flow (connect once, tokens rotate themselves) instead of paste-a-token.
+
+S3 multipart uploads for big encrypted backups; incremental hash-chained snapshot pushes; per-chat selective sync; download any snapshot as a .wasync file.
+
+.txt round-trip now keeps reactions and reply threads; Insights gained a shareable PNG card; new imports can be auto-filed into folders by title regex; 28 new strings localized (हिन्दी / اردو / मराठी / தமிழ்).

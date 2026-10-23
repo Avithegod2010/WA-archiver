@@ -3,6 +3,63 @@
 All notable changes to WA Archiver are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [1.9.0] — 2026-10-25
+
+### Added
+- **Scheduled-message delivery on device (APK)** — pending scheduled
+  messages are mirrored to native Android notifications (AlarmManager via
+  Capacitor Local Notifications): the reminder fires at deliverAt even when
+  the app is closed, tapping it dispatches immediately and opens the chat.
+  POST_NOTIFICATIONS / SCHEDULE_EXACT_ALARM / RECEIVE_BOOT_COMPLETED wired
+  in the manifest; the in-app 20 s poller stays the web delivery path.
+- **One-bundle multi-device transfer (QR / zip pairing)** — "Move to
+  another device" in the Cloud sync card packs the provider config + sync
+  passphrase into one portable pairing code, shown as a QR (in-app camera
+  scanner on Android/Chromium via BarcodeDetector) plus a copy-paste code.
+  The receiving device adopts the config and pulls the SAME encrypted
+  .wasync bundle — the last roadmap checkbox.
+- **Google Drive refresh-token flow** — a real OAuth authorization-code
+  exchange replaces paste-a-token on the web build: enter your own Google
+  Cloud client id/secret once, hit "Connect Google Drive", consent, and the
+  app lands back with a long-lived refresh token. Access tokens rotate
+  themselves before every provider call (`ensureFreshGdriveToken`, with the
+  same-origin `/api/gdrive-oauth` exchange proxy and a direct-endpoint
+  fallback for the APK).
+- **S3 multipart uploads** — encrypted envelopes larger than 8 MB stream to
+  S3-compatible buckets in 8 MiB parts (CreateMultipartUpload → UploadPart →
+  CompleteMultipartUpload, with orphan-part abort on failure), server proxy
+  and device direct paths alike; >100 MB backups no longer ride a single PUT.
+- **Incremental .wasync pushes** — optional hash-chained snapshot deltas:
+  timestamped snapshots upload only chats whose content hash changed since
+  the previous snapshot (full snapshot every 5th push; chain files survive
+  pruning; restoring any delta walks its parent chain and merges up to a
+  self-contained backup automatically).
+- **Selective per-chat cloud sync** — "Sync only selected chats" filter so
+  envelopes carry just the chats you pick (empty selection = everything).
+- **Snapshot picker: save to file** — any cloud snapshot can now be
+  downloaded as an encrypted .wasync file (off-site copies, air-gapped
+  transfers) in one click, no decryption needed.
+- **Round-trip for reactions + reply threads** — the .txt export now
+  re-encodes reactions as real-WhatsApp-style `reacted 👍 to "…"` rows and
+  replies as `[Replied to Sender: quote]` prefixes; the parser folds them
+  back onto the right messages on import (device + server paths, with a
+  bounded SQL fallback for quotes of pre-existing rows). The Verify
+  round-trip report gained reaction / reply fidelity counters.
+- **Insights share card** — one tap renders the dashboard headline numbers
+  (messages, chats, media, words, top chatters, busiest days, emoji
+  leaderboard, fun facts) as a 1080×1440 PNG; downloads locally or opens
+  the native share sheet when available.
+- **Folder auto-rules** — define title-regex rules in the folder manager;
+  every new import is filed into the matching folder automatically (first
+  match wins, case-insensitive, retro-fits existing chats when a rule is
+  added).
+- **i18n pass** — 28 new string keys for the v1.8/1.9 surfaces (cloud sync,
+  transfer, folder rules, snapshots) translated into हिन्दी, اردو, मराठी and
+  தமிழ் alongside English.
+- **Play badge prep** — README carries a ready-to-uncomment Google Play
+  badge and the app gains a `PLAY_LISTING_URL` constant; flip it when the
+  Play listing is live.
+
 ## [1.8.1] — 2026-10-25
 
 ### Added

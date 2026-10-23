@@ -66,6 +66,10 @@ export interface ImportParsedInput {
     type: string
     mediaName: string | null
     pollOptions?: string[] | null
+    /** v1.9 round-trip — reactions carried through the parser. */
+    reactions?: Record<string, string[]> | null
+    /** v1.9 round-trip — unresolved reply quote (sender + snippet). */
+    replyQuote?: { sender: string; body: string } | null
   }[]
   /**
    * lowercase original basename → stored media name. Files referenced by
@@ -84,6 +88,10 @@ export interface TranscriptMessage {
   edited: boolean
   /** deliverAt ISO for a pending scheduled send, else null. */
   scheduledFor: string | null
+  /** Reactions on this message (v1.9 — .txt round-trip). */
+  reactions?: Record<string, string[]> | null
+  /** Quoted message this one replies to, when resolvable (v1.9). */
+  replyTo?: { sender: string; body: string } | null
 }
 
 /** A scheduled (auto-send later) message row. */

@@ -1,3 +1,5 @@
+import { quoteSnippet } from './whatsapp-roundtrip'
+
 function pad(n: number): string {
   return String(n).padStart(2, '0')
 }
@@ -12,6 +14,10 @@ export interface ExportMessage {
   edited?: boolean
   /** Pending scheduled send — re-exported with a "[Scheduled]" prefix. */
   scheduledFor?: Date | null
+  /** Reactions — re-exported as real-WhatsApp-style "reacted 👍 to …" rows. */
+  reactions?: Record<string, string[]> | null
+  /** Reply thread — re-exported as a `[Replied to Sender: quoted]` prefix. */
+  replyTo?: { sender: string; body: string } | null
 }
 
 const FALLBACK_LABELS: Record<string, string> = {
@@ -85,12 +91,30 @@ export function buildWhatsAppText(messages: ExportMessage[]): string {
     if (m.scheduledFor && !isNaN(m.scheduledFor.getTime())) {
       body = `[Scheduled for ${pad(m.scheduledFor.getDate())}/${pad(m.scheduledFor.getMonth() + 1)}/${m.scheduledFor.getFullYear()} ${pad(m.scheduledFor.getHours())}:${pad(m.scheduledFor.getMinutes())}] ${body}`
     }
+    if (m.replyTo?.sender) {
+      const quote = quoteSnippet(m.replyTo.body || '', 200)
+      body = `[Replied to ${m.replyTo.sender.slice(0, 100)}: ${quote}]\n${body}`
+    }
     if (m.edited) body += ' (edited)'
     const bodyLines = body.split('\n')
     const first = m.sender
       ? `${ts} - ${m.sender}: ${bodyLines[0]}`
       : `${ts} - ${bodyLines[0]}`
     lines.push(first, ...bodyLines.slice(1))
+
+    // Reactions → separate rows in the REAL WhatsApp Android format
+    // ("ts - Alice: reacted 👍 to \"body\"") so the parser folds them back
+    // onto this message on import (see whatsapp-roundtrip.ts). The target
+    // snippet is taken from the FINAL decorated body (scheduled prefix /
+    // reply quote / "(edited)" suffix included) so the linker's
+    // startsWith match works on re-parse.
+    for (const [emoji, senders] of Object.entries(m.reactions ?? {})) {
+      for (const by of senders) {
+        if (!by) continue
+        const target = quoteSnippet(body, 160)
+        lines.push(`${ts} - ${by}: reacted ${emoji || '👍'} to "${target}"`)
+      }
+    }
   }
   return lines.join('\n') + '\n'
 }

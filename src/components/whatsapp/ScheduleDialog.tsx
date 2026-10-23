@@ -13,6 +13,7 @@ import {
 } from '@/components/ui/dialog'
 import { cn } from '@/lib/utils'
 import { useData } from './data-provider'
+import { syncScheduledNotifications } from '@/lib/scheduled-notify'
 import { fireScheduledCheck } from './ScheduledDispatchPoller'
 
 const MAX_BODY = 4000
@@ -142,6 +143,12 @@ function ScheduleForm({
       toast.success(`Message scheduled for ${niceDate(at)}`)
       onOpenChange(false)
       fireScheduledCheck()
+      // v1.9 device delivery: mirror the schedule to a native Android
+      // notification so it fires even when the app is closed.
+      void data
+        .listScheduled()
+        .then((items) => syncScheduledNotifications(items))
+        .catch(() => undefined)
     } catch (err) {
       setError(
         err instanceof Error && err.message

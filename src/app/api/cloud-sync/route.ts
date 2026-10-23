@@ -1,6 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { assertAppUnlocked } from '@/lib/server-lock'
-import { s3BucketUrl, s3SignedFetch } from '@/lib/s3-sign'
+import {
+  S3_MULTIPART_THRESHOLD,
+  s3BucketUrl,
+  s3MultipartUploadStrings,
+  s3SignedFetch,
+} from '@/lib/s3-sign'
 
 export const runtime = 'nodejs'
 
@@ -144,6 +149,31 @@ async function s3Action(
       const text = await res.text().catch(() => '')
       const names = [...text.matchAll(/<Key>([^<]+)<\/Key>/g)].map((m) => m[1])
       return NextResponse.json({ ok: res.ok, status: res.status, names })
+    }
+    if (action === 'push' && (b.payload?.length ?? 0) > S3_MULTIPART_THRESHOLD) {
+      // v1.9 — envelopes > 8 MB go through the S3 multipart API so big
+      // backups stream in reliable 8 MiB parts instead of one giant PUT.
+      try {
+        await s3MultipartUploadStrings(
+          {
+            accessKeyId: b.s3AccessKey ?? '',
+            secretAccessKey: b.s3SecretKey ?? '',
+            region: b.s3Region ?? '',
+            bucket: b.s3Bucket ?? '',
+            endpoint: b.s3Endpoint || undefined,
+          },
+          { key: s3Key(b, b.target ?? b.filename ?? ''), payload: b.payload ?? '' }
+        )
+        return NextResponse.json({ ok: true, status: 200 })
+      } catch (err) {
+        return NextResponse.json({
+          ok: false,
+          error:
+            err instanceof Error
+              ? err.message
+              : 'S3 multipart upload failed',
+        })
+      }
     }
     const method =
       action === 'push' ? 'PUT' : action === 'pull' ? 'GET' : 'DELETE'

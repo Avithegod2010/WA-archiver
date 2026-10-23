@@ -76,6 +76,12 @@ export interface RoundTripReport {
   byType: { type: string; count: number; matched: number }[]
   /** First few mismatches for the details list. */
   losses: { idx: number; type: string; became: string; note?: string }[]
+  /** v1.9 — reactions: how many source reactions came back attached. */
+  reactionsTotal: number
+  reactionsMatched: number
+  /** v1.9 — replies: how many source reply threads came back quoted. */
+  repliesTotal: number
+  repliesMatched: number
 }
 
 export function verifyRoundTrip(messages: ExportMessage[]): RoundTripReport {
@@ -85,6 +91,16 @@ export function verifyRoundTrip(messages: ExportMessage[]): RoundTripReport {
   const byTypeMap = new Map<string, { count: number; matched: number }>()
   const losses: RoundTripReport['losses'] = []
   let typeMatched = 0
+
+  // v1.9 — reaction / reply fidelity: the export re-encodes both as real
+  // rows + quote prefixes; the parser must fold them back onto the same
+  // messages (same index) with the same senders.
+  let reactionsTotal = 0
+  let reactionsMatched = 0
+  let repliesTotal = 0
+  let repliesMatched = 0
+  const reactionCount = (m: ExportMessage): number =>
+    Object.values(m.reactions ?? {}).reduce((s, l) => s + l.length, 0)
 
   const n = Math.min(messages.length, parsed.length)
   for (let i = 0; i < messages.length; i++) {
@@ -106,6 +122,37 @@ export function verifyRoundTrip(messages: ExportMessage[]): RoundTripReport {
       })
     }
     byTypeMap.set(key, bucket)
+
+    if (i < n) {
+      const srcReactions = src.reactions ?? null
+      if (srcReactions && reactionCount(src) > 0) {
+        reactionsTotal += reactionCount(src)
+        const back = parsed[i].reactions ?? null
+        if (back) {
+          for (const [emoji, senders] of Object.entries(srcReactions)) {
+            const got = back[emoji] ?? []
+            for (const by of senders) {
+              if (got.includes(by)) reactionsMatched++
+            }
+          }
+        }
+      }
+      if (src.replyTo?.sender) {
+        repliesTotal++
+        const q = parsed[i].replyQuote ?? null
+        if (
+          q &&
+          q.sender === src.replyTo.sender &&
+          (src.replyTo.body || '')
+            .replace(/\s*\n\s*/g, ' ')
+            .trim()
+            .toLowerCase()
+            .startsWith(q.body.toLowerCase().slice(0, 40))
+        ) {
+          repliesMatched++
+        }
+      }
+    }
   }
 
   return {
@@ -120,5 +167,9 @@ export function verifyRoundTrip(messages: ExportMessage[]): RoundTripReport {
       .map(([type, v]) => ({ type, ...v }))
       .sort((a, b) => b.count - a.count),
     losses,
+    reactionsTotal,
+    reactionsMatched,
+    repliesTotal,
+    repliesMatched,
   }
 }

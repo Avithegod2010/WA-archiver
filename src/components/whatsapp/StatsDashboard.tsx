@@ -24,6 +24,7 @@ import {
   Type,
   HardDrive,
   Quote,
+  Share2,
   Trash2,
 } from 'lucide-react'
 import {
@@ -33,6 +34,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
+import { toast } from 'sonner'
 import { Input } from '@/components/ui/input'
 import { Avatar } from './Avatar'
 import { useData } from './data-provider'
@@ -40,6 +42,11 @@ import type { StatsData } from './types'
 import { colorForName } from './types'
 import { computeStats } from '@/lib/stats-compute'
 import { cn } from '@/lib/utils'
+import {
+  insightsShareFileName,
+  renderInsightsSharePng,
+} from '@/lib/insights-share'
+import { downloadBlob } from '@/lib/wordcloud-png'
 
 const TYPE_LABELS: Record<string, string> = {
   text: 'Text',
@@ -1107,6 +1114,55 @@ export function StatsDashboard({
   }, [open, mode, ready, dataClient])
 
   const loading = data === undefined
+  const [shareBusy, setShareBusy] = useState(false)
+
+  // v1.9 — Insights share card: render the dashboard headline numbers as a
+  // PNG (download + native share sheet when available).
+  const shareCard = async (): Promise<void> => {
+    if (!data || shareBusy) return
+    setShareBusy(true)
+    try {
+      const blob = await renderInsightsSharePng(data)
+      const file = new File([blob], insightsShareFileName(), {
+        type: 'image/png',
+      })
+      const nav = navigator as Navigator & {
+        canShare?: (d: { files: File[] }) => boolean
+        share?: (d: { files?: File[]; title?: string; text?: string }) => Promise<void>
+      }
+      if (nav.canShare?.({ files: [file] }) && nav.share) {
+        // Some environments (embedded webviews, headless runs) never resolve
+        // the share promise — race it so the button can't lock forever.
+        const outcome = await Promise.race([
+          nav
+            .share({
+              files: [file],
+              title: 'WA Archiver — Insights',
+              text: 'My WhatsApp archive in numbers',
+            })
+            .then(() => 'shared' as const)
+            .catch((e: unknown) =>
+              e instanceof Error && e.name === 'AbortError'
+                ? ('canceled' as const)
+                : ('failed' as const)
+            ),
+          new Promise<'timeout'>((r) => setTimeout(() => r('timeout'), 4000)),
+        ])
+        if (outcome === 'shared') {
+          toast.success('Insights card shared')
+          return
+        }
+        if (outcome === 'canceled') return
+        // timeout / failed → fall through to the plain download
+      }
+      downloadBlob(blob, insightsShareFileName())
+      toast.success('Share card saved as PNG')
+    } catch {
+      toast.error('Could not render the share card')
+    } finally {
+      setShareBusy(false)
+    }
+  }
 
   const maxMonth = data ? Math.max(...data.months.map((m) => m.count), 1) : 1
   const maxWeekday = data ? Math.max(...data.weekdays.map((w) => w.count), 1) : 1
@@ -1160,8 +1216,26 @@ export function StatsDashboard({
             <BarChart3 className="h-5 w-5 text-(--wa-accent)" />
             Insights
           </DialogTitle>
-          <DialogDescription>
-            Deep analytics across all your imported chats — computed locally.
+          <DialogDescription className="flex flex-wrap items-center justify-between gap-2 pr-1">
+            <span>
+              Deep analytics across all your imported chats — computed locally.
+            </span>
+            {data && (
+              <button
+                type="button"
+                onClick={() => void shareCard()}
+                disabled={shareBusy}
+                className="inline-flex items-center gap-1.5 rounded-full border border-black/10 px-2.5 py-1 text-[11.5px] font-medium text-(--wa-text-2) transition-colors hover:border-(--wa-accent) hover:text-(--wa-accent-strong) dark:border-white/15 dark:hover:text-(--wa-accent)"
+                title="Render the headline numbers as a shareable PNG"
+              >
+                {shareBusy ? (
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden />
+                ) : (
+                  <Share2 className="h-3.5 w-3.5" aria-hidden />
+                )}
+                Share card
+              </button>
+            )}
           </DialogDescription>
         </DialogHeader>
 

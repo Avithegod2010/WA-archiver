@@ -86,6 +86,10 @@ export class ServerDataClient implements DataClient {
       mediaName: m.mediaName,
       edited: !!m.edited,
       scheduledFor: null,
+      reactions: m.reactions ?? null,
+      replyTo: m.replyTo
+        ? { sender: m.replyTo.sender, body: m.replyTo.body }
+        : null,
     }))
     for (const s of scheduled) {
       rows.push({

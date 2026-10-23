@@ -35,7 +35,19 @@ import {
   encryptToSyncFile,
   looksLikeSyncFile,
 } from './sync-crypto'
-import { s3BucketUrl, s3SignedFetch, type S3Credentials } from './s3-sign'
+import {
+  S3_MULTIPART_THRESHOLD,
+  s3BucketUrl,
+  s3MultipartUploadStrings,
+  s3SignedFetch,
+  type S3Credentials,
+} from './s3-sign'
+import {
+  isDeltaEnvelope,
+  planSnapshot,
+  rebuildFullFromChain,
+} from './sync-delta'
+import { ensureFreshGdriveToken } from './gdrive-oauth'
 
 const CONFIG_KEY = 'wa-viewer:cloud-sync'
 
@@ -67,6 +79,14 @@ export interface CloudSyncConfig {
   gdriveToken?: string
   /** Optional destination folder id (empty → My Drive root). */
   gdriveFolderId?: string
+  // ---- Google Drive refresh-token flow (v1.9) ----
+  /** Long-lived refresh token from the authorization-code exchange. */
+  gdriveRefreshToken?: string
+  /** The user's own Google Cloud OAuth client (device-local only). */
+  gdriveClientId?: string
+  gdriveClientSecret?: string
+  /** Epoch ms the cached access token expires at (auto-rotated). */
+  gdriveTokenExpiresAt?: number
   // ---- behaviour ----
   /** Push a timestamped snapshot after every successful push; prune to N. */
   historyKeep?: number
@@ -74,6 +94,12 @@ export interface CloudSyncConfig {
   autoPush?: boolean
   /** Sync passphrase kept device-local ONLY when autoPush is on. */
   syncPassphrase?: string
+  /** v1.9 — only push the chats selected below (empty list = all). */
+  syncSelectedOnly?: boolean
+  /** Chat ids included when syncSelectedOnly is on. */
+  syncChatIds?: string[]
+  /** v1.9 — timestamped snapshots carry hash-chained deltas, not fulls. */
+  incremental?: boolean
   lastPushAt?: number
   lastPullAt?: number
 }
@@ -101,6 +127,16 @@ export function getCloudSyncConfig(): CloudSyncConfig | null {
       gdriveToken: typeof v.gdriveToken === 'string' ? v.gdriveToken : '',
       gdriveFolderId:
         typeof v.gdriveFolderId === 'string' ? v.gdriveFolderId : '',
+      gdriveRefreshToken:
+        typeof v.gdriveRefreshToken === 'string' ? v.gdriveRefreshToken : '',
+      gdriveClientId:
+        typeof v.gdriveClientId === 'string' ? v.gdriveClientId : '',
+      gdriveClientSecret:
+        typeof v.gdriveClientSecret === 'string' ? v.gdriveClientSecret : '',
+      gdriveTokenExpiresAt:
+        typeof v.gdriveTokenExpiresAt === 'number'
+          ? v.gdriveTokenExpiresAt
+          : undefined,
       historyKeep:
         typeof v.historyKeep === 'number' && v.historyKeep >= 0
           ? Math.min(v.historyKeep, 30)
@@ -108,6 +144,11 @@ export function getCloudSyncConfig(): CloudSyncConfig | null {
       autoPush: v.autoPush === true,
       syncPassphrase:
         typeof v.syncPassphrase === 'string' ? v.syncPassphrase : '',
+      syncSelectedOnly: v.syncSelectedOnly === true,
+      syncChatIds: Array.isArray(v.syncChatIds)
+        ? v.syncChatIds.filter((x): x is string => typeof x === 'string')
+        : [],
+      incremental: v.incremental === true,
       lastPushAt: typeof v.lastPushAt === 'number' ? v.lastPushAt : undefined,
       lastPullAt: typeof v.lastPullAt === 'number' ? v.lastPullAt : undefined,
     }
@@ -337,6 +378,22 @@ async function directS3(
         names: res.ok ? parseS3List(text) : undefined,
       }
     }
+    if (action === 'push' && (payload?.length ?? 0) > S3_MULTIPART_THRESHOLD) {
+      // v1.9 — huge envelopes go through the S3 multipart API (device mode).
+      try {
+        await s3MultipartUploadStrings(creds, {
+          key: s3Key(cfg, target),
+          payload: payload ?? '',
+        })
+        return { ok: true, status: 200 }
+      } catch (err) {
+        return {
+          ok: false,
+          error:
+            err instanceof Error ? err.message : 'S3 multipart upload failed',
+        }
+      }
+    }
     const method =
       action === 'push' ? 'PUT' : action === 'pull' ? 'GET' : 'DELETE'
     const res = await s3SignedFetch(creds, {
@@ -532,6 +589,11 @@ async function request(
   payload?: string,
   target?: string
 ): Promise<ProxyResponse> {
+  // Google Drive refresh-token flow (v1.9): rotate the access token when it
+  // is (about to be) expired — the caller persists the returned config.
+  if (providerOf(cfg) === 'gdrive') {
+    cfg = await ensureFreshGdriveToken(cfg)
+  }
   const file = target ?? cfg.filename
   if (proxyAvailable()) {
     const viaProxy = await proxyRequest({
@@ -619,12 +681,33 @@ export async function pushToCloud(
     ? cfg.historyKeep ?? 0
     : 0
   if (keep > 0) {
+    let snap: string | null = null
     try {
       // Timestamped snapshot — the live file always stays untouched.
-      const snap = snapshotName(cfg.filename, new Date())
-      await request('push', cfg, envelope, snap)
+      // v1.9: with incremental on, the snapshot carries a hash-chained
+      // DELTA (only changed chats) and is cut with a full every MAX_CHAIN.
+      snap = snapshotName(cfg.filename, new Date())
+      const plan = await planSnapshot(cfg.filename, backupJson, {
+        incremental: cfg.incremental === true,
+        fileToUpload: snap,
+      })
+      const payload =
+        plan.kind === 'delta'
+          ? await encryptToSyncFile(plan.deltaJson ?? '', passphrase)
+          : envelope
+      await request('push', cfg, payload, snap)
+      // Manifest only advances once the snapshot actually landed.
+      await import('./sync-delta').then((m) =>
+        m.saveDeltaManifest(plan.manifest)
+      )
+      // The chain files must survive pruning (a delta without its parent
+      // is unrestorable) — keep = N snapshots + the whole current chain.
       const snaps = await listSnapshots(cfg)
-      for (const old of snaps.slice(keep)) await deleteRemote(cfg, old)
+      const chain = new Set(plan.manifest.chain)
+      const prunable = snaps.filter((n) => !chain.has(n))
+      for (const old of prunable.slice(Math.max(keep, chain.size))) {
+        await deleteRemote(cfg, old)
+      }
     } catch {
       /* history is best-effort — the live copy succeeded */
     }
@@ -643,7 +726,26 @@ export async function pullFromCloud(
   /** Pull a specific snapshot instead of the live file. */
   fromSnapshot?: string
 ): Promise<string> {
-  const res = await request('pull', cfg, undefined, fromSnapshot)
+  const json = await pullDecryptedJson(cfg, passphrase, fromSnapshot)
+  // v1.9 — incremental snapshots are delta envelopes: walk the chain up to
+  // the base full snapshot and merge the changed chats on top, so callers
+  // always restore from a self-contained backup.
+  if (fromSnapshot && isDeltaEnvelope(json)) {
+    return rebuildFullFromChain(
+      (name) => pullDecryptedJson(cfg, passphrase, name),
+      fromSnapshot
+    )
+  }
+  return json
+}
+
+/** Pull + decrypt one remote file (no delta resolution). */
+async function pullDecryptedJson(
+  cfg: CloudSyncConfig,
+  passphrase: string,
+  name?: string
+): Promise<string> {
+  const res = await request('pull', cfg, undefined, name)
   if (!res.ok) {
     throw new Error(
       res.status === 404
@@ -658,6 +760,30 @@ export async function pullFromCloud(
   return decryptFromSyncFile(text, passphrase)
 }
 
+/**
+ * v1.9 — pull the RAW encrypted envelope of the live file (or a snapshot)
+ * without decrypting: used by "save snapshot to file" so an off-site copy
+ * can be kept on disk. Throws the same way pullFromCloud does.
+ */
+export async function pullEnvelopeText(
+  cfg: CloudSyncConfig,
+  name?: string
+): Promise<string> {
+  const res = await request('pull', cfg, undefined, name)
+  if (!res.ok) {
+    throw new Error(
+      res.status === 404
+        ? 'No cloud backup found yet (404) — push one first'
+        : res.error ?? `Download failed (status ${res.status ?? 'network'})`
+    )
+  }
+  const text = res.text ?? ''
+  if (!looksLikeSyncFile(text)) {
+    throw new Error('The remote file is not a WA Archiver encrypted backup')
+  }
+  return text
+}
+
 // ---------------------------------------------------------------------------
 // Auto-push (optional "sync automatically after every import / export")
 // ---------------------------------------------------------------------------
@@ -665,6 +791,33 @@ export async function pullFromCloud(
 export interface AutoPushOutcome {
   pushed: boolean
   error?: string
+}
+
+/**
+ * v1.9 — selective per-chat cloud sync. When the config restricts the sync
+ * to a set of chats, `backupJson` is filtered down to those chats before
+ * encryption/upload (envelopes stay small). No selection = untouched input.
+ */
+export function filterBackupJson(
+  backupJson: string,
+  cfg: CloudSyncConfig
+): string {
+  if (!cfg.syncSelectedOnly) return backupJson
+  const ids = cfg.syncChatIds ?? []
+  if (ids.length === 0) return backupJson
+  try {
+    const parsed = JSON.parse(backupJson) as { chats?: unknown }
+    if (!Array.isArray(parsed.chats)) return backupJson
+    const wanted = new Set(ids)
+    parsed.chats = parsed.chats.filter((c) => {
+      if (!c || typeof c !== 'object') return false
+      const id = (c as { id?: unknown }).id
+      return typeof id === 'string' && wanted.has(id)
+    })
+    return JSON.stringify(parsed)
+  } catch {
+    return backupJson
+  }
 }
 
 /**
@@ -689,7 +842,7 @@ export async function autoPushIfEnabled(
   }
   try {
     const blob = await data.exportBackup()
-    const json = await blob.text()
+    const json = filterBackupJson(await blob.text(), cfg)
     const at = await pushToCloud(cfg, json, pass, { history: true })
     saveCloudSyncConfig({ ...cfg, lastPushAt: at })
     return { pushed: true }

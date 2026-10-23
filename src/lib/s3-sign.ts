@@ -56,14 +56,16 @@ export interface S3Credentials {
 }
 
 export interface S3RequestOptions {
-  method: 'PUT' | 'GET' | 'DELETE'
+  method: 'PUT' | 'GET' | 'DELETE' | 'POST'
   /** Bucket URL, e.g. https://bucket.s3.us-east-1.amazonaws.com */
   baseUrl: string
   /** Object key including any prefix, e.g. "wa-archiver/wa-archiver.wasync" */
   key: string
-  body?: string
+  body?: string | Uint8Array
   /** Extra query params for list operations (?list-type=2&prefix=…). */
   query?: Record<string, string>
+  /** Override the Content-Type header (defaults: json for PUT). */
+  contentType?: string
 }
 
 /** Build the endpoint URL for a bucket (path-style vs virtual-hosted). */
@@ -90,7 +92,10 @@ export async function s3SignedFetch(
 
   const now = amzDate(new Date())
   const host = url.host
-  const payloadHash = opts.method === 'PUT' ? UNSIGNED_PAYLOAD : await sha256Hex('')
+  const payloadHash =
+    opts.method === 'GET' || opts.method === 'DELETE'
+      ? await sha256Hex('')
+      : UNSIGNED_PAYLOAD
 
   // Canonical request
   const canonicalUri = url.pathname
@@ -141,9 +146,131 @@ export async function s3SignedFetch(
       Authorization: authorization,
       'x-amz-date': now.amz,
       'x-amz-content-sha256': payloadHash,
-      ...(opts.method === 'PUT' ? { 'Content-Type': 'application/json' } : {}),
+      ...(opts.contentType
+        ? { 'Content-Type': opts.contentType }
+        : opts.method === 'PUT'
+          ? { 'Content-Type': 'application/json' }
+          : {}),
     },
-    body: opts.body,
-    signal: AbortSignal.timeout(60_000),
+    body: opts.body as BodyInit | undefined,
+    signal: AbortSignal.timeout(120_000),
   })
+}
+
+// ---------------------------------------------------------------------------
+// Multipart upload (v1.9) — reliable >100 MB encrypted envelopes
+// ---------------------------------------------------------------------------
+
+export interface MultipartPart {
+  partNumber: number
+  etag: string
+}
+
+/** Default part size: 8 MiB (S3 minimum is 5 MiB for all but the last part). */
+export const S3_MULTIPART_THRESHOLD = 8 * 1024 * 1024
+
+/**
+ * Upload a (possibly huge) string payload via the S3 multipart API.
+ * The envelope is pure ASCII (JSON + base64), so char slicing = byte slicing;
+ * the last chunk is allowed to be smaller. Parts are uploaded sequentially —
+ * ordered retries stay simple and the caller's connection is usually the
+ * bottleneck anyway. Throws on the first failed part (the upload is aborted
+ * server-side so no orphan parts are billed).
+ */
+export async function s3MultipartUploadStrings(
+  creds: S3Credentials,
+  opts: {
+    key: string
+    payload: string
+    partSizeBytes?: number
+    onProgress?: (uploadedBytes: number, totalBytes: number) => void
+  }
+): Promise<void> {
+  const baseUrl = s3BucketUrl(creds)
+  const size = opts.payload.length
+  const partSize = Math.max(5 * 1024 * 1024, opts.partSizeBytes ?? S3_MULTIPART_THRESHOLD)
+
+  // 1 — CreateMultipartUpload
+  const createRes = await s3SignedFetch(creds, {
+    method: 'POST',
+    baseUrl,
+    key: opts.key,
+    query: { uploads: '' },
+    contentType: 'application/json',
+  })
+  if (!createRes.ok) {
+    throw new Error(`S3 multipart create failed (status ${createRes.status})`)
+  }
+  const createXml = await createRes.text().catch(() => '')
+  const uploadId =
+    /<UploadId>([^<]+)<\/UploadId>/.exec(createXml)?.[1] ?? ''
+  if (!uploadId) {
+    throw new Error('S3 multipart create returned no UploadId')
+  }
+
+  try {
+    // 2 — UploadPart for every chunk
+    const parts: MultipartPart[] = []
+    let uploaded = 0
+    let partNumber = 1
+    for (let start = 0; start < size; start += partSize) {
+      const chunk = opts.payload.slice(start, Math.min(start + partSize, size))
+      const res = await s3SignedFetch(creds, {
+        method: 'PUT',
+        baseUrl,
+        key: opts.key,
+        query: { partNumber: String(partNumber), uploadId },
+        body: chunk,
+      })
+      if (!res.ok) {
+        throw new Error(
+          `S3 part ${partNumber} failed (status ${res.status})`
+        )
+      }
+      const etag = res.headers.get('etag') ?? res.headers.get('ETag') ?? ''
+      if (!etag) throw new Error(`S3 part ${partNumber} returned no ETag`)
+      parts.push({ partNumber, etag })
+      uploaded += chunk.length
+      opts.onProgress?.(uploaded, size)
+      partNumber++
+    }
+
+    // 3 — CompleteMultipartUpload
+    const completeXml =
+      '<CompleteMultipartUpload>' +
+      parts
+        .map(
+          (p) =>
+            `<Part><PartNumber>${p.partNumber}</PartNumber><ETag>${p.etag.replace(/&/g, '&amp;')}</ETag></Part>`
+        )
+        .join('') +
+      '</CompleteMultipartUpload>'
+    const doneRes = await s3SignedFetch(creds, {
+      method: 'POST',
+      baseUrl,
+      key: opts.key,
+      query: { uploadId },
+      body: completeXml,
+      contentType: 'application/xml',
+    })
+    if (!doneRes.ok) {
+      const errText = await doneRes.text().catch(() => '')
+      throw new Error(
+        `S3 multipart complete failed (status ${doneRes.status})${
+          /<Message>([^<]+)<\/Message>/.exec(errText)?.[1]
+            ? `: ${/<Message>([^<]+)<\/Message>/.exec(errText)![1]}`
+            : ''
+        }`
+      )
+    }
+  } catch (err) {
+    // Never leave orphan parts behind.
+    await s3SignedFetch(creds, {
+      method: 'DELETE',
+      baseUrl,
+      key: opts.key,
+      query: { uploadId },
+    }).catch(() => undefined)
+    throw err
+  }
 }

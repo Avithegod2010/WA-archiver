@@ -35,6 +35,7 @@ import {
   type SnapshotMeta,
 } from './rolling-backups'
 import { formatRelativeTime } from './backup-reminder'
+import { useT } from '@/lib/i18n'
 
 function fmtSize(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`
@@ -50,6 +51,7 @@ const REASON_LABEL: Record<SnapshotMeta['reason'], string> = {
 
 export function SnapshotsCard() {
   const { data, mode } = useData()
+  const t = useT()
   const [rows, setRows] = useState<SnapshotMeta[] | null>(null)
   const [busy, setBusy] = useState(false)
   const [confirmId, setConfirmId] = useState<string | null>(null)
@@ -124,7 +126,7 @@ export function SnapshotsCard() {
       <div className="flex items-center justify-between gap-2">
         <h3 className="flex items-center gap-1.5 text-[13px] font-semibold text-(--wa-text)">
           <History className="h-3.5 w-3.5 text-(--wa-accent)" aria-hidden />
-          On-device snapshots
+          {t('snapshots.title')}
         </h3>
         <Button
           variant="outline"
@@ -143,7 +145,7 @@ export function SnapshotsCard() {
           ) : (
             <Camera className="h-3.5 w-3.5" aria-hidden />
           )}
-          Snapshot now
+          {t('snapshots.now')}
         </Button>
       </div>
       <p className="text-[11.5px] leading-snug text-(--wa-text-2)">

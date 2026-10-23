@@ -357,6 +357,36 @@ export const strings = {
   'common.offline.title': "You're offline",
   'common.offline.body':
     'Chats you already opened stay available — reconnect to load new pages.',
+
+  /* v1.8/1.9 cloud sync, transfer, folder rules, snapshots, verify (i18n pass) */
+  'cloud.title': 'Cloud sync',
+  'cloud.test': 'Test connection',
+  'cloud.push': 'Push to cloud',
+  'cloud.pull': 'Pull & restore',
+  'cloud.snapshots': 'Snapshots',
+  'cloud.autopush': 'Sync automatically after every import / export',
+  'cloud.history': 'Keep timestamped snapshots (last)',
+  'cloud.incremental': 'Incremental snapshots (hash-chained deltas)',
+  'cloud.selective': 'Sync only selected chats',
+  'cloud.transfer': 'Move to another device',
+  'cloud.pair': 'Pair',
+  'transfer.title': 'Transfer to another device',
+  'transfer.send': 'This device sends',
+  'transfer.receive': 'This device receives',
+  'transfer.copy': 'Copy pairing code',
+  'transfer.adopt': 'Adopt configuration',
+  'transfer.scan': 'Scan QR with camera',
+  'folders.rules.title': 'Auto-file rules',
+  'folders.rules.pattern': 'Title pattern, e.g. family|mom|dad',
+  'folders.rules.add': 'Add',
+  'folders.rules.on': 'On',
+  'folders.rules.off': 'Off',
+  'snapshots.title': 'On-device snapshots',
+  'snapshots.now': 'Snapshot now',
+  'snapshots.save': 'Save file',
+  'snapshots.restore': 'Restore',
+  'verify.title': 'Export round-trip report',
+  'stats.share': 'Share card',
 } as const
 
 export type TranslationKey = keyof typeof strings

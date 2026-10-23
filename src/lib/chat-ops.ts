@@ -149,6 +149,10 @@ function toExportMessage(m: ChatMessage): ExportMessage {
     type: m.type,
     mediaName: m.mediaName,
     edited: !!m.edited,
+    reactions: m.reactions ?? null,
+    replyTo: m.replyTo
+      ? { sender: m.replyTo.sender, body: m.replyTo.body }
+      : null,
   }
 }
 
@@ -164,6 +168,10 @@ function fromTranscript(r: TranscriptMessage): ExportMessage {
     mediaName: r.mediaName,
     edited: r.edited,
     scheduledFor: sched && !isNaN(sched.getTime()) ? sched : null,
+    reactions: r.reactions ?? null,
+    replyTo: r.replyTo
+      ? { sender: r.replyTo.sender, body: r.replyTo.body }
+      : null,
   }
 }
 

@@ -3,6 +3,11 @@
 import { useEffect, useRef } from 'react'
 import { toast } from 'sonner'
 import { useData } from './data-provider'
+import {
+  isNativePlatform,
+  onScheduledNotificationTap,
+  syncScheduledNotifications,
+} from '@/lib/scheduled-notify'
 
 /** Window CustomEvent fired to ask the poller for an immediate dispatch run. */
 export const SCHEDULED_CHECK_EVENT = 'wa-scheduled-check'
@@ -15,6 +20,7 @@ export function fireScheduledCheck() {
   window.dispatchEvent(new CustomEvent(SCHEDULED_CHECK_EVENT))
 }
 
+
 /**
  * Delivers due scheduled messages: runs every 20 s, on window focus and on
  * `wa-scheduled-check`. When something is delivered it announces
@@ -26,6 +32,23 @@ export function ScheduledDispatchPoller() {
   // storage mode is read, `data` is still the (wrong) default transport.
   const { data, modeResolved } = useData()
   const inFlightRef = useRef(false)
+
+  // v1.9 device delivery: (1) keep the Android notification mirror in sync
+  // with the schedule, (2) dispatch immediately when a notification is tapped.
+  useEffect(() => {
+    if (!modeResolved || !isNativePlatform()) return
+    void data
+      .listScheduled()
+      .then((items) => syncScheduledNotifications(items))
+      .catch(() => undefined)
+    return onScheduledNotificationTap((tap) => {
+      if (tap.chatId) {
+        window.dispatchEvent(
+          new CustomEvent('wa-open-chat', { detail: { chatId: tap.chatId } })
+        )
+      }
+    })
+  }, [data, modeResolved])
 
   useEffect(() => {
     if (!modeResolved) return

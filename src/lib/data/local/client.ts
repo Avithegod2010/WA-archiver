@@ -384,6 +384,10 @@ export class LocalDataClient implements DataClient {
       mediaName: m.mediaName,
       edited: !!m.edited,
       scheduledFor: null,
+      reactions: m.reactions ?? null,
+      replyTo: m.replyTo
+        ? { sender: m.replyTo.sender, body: m.replyTo.body }
+        : null,
     }))
     for (const s of scheduled) {
       rows.push({
@@ -732,15 +736,22 @@ export class LocalDataClient implements DataClient {
         mediaPath,
         mediaName: mediaName ? mediaName.slice(0, 255) : null,
         pollOptions: m.pollOptions?.length ? JSON.stringify(m.pollOptions.slice(0, 12)) : null,
+        // v1.9 round-trip: reactions insert directly; reply quotes resolve
+        // to replyToId in a second pass below (ids exist after the insert).
+        reactions:
+          m.reactions && Object.keys(m.reactions).length > 0
+            ? JSON.stringify(m.reactions)
+            : null,
+        replyQuote: m.replyQuote ?? null,
       }
     })
 
     const cols =
-      '(id, chatId, idx, ts, sender, body, type, mediaPath, mediaName, pollOptions)'
+      '(id, chatId, idx, ts, sender, body, type, mediaPath, mediaName, pollOptions, reactions, replyToId)'
     for (let i = 0; i < rows.length; i += INSERT_CHUNK) {
       const chunk = rows.slice(i, i + INSERT_CHUNK)
       const valuesSql = chunk
-        .map(() => '(?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
+        .map(() => '(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
         .join(',')
       const params: unknown[] = []
       for (const r of chunk) {
@@ -754,13 +765,58 @@ export class LocalDataClient implements DataClient {
           r.type,
           r.mediaPath,
           r.mediaName,
-          r.pollOptions
+          r.pollOptions,
+          r.reactions,
+          null
         )
       }
       await e.runNoSave(
         `INSERT INTO "Message" ${cols} VALUES ${valuesSql}`,
         params
       )
+    }
+
+    // v1.9 round-trip: resolve reply quotes to replyToId. In-memory scan of
+    // THIS import first (sender + flattened-body prefix), then a bounded SQL
+    // fallback for quotes of pre-existing rows (merges).
+    const quotes = rows.filter((r) => r.replyQuote)
+    if (quotes.length > 0) {
+      const flat = (v: string): string =>
+        v.replace(/\s*\n\s*/g, ' ').trim().toLowerCase()
+      const byId = new Map(rows.map((r) => [r.id, r]))
+      for (const row of quotes) {
+        const q = row.replyQuote!
+        const want = flat(q.body)
+        let hit: { id: string } | null = null
+        for (let j = rows.indexOf(row) - 1; j >= 0; j--) {
+          const cand = rows[j]
+          if (cand.sender !== q.sender) continue
+          if (!flat(cand.body).startsWith(want)) continue
+          hit = cand
+          break
+        }
+        if (!hit) {
+          const bsX = String.fromCharCode(92)
+          // Bounded SQL fallback for quotes of pre-existing rows (merges):
+          // flatten newlines in SQL, escape LIKE wildcards, prefix match.
+          const like = q.body
+            .replace(new RegExp('[%_' + bsX + ']', 'g'), bsX + '$&')
+            .slice(0, 120)
+          const fallback = await e.first(
+            'SELECT id FROM "Message" WHERE chatId = ? AND sender = ? ' +
+              "AND REPLACE(REPLACE(body, char(13), ' '), char(10), ' ') " +
+              "LIKE ? ESCAPE '" + bsX + bsX + "' ORDER BY idx DESC LIMIT 1",
+            [chatId, q.sender, like + '%']
+          )
+          hit = fallback ? { id: str(fallback.id) } : null
+        }
+        if (hit && byId.get(hit.id) !== row) {
+          await e.runNoSave('UPDATE "Message" SET replyToId = ? WHERE id = ?', [
+            hit.id,
+            row.id,
+          ])
+        }
+      }
     }
 
     // B1 (merge): keep the transcript chronological. Appends already start

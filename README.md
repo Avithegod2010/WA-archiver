@@ -9,6 +9,12 @@
 [![Next.js](https://img.shields.io/badge/Next.js-16-black?logo=next.js)](https://nextjs.org)
 [![PRs welcome](https://img.shields.io/badge/PRs-welcome-25D366.svg)](#-contributing)
 [![Web app](https://img.shields.io/badge/web%20app-Open%20in%20browser-00A884.svg?logo=googlechrome)](https://avithegod2010.github.io/WA-archiver/app/)
+<!-- Google Play badge — uncomment once the Play listing is live and set the
+     real package URL. The app-side button flips on via PLAY_LISTING_URL in
+     src/lib/version.ts.
+[![Get it on Google Play](https://img.shields.io/badge/Get%20it%20on-Google%20Play-00A884.svg?logo=googleplay)](https://play.google.com/store/apps/details?id=io.github.avithegod2010.waarchiver)
+-->
+
 
 **Turn your exported WhatsApp chats into a beautiful, private chat experience —
 with AI superpowers, voice notes, reactions, stats and an app lock.**

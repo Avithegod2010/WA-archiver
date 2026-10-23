@@ -113,11 +113,60 @@ export async function mergeParsedIntoChat(opts: {
       mediaPath,
       mediaName: mediaName ? mediaName.slice(0, 255) : null,
       pollOptions: m.pollOptions?.length ? JSON.stringify(m.pollOptions) : null,
+      reactions: m.reactions && Object.keys(m.reactions).length > 0
+        ? JSON.stringify(m.reactions)
+        : null,
+      replyToId: null,
+      _replyQuote: m.replyQuote ?? null,
+      _rowIdx: baseIdx + i,
     }
   })
 
+  // Reply quotes (v1.9 round-trip) resolve after the insert — the marker
+  // fields are stripped before createMany.
+  const quoteList = rows
+    .map((r) => ({ rowIdx: r._rowIdx as number, q: r._replyQuote as { sender: string; body: string } | null }))
+    .filter((x): x is { rowIdx: number; q: { sender: string; body: string } } => !!x.q)
+
   for (let i = 0; i < rows.length; i += INSERT_CHUNK) {
-    await db.message.createMany({ data: rows.slice(i, i + INSERT_CHUNK) })
+    const chunk = rows
+      .slice(i, i + INSERT_CHUNK)
+      .map(({ _replyQuote: _q, _rowIdx: _ri, ...r }) => r)
+    await db.message.createMany({ data: chunk })
+  }
+
+  // Resolve reply quotes → replyToId (sender + flattened-body prefix match).
+  if (quoteList.length > 0) {
+    const senders = [...new Set(quoteList.map((x) => x.q.sender))]
+    const candidates = await db.message.findMany({
+      where: { chatId, sender: { in: senders } },
+      select: { id: true, sender: true, body: true },
+      orderBy: { idx: 'desc' },
+      take: 400,
+    })
+    for (const { rowIdx, q } of quoteList) {
+      const want = q.body.toLowerCase()
+      const hit = candidates.find(
+        (c) =>
+          c.sender === q.sender &&
+          c.body
+            .replace(/\s*\n\s*/g, ' ')
+            .trim()
+            .toLowerCase()
+            .startsWith(want)
+      )
+      if (!hit) continue
+      const row = await db.message.findFirst({
+        where: { chatId, idx: rowIdx },
+        select: { id: true },
+      })
+      if (row) {
+        await db.message.update({
+          where: { id: row.id },
+          data: { replyToId: hit.id },
+        })
+      }
+    }
   }
 
   // Chronological repair when incoming rows predate existing ones: stable

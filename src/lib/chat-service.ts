@@ -238,16 +238,62 @@ export async function persistParsedChat(opts: PersistOptions): Promise<string> {
       mediaName: mediaName ? mediaName.slice(0, 255) : null,
       isMedia: MEDIA_TYPES.has(m.type) && !!mediaPath,
       pollOptions: m.pollOptions?.length ? JSON.stringify(m.pollOptions) : null,
+      reactions: m.reactions && Object.keys(m.reactions).length > 0
+        ? JSON.stringify(m.reactions)
+        : null,
+      replyToId: null,
+      _replyQuote: m.replyQuote ?? null,
     }
   })
+
+  // Reply quotes (v1.9 round-trip) resolve in a second pass — target rows
+  // need to exist first. Kept as an internal marker column, then stripped.
+  const quoteList = rows
+    .map((r, i) => ({ i, q: r._replyQuote as { sender: string; body: string } | null }))
+    .filter((x): x is { i: number; q: { sender: string; body: string } } => !!x.q)
 
   // Insert in chunks (SQLite parameter limit safety)
   const CHUNK = 150
   for (let i = 0; i < rows.length; i += CHUNK) {
     const chunk = rows
       .slice(i, i + CHUNK)
-      .map(({ isMedia: _m, ...r }) => r)
+      .map(({ isMedia: _m, _replyQuote: _q, ...r }) => r)
     await db.message.createMany({ data: chunk })
+  }
+
+  // Resolve reply quotes → replyToId (sender + flattened-body prefix match
+  // over the chat's recent rows; misses simply leave replyToId null).
+  if (quoteList.length > 0) {
+    const senders = [...new Set(quoteList.map((x) => x.q.sender))]
+    const candidates = await db.message.findMany({
+      where: { chatId, sender: { in: senders } },
+      select: { id: true, sender: true, body: true },
+      orderBy: { idx: 'desc' },
+      take: 400,
+    })
+    for (const { i, q } of quoteList) {
+      const want = q.body.toLowerCase()
+      const hit = candidates.find(
+        (c) =>
+          c.sender === q.sender &&
+          c.body
+            .replace(/\s*\n\s*/g, ' ')
+            .trim()
+            .toLowerCase()
+            .startsWith(want)
+      )
+      if (!hit) continue
+      const row = await db.message.findFirst({
+        where: { chatId, idx: rows[i].idx },
+        select: { id: true },
+      })
+      if (row) {
+        await db.message.update({
+          where: { id: row.id },
+          data: { replyToId: hit.id },
+        })
+      }
+    }
   }
 
   // Broad definition — every media-typed parsed message (see

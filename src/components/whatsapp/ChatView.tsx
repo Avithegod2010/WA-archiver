@@ -1475,6 +1475,8 @@ export function ChatView({
         mediaName: r.mediaName,
         edited: r.edited,
         scheduledFor: r.scheduledFor ? new Date(r.scheduledFor) : null,
+        reactions: r.reactions ?? null,
+        replyTo: r.replyTo ?? null,
       }))
       if (msgs.length === 0) {
         toast.error('No messages to verify')
@@ -4287,6 +4289,53 @@ export function ChatView({
                   </li>
                 ))}
               </ul>
+              {(verifyReport.reactionsTotal > 0 ||
+                verifyReport.repliesTotal > 0) && (
+                <div className="grid grid-cols-2 gap-2 text-[11.5px]">
+                  {verifyReport.reactionsTotal > 0 && (
+                    <div className="rounded-md bg-black/[0.03] p-2 dark:bg-white/[0.05]">
+                      <p className="font-semibold text-(--wa-text)">
+                        Reactions{' '}
+                        <span
+                          className={
+                            verifyReport.reactionsMatched ===
+                            verifyReport.reactionsTotal
+                              ? 'text-(--wa-accent-strong) dark:text-(--wa-accent)'
+                              : 'text-amber-600 dark:text-amber-400'
+                          }
+                        >
+                          {verifyReport.reactionsMatched}/
+                          {verifyReport.reactionsTotal}
+                        </span>
+                      </p>
+                      <p className="text-[10.5px] leading-snug text-(--wa-text-2)">
+                        folded back onto their messages
+                      </p>
+                    </div>
+                  )}
+                  {verifyReport.repliesTotal > 0 && (
+                    <div className="rounded-md bg-black/[0.03] p-2 dark:bg-white/[0.05]">
+                      <p className="font-semibold text-(--wa-text)">
+                        Reply threads{' '}
+                        <span
+                          className={
+                            verifyReport.repliesMatched ===
+                            verifyReport.repliesTotal
+                              ? 'text-(--wa-accent-strong) dark:text-(--wa-accent)'
+                              : 'text-amber-600 dark:text-amber-400'
+                          }
+                        >
+                          {verifyReport.repliesMatched}/
+                          {verifyReport.repliesTotal}
+                        </span>
+                      </p>
+                      <p className="text-[10.5px] leading-snug text-(--wa-text-2)">
+                        quotes re-detected on import
+                      </p>
+                    </div>
+                  )}
+                </div>
+              )}
               {verifyReport.losses.length > 0 && (
                 <div className="rounded-md border border-black/[0.06] p-2 text-[11.5px] leading-snug text-(--wa-text-2) dark:border-white/10">
                   <p className="mb-1 font-semibold text-(--wa-text)">
