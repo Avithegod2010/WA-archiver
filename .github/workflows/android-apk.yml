@@ -155,9 +155,9 @@ jobs:
           if [[ -n "$PREV_TAG" && "$PREV_TAG" != "$GITHUB_REF" ]]; then
             {
               echo ''
-              echo '**Full changelog:** https://github.com/$GITHUB_REPOSITORY/compare/$PREV_TAG...${GITHUB_REF#refs/tags/}'
+              echo "**Full changelog:** https://github.com/$GITHUB_REPOSITORY/compare/$PREV_TAG...${GITHUB_REF#refs/tags/}"
             } >> release-notes.md
-            echo 'Compare link appended: $PREV_TAG → ${GITHUB_REF#refs/tags/}'
+            echo "Compare link appended: $PREV_TAG → ${GITHUB_REF#refs/tags/}"
           fi
 
       - name: Attach APKs to GitHub Release
