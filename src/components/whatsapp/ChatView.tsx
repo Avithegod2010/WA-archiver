@@ -599,6 +599,7 @@ export function ChatView({
   hasChats,
   onOpenDemo,
   onOpenImport,
+  onOpenMediaHub,
 }: {
   detail: ChatDetail | null
   setDetail: React.Dispatch<React.SetStateAction<ChatDetail | null>>
@@ -613,6 +614,8 @@ export function ChatView({
   hasChats?: boolean
   onOpenDemo?: () => void
   onOpenImport?: () => void
+  /** Open the global Media Hub (albums + date range); omit to use the legacy per-chat gallery. */
+  onOpenMediaHub?: () => void
 }) {
   // Active transport (Phase 2): 'server' = REST /api/*, 'device' = on-device
   // SQLite-WASM. Every data flow below goes through `data`.
@@ -3022,7 +3025,10 @@ export function ChatView({
                 Browse
               </DropdownMenuLabel>
               <DropdownMenuItem
-                onClick={() => setGalleryOpen(true)}
+                onClick={() => {
+                  if (onOpenMediaHub) onOpenMediaHub()
+                  else setGalleryOpen(true)
+                }}
                 className="gap-2"
               >
                 <Images className="h-4 w-4 text-(--wa-text-2)" />

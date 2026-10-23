@@ -183,6 +183,8 @@ function WhatsAppAppInner() {
   const [statsOpen, setStatsOpen] = useState(false)
   const [memoriesOpen, setMemoriesOpen] = useState(false)
   const [mediaHubOpen, setMediaHubOpen] = useState(false)
+  // Chat id to pre-filter the Media Hub with when opened from a chat.
+  const [mediaHubChat, setMediaHubChat] = useState<string | null>(null)
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [shortcutsOpen, setShortcutsOpen] = useState(false)
   const [importPanelOpen, setImportPanelOpen] = useState(false)
@@ -1763,6 +1765,10 @@ function WhatsAppAppInner() {
             hasChats={chats.some((c) => c.id !== SAVED_CHAT_ID)}
             onOpenDemo={() => setDemoPickerOpen(true)}
             onOpenImport={() => setImportPanelOpen(true)}
+            onOpenMediaHub={() => {
+              setMediaHubChat(activeId)
+              setMediaHubOpen(true)
+            }}
           />
         </main>
         {importing && (
@@ -1827,6 +1833,7 @@ function WhatsAppAppInner() {
         open={mediaHubOpen}
         onClose={() => setMediaHubOpen(false)}
         onOpenMessage={openFromSearch}
+        initialChatId={mediaHubChat}
       />
 
       {/* Interactive animated guide */}

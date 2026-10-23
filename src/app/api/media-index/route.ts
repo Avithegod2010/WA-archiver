@@ -30,8 +30,10 @@ export async function GET(req: NextRequest) {
   const denied = await assertAppUnlocked(req)
   if (denied) return denied
 
+  // Same selection as the per-chat media route: media-typed messages even
+  // when mediaPath is null (demo/synthetic media, "Not in export" tiles).
   const rows = await db.message.findMany({
-    where: { type: { in: MEDIA_TYPES }, mediaPath: { not: null } },
+    where: { type: { in: MEDIA_TYPES } },
     orderBy: [{ ts: 'desc' }, { idx: 'desc' }],
     take: MAX_ROWS,
     select: {

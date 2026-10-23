@@ -175,11 +175,14 @@ export function MediaHub({
   open,
   onClose,
   onOpenMessage,
+  initialChatId,
 }: {
   open: boolean
   onClose: () => void
   /** Open the owning chat scrolled to this message. */
   onOpenMessage: (chatId: string, messageId: string) => void
+  /** When opened from a chat, pre-filter the index to that conversation. */
+  initialChatId?: string | null
 }) {
   const { mode, data, modeResolved } = useData()
   const normalizeMessages = useMessageNormalizer()
@@ -261,9 +264,10 @@ export function MediaHub({
       setToDate('')
       setView('grid')
       setOpenAlbum(null)
+      setChatFilter(initialChatId ?? 'all')
       load()
     }
-  }, [open, modeResolved, load])
+  }, [open, modeResolved, load, initialChatId])
 
   // OPFS/origin quota readout (device mode only — server storage is unbounded).
   useEffect(() => {
