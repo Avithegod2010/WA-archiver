@@ -110,6 +110,8 @@ import {
   unreadFor,
   type ChatFolder,
 } from './chat-folders'
+import { getLocale, t as translate, useT } from '@/lib/i18n'
+import type { TranslationKey } from '@/lib/locales/en'
 
 // Built-in folder ids (custom folders use their own generated ids)
 const FOLDER_ALL = 'all'
@@ -140,7 +142,7 @@ function formatListTime(iso: string | null): string {
   const target = new Date(d.getFullYear(), d.getMonth(), d.getDate())
   const diffDays = Math.round((today.getTime() - target.getTime()) / 86400000)
   if (diffDays === 0) return formatChatTime(d)
-  if (diffDays === 1) return 'Yesterday'
+  if (diffDays === 1) return translate(getLocale(), 'chats.time.yesterday')
   if (diffDays < 7)
     return d.toLocaleDateString('en-GB', { weekday: 'long' })
   return d.toLocaleDateString('en-GB', {
@@ -152,20 +154,20 @@ function formatListTime(iso: string | null): string {
 
 const TYPE_META: Record<
   string,
-  { icon: React.ReactNode; label: string }
+  { icon: React.ReactNode; labelKey: TranslationKey }
 > = {
-  image: { icon: <ImageIcon className="h-3.5 w-3.5" />, label: 'Photo' },
-  sticker: { icon: <StickyNote className="h-3.5 w-3.5" />, label: 'Sticker' },
-  gif: { icon: <Film className="h-3.5 w-3.5" />, label: 'GIF' },
-  video: { icon: <Film className="h-3.5 w-3.5" />, label: 'Video' },
-  audio: { icon: <Mic className="h-3.5 w-3.5" />, label: 'Voice message' },
-  document: { icon: <FileText className="h-3.5 w-3.5" />, label: 'Document' },
-  location: { icon: <MapPin className="h-3.5 w-3.5" />, label: 'Location' },
-  contact: { icon: <UserRound className="h-3.5 w-3.5" />, label: 'Contact card' },
-  poll: { icon: <BarChart3 className="h-3.5 w-3.5" />, label: 'Poll' },
-  call: { icon: <PhoneMissed className="h-3.5 w-3.5" />, label: 'Missed call' },
-  deleted: { icon: <Ban className="h-3.5 w-3.5" />, label: 'Deleted message' },
-  media: { icon: <ImageIcon className="h-3.5 w-3.5" />, label: 'Media' },
+  image: { icon: <ImageIcon className="h-3.5 w-3.5" />, labelKey: 'chats.type.photo' },
+  sticker: { icon: <StickyNote className="h-3.5 w-3.5" />, labelKey: 'chats.type.sticker' },
+  gif: { icon: <Film className="h-3.5 w-3.5" />, labelKey: 'chats.type.gif' },
+  video: { icon: <Film className="h-3.5 w-3.5" />, labelKey: 'chats.type.video' },
+  audio: { icon: <Mic className="h-3.5 w-3.5" />, labelKey: 'chats.type.voice' },
+  document: { icon: <FileText className="h-3.5 w-3.5" />, labelKey: 'chats.type.document' },
+  location: { icon: <MapPin className="h-3.5 w-3.5" />, labelKey: 'chats.type.location' },
+  contact: { icon: <UserRound className="h-3.5 w-3.5" />, labelKey: 'chats.type.contact' },
+  poll: { icon: <BarChart3 className="h-3.5 w-3.5" />, labelKey: 'chats.type.poll' },
+  call: { icon: <PhoneMissed className="h-3.5 w-3.5" />, labelKey: 'chats.type.missedCall' },
+  deleted: { icon: <Ban className="h-3.5 w-3.5" />, labelKey: 'chats.type.deleted' },
+  media: { icon: <ImageIcon className="h-3.5 w-3.5" />, labelKey: 'chats.type.media' },
 }
 
 /**
@@ -174,7 +176,10 @@ const TYPE_META: Record<
  * as a sibling block made rows wrap onto 3+ lines and clip at the list edge.
  */
 function SenderPrefix({ sender }: { sender: string }) {
-  if (sender === 'You') return <span className="text-[13.5px]">You: </span>
+  const t = useT()
+  // 'You' is chat DATA (exported sender name) — compare raw, localize display.
+  if (sender === 'You')
+    return <span className="text-[13.5px]">{t('common.you')}: </span>
   return (
     <span className="text-[13.5px]">
       <span className="text-(--wa-text)">{sender}</span>{': '}
@@ -190,6 +195,7 @@ function Preview({
   /** Group sender shown inline before the preview ("Sender: preview"). */
   sender?: string | null
 }) {
+  const t = useT()
   if (chat.lastType === 'system') {
     return (
       <p className="truncate text-[13.5px] italic">
@@ -205,7 +211,7 @@ function Preview({
         {sender ? <SenderPrefix sender={sender} /> : null}
         <span className="inline-flex items-center gap-1 align-[1px]">
           {meta.icon}
-          {meta.label}
+          {t(meta.labelKey)}
         </span>
         {chat.lastPreview && chat.lastType !== 'media' && (
           <span>: {chat.lastPreview}</span>
@@ -260,6 +266,7 @@ function ChatRow({
   /** Enter select mode with this chat preselected (long-press / hover ✚). */
   onEnterSelect: (id: string) => void
 }) {
+  const t = useT()
   const isSaved = chat.id === SAVED_CHAT_ID
   const hasUnread = !isArchived && unread > 0
   const customAvatar = useChatAvatar(isSaved ? '' : chat.id)
@@ -331,7 +338,9 @@ function ChatRow({
       // (role + aria-checked), keeping the same layout/row classes.
       role={selectMode ? 'checkbox' : undefined}
       aria-checked={selectMode ? selected : undefined}
-      aria-label={selectMode ? `Select ${chat.title}` : undefined}
+      aria-label={
+        selectMode ? t('chats.row.aria.select', { name: chat.title }) : undefined
+      }
       aria-disabled={selectMode && isSaved ? true : undefined}
       onClick={handleClick}
       onPointerDown={handlePointerDown}
@@ -372,7 +381,7 @@ function ChatRow({
             {chat.pinned && !isSaved && (
               <Pin
                 className="h-3 w-3 shrink-0 fill-[#8696a0] text-(--wa-text-2)"
-                aria-label="Pinned"
+                aria-label={t('chats.row.aria.pinned')}
               />
             )}
           </span>
@@ -418,7 +427,11 @@ function ChatRow({
               {hasUnread && (
                 <span
                   className="flex h-5 min-w-[20px] shrink-0 items-center justify-center rounded-full bg-(--wa-accent) px-1.5 text-[11px] font-bold leading-none tabular-nums text-white group-hover:hidden"
-                  aria-label={`${unread} unread message${unread === 1 ? '' : 's'}`}
+                  aria-label={
+                    unread === 1
+                      ? t('chats.row.aria.unreadOne')
+                      : t('chats.row.aria.unreadMany', { count: unread })
+                  }
                 >
                   {unread > 999 ? '999+' : unread}
                 </span>
@@ -429,8 +442,8 @@ function ChatRow({
             <span
               role="button"
               tabIndex={0}
-              aria-label={`Select ${chat.title}`}
-              title="Select"
+              aria-label={t('chats.row.aria.select', { name: chat.title })}
+              title={t('chats.row.select')}
               className="rounded p-1 text-(--wa-text-2) hover:bg-black/10 hover:text-(--wa-accent) dark:hover:bg-white/10"
               onClick={(e) => {
                 e.stopPropagation()
@@ -451,10 +464,12 @@ function ChatRow({
                 tabIndex={0}
                 aria-label={
                   isFav
-                    ? `Remove ${chat.title} from favorites`
-                    : `Add ${chat.title} to favorites`
+                    ? t('chats.row.aria.unfav', { name: chat.title })
+                    : t('chats.row.aria.fav', { name: chat.title })
                 }
-                title={isFav ? 'Remove from favorites' : 'Add to favorites'}
+                title={
+                  isFav ? t('chats.row.title.unfav') : t('chats.row.title.fav')
+                }
                 className="rounded p-1 text-(--wa-text-2) hover:bg-black/10 hover:text-[#f2a33c] dark:hover:bg-white/10"
                 onClick={(e) => {
                   e.stopPropagation()
@@ -480,9 +495,13 @@ function ChatRow({
                 role="button"
                 tabIndex={0}
                 aria-label={
-                  chat.pinned ? `Unpin ${chat.title}` : `Pin ${chat.title}`
+                  chat.pinned
+                    ? t('chats.row.aria.unpin', { name: chat.title })
+                    : t('chats.row.aria.pin', { name: chat.title })
                 }
-                title={chat.pinned ? 'Unpin chat' : 'Pin chat'}
+                title={
+                  chat.pinned ? t('chats.row.title.unpin') : t('chats.row.title.pin')
+                }
                 className="rounded p-1 text-(--wa-text-2) hover:bg-black/10 hover:text-(--wa-accent) dark:hover:bg-white/10"
                 onClick={(e) => {
                   e.stopPropagation()
@@ -507,9 +526,15 @@ function ChatRow({
                 role="button"
                 tabIndex={0}
                 aria-label={
-                  isArchived ? `Unarchive ${chat.title}` : `Archive ${chat.title}`
+                  isArchived
+                    ? t('chats.row.aria.unarchive', { name: chat.title })
+                    : t('chats.row.aria.archive', { name: chat.title })
                 }
-                title={isArchived ? 'Unarchive chat' : 'Archive chat'}
+                title={
+                  isArchived
+                    ? t('chats.row.title.unarchive')
+                    : t('chats.row.title.archive')
+                }
                 className="rounded p-1 text-(--wa-text-2) hover:bg-black/10 hover:text-(--wa-accent) dark:hover:bg-white/10"
                 onClick={(e) => {
                   e.stopPropagation()
@@ -533,7 +558,7 @@ function ChatRow({
               <span
                 role="button"
                 tabIndex={0}
-                aria-label={`Delete ${chat.title}`}
+                aria-label={t('chats.row.aria.delete', { name: chat.title })}
                 className="rounded p-1 text-(--wa-text-2) hover:bg-black/10 hover:text-rose-500 dark:hover:bg-white/10"
                 onClick={(e) => {
                   e.stopPropagation()
@@ -568,6 +593,7 @@ function ArchivedToggle({
   open: boolean
   onClick: () => void
 }) {
+  const t = useT()
   return (
     <button
       onClick={onClick}
@@ -578,7 +604,7 @@ function ArchivedToggle({
         <Archive className="h-4 w-4" />
       </span>
       <span className="flex-1 text-[14.5px] font-medium text-(--wa-text)">
-        Archived
+        {t('chats.archived')}
       </span>
       <span className="rounded-full bg-black/5 px-2 py-0.5 text-[11.5px] font-semibold tabular-nums text-(--wa-text-2) transition-transform duration-150 active:scale-90 dark:bg-white/10 dark:text-(--wa-text-2)">
         {count}
@@ -603,28 +629,29 @@ function FolderEmptyState({
   folderName: string
   onOpenManager: () => void
 }) {
+  const t = useT()
   if (folderId === FOLDER_ALL) {
     return (
       <p className="px-4 pb-1 pt-4 text-center text-[13px] text-(--wa-text-2)">
-        All chats are archived
+        {t('chats.folderEmpty.allArchived')}
       </p>
     )
   }
 
-  let title = 'Nothing here yet'
+  let title = t('chats.folderEmpty.generic')
   let hint: React.ReactNode = null
   if (folderId === FOLDER_UNREAD) {
-    title = 'No unread messages 🎉'
-    hint = 'You are all caught up.'
+    title = t('chats.folderEmpty.unread')
+    hint = t('chats.folderEmpty.unreadHint')
   } else if (folderId === FOLDER_GROUPS) {
-    title = 'No group chats'
-    hint = 'Group conversations you are part of will show up here.'
+    title = t('chats.folderEmpty.groups')
+    hint = t('chats.folderEmpty.groupsHint')
   } else if (folderId === FOLDER_FAVORITES) {
-    title = 'No favorites yet'
-    hint = 'Hover a chat and tap the ★ to add it to this folder.'
+    title = t('chats.folderEmpty.favorites')
+    hint = t('chats.folderEmpty.favoritesHint')
   } else {
-    title = 'No chats in this folder yet'
-    hint = 'Pick which chats belong here with the folder manager.'
+    title = t('chats.folderEmpty.custom')
+    hint = t('chats.folderEmpty.customHint')
   }
 
   return (
@@ -642,7 +669,7 @@ function FolderEmptyState({
           onClick={onOpenManager}
         >
           <Settings2 className="h-4 w-4" />
-          Manage folders
+          {t('chats.folders.manage')}
         </Button>
       )}
     </div>
@@ -692,6 +719,7 @@ export function ChatList({
   bindImportTrigger?: (fn: () => void) => void
 }) {
   const { data } = useData()
+  const t = useT()
   const [query, setQuery] = useState('')
   const [pendingDelete, setPendingDelete] = useState<ChatSummary | null>(null)
   // ---- B2: chat multi-select -------------------------------------------
@@ -846,13 +874,13 @@ export function ChatList({
 
   const tabs = useMemo<FolderTab[]>(
     () => [
-      { id: FOLDER_ALL, label: 'All', Icon: MessagesSquare },
-      { id: FOLDER_UNREAD, label: 'Unread', Icon: CircleDot },
-      { id: FOLDER_GROUPS, label: 'Groups', Icon: Users },
-      { id: FOLDER_FAVORITES, label: 'Favorites', Icon: Star },
+      { id: FOLDER_ALL, label: t('chats.tab.all'), Icon: MessagesSquare },
+      { id: FOLDER_UNREAD, label: t('chats.tab.unread'), Icon: CircleDot },
+      { id: FOLDER_GROUPS, label: t('chats.tab.groups'), Icon: Users },
+      { id: FOLDER_FAVORITES, label: t('chats.tab.favorites'), Icon: Star },
       ...folders.map((f) => ({ id: f.id, label: f.name, emoji: f.emoji })),
     ],
-    [folders]
+    [folders, t]
   )
   const tabsSignature = tabs.map((t) => t.id).join('|')
 
@@ -945,21 +973,30 @@ export function ChatList({
 
   function handleMarkAllRead() {
     markAllRead(chats)
-    toast.success('All chats marked as read')
+    toast.success(t('chats.toast.markAllRead'))
   }
 
   // ---- B2: bulk actions -------------------------------------------------
-  const plural = (n: number) => (n === 1 ? '' : 's')
-
   function handleBulkFav() {
     const ids = favTargets.map((c) => c.id)
     if (ids.length === 0) return
     const favorite = !allFav
     const r = bulkSetChatFavorite(ids, favorite)
     if (r.ok.length > 0) {
-      toast.success(
-        `${favorite ? 'Favorited' : 'Unfavorited'} ${r.ok.length} chat${plural(r.ok.length)}`
-      )
+      const n = r.ok.length
+      if (favorite) {
+        toast.success(
+          n === 1
+            ? t('chats.toast.favoritedOne')
+            : t('chats.toast.favoritedMany', { count: n })
+        )
+      } else {
+        toast.success(
+          n === 1
+            ? t('chats.toast.unfavoritedOne')
+            : t('chats.toast.unfavoritedMany', { count: n })
+        )
+      }
     }
   }
 
@@ -971,13 +1008,26 @@ export function ChatList({
     try {
       const r = await bulkSetChatPin(data, ids, pinned)
       if (r.ok.length > 0) {
-        toast.success(
-          `${pinned ? 'Pinned' : 'Unpinned'} ${r.ok.length} chat${plural(r.ok.length)}`
-        )
+        const n = r.ok.length
+        if (pinned) {
+          toast.success(
+            n === 1
+              ? t('chats.toast.pinnedOne')
+              : t('chats.toast.pinnedMany', { count: n })
+          )
+        } else {
+          toast.success(
+            n === 1
+              ? t('chats.toast.unpinnedOne')
+              : t('chats.toast.unpinnedMany', { count: n })
+          )
+        }
       }
       if (r.failed.length > 0) {
         toast.error(
-          `Could not update ${r.failed.length} chat${plural(r.failed.length)}`
+          r.failed.length === 1
+            ? t('chats.toast.updateFailedOne')
+            : t('chats.toast.updateFailedMany', { count: r.failed.length })
         )
       }
       if (r.ok.length > 0) await onRefreshChats()
@@ -992,11 +1042,16 @@ export function ChatList({
     const r = bulkMoveChatsToFolder(ids, folder.id)
     if (r.ok.length > 0) {
       toast.success(
-        `Moved ${r.ok.length} chat${plural(r.ok.length)} to ${folder.name}`
+        r.ok.length === 1
+          ? t('chats.toast.movedOne', { folder: folder.name })
+          : t('chats.toast.movedMany', {
+              count: r.ok.length,
+              folder: folder.name,
+            })
       )
       setMoveOpen(false)
     } else {
-      toast.error('Could not update folders')
+      toast.error(t('chats.toast.moveFailed'))
     }
   }
 
@@ -1008,14 +1063,20 @@ export function ChatList({
     try {
       const r = await bulkDeleteChats(data, ids)
       if (r.ok.length > 0) {
-        toast.success(`Deleted ${r.ok.length} chat${plural(r.ok.length)}`)
+        toast.success(
+          r.ok.length === 1
+            ? t('chats.toast.deletedOne')
+            : t('chats.toast.deletedMany', { count: r.ok.length })
+        )
         // The selection is gone with the chats — leave select mode
         exitSelect()
         await onAfterBulkDelete?.(r.ok)
       }
       if (r.failed.length > 0) {
         toast.error(
-          `Could not delete ${r.failed.length} chat${plural(r.failed.length)}`
+          r.failed.length === 1
+            ? t('chats.toast.deleteFailedOne')
+            : t('chats.toast.deleteFailedMany', { count: r.failed.length })
         )
       }
     } finally {
@@ -1040,17 +1101,23 @@ export function ChatList({
         a.click()
         a.remove()
         window.setTimeout(() => URL.revokeObjectURL(url), 5000)
-        toast.success(`Exported ${r.ok.length} chat${plural(r.ok.length)}`)
+        toast.success(
+          r.ok.length === 1
+            ? t('chats.toast.exportedOne')
+            : t('chats.toast.exportedMany', { count: r.ok.length })
+        )
       } else {
-        toast.error('Could not export the selected chats')
+        toast.error(t('chats.toast.exportSelectedFailed'))
       }
       if (r.failed.length > 0) {
         toast.error(
-          `Could not export ${r.failed.length} chat${plural(r.failed.length)}`
+          r.failed.length === 1
+            ? t('chats.toast.exportFailedOne')
+            : t('chats.toast.exportFailedMany', { count: r.failed.length })
         )
       }
     } catch {
-      toast.error('Export failed')
+      toast.error(t('chats.toast.exportFailed'))
     } finally {
       setBulkBusy(false)
     }
@@ -1251,7 +1318,7 @@ export function ChatList({
       <div className="bg-(--wa-appbar) px-4 pb-2 pt-3">
         <div className="flex items-center justify-between">
           <h1 className="text-[19px] font-semibold text-white dark:text-(--wa-text)">
-            Chats
+            {t('chats.title')}
           </h1>
           <div className="flex items-center gap-1">
             <Button
@@ -1260,8 +1327,8 @@ export function ChatList({
               className="wa-iconbtn h-9 w-9 rounded-full bg-white/10 text-white hover:bg-white/20 dark:text-(--wa-text)"
               onClick={onOpenPalette}
               disabled={importing}
-              title="Command palette — jump to chats & run actions (Ctrl/⌘+K)"
-              aria-label="Open command palette"
+              title={t('chats.header.paletteTip')}
+              aria-label={t('chats.header.paletteAria')}
             >
               <Command className="h-4 w-4" />
             </Button>
@@ -1276,15 +1343,15 @@ export function ChatList({
                   variant="ghost"
                   className="wa-iconbtn h-9 w-9 rounded-full bg-white/10 text-white hover:bg-white/20 dark:text-(--wa-text)"
                   disabled={importing}
-                  title="More — insights, memories, media hub, demo"
-                  aria-label="More sidebar tools"
+                  title={t('chats.header.moreTip')}
+                  aria-label={t('chats.header.moreAria')}
                 >
                   <MoreVertical className="h-4 w-4" />
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end" className="w-56">
                 <DropdownMenuLabel className="px-2 py-1 text-[10.5px] font-semibold uppercase tracking-wider text-(--wa-text-2)">
-                  Explore
+                  {t('chats.menu.explore')}
                 </DropdownMenuLabel>
                 {/* B2: enter chat multi-select */}
                 <DropdownMenuItem
@@ -1293,7 +1360,7 @@ export function ChatList({
                   disabled={importing || chats.length === 0}
                 >
                   <ListChecks className="h-4 w-4 text-(--wa-text-2)" />
-                  Select chats
+                  {t('select.title')}
                 </DropdownMenuItem>
                 <DropdownMenuItem
                   onClick={onOpenInsights}
@@ -1301,7 +1368,7 @@ export function ChatList({
                   disabled={importing}
                 >
                   <BarChart3 className="h-4 w-4 text-(--wa-text-2)" />
-                  Insights across all chats
+                  {t('chats.menu.insights')}
                 </DropdownMenuItem>
                 <DropdownMenuItem
                   onClick={onOpenMemories}
@@ -1309,7 +1376,7 @@ export function ChatList({
                   disabled={importing}
                 >
                   <CalendarHeart className="h-4 w-4 text-(--wa-text-2)" />
-                  On this day memories
+                  {t('chats.menu.memories')}
                 </DropdownMenuItem>
                 <DropdownMenuItem
                   onClick={onOpenMediaHub}
@@ -1317,11 +1384,11 @@ export function ChatList({
                   disabled={importing}
                 >
                   <Images className="h-4 w-4 text-(--wa-text-2)" />
-                  Media hub
+                  {t('chats.menu.mediaHub')}
                 </DropdownMenuItem>
                 <DropdownMenuSeparator />
                 <DropdownMenuLabel className="px-2 py-1 text-[10.5px] font-semibold uppercase tracking-wider text-(--wa-text-2)">
-                  Try
+                  {t('chats.menu.try')}
                 </DropdownMenuLabel>
                 <DropdownMenuItem
                   onClick={onDemo}
@@ -1329,7 +1396,7 @@ export function ChatList({
                   disabled={importing}
                 >
                   <Sparkles className="h-4 w-4 text-(--wa-text-2)" />
-                  Demo chats
+                  {t('chats.menu.demo')}
                 </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
@@ -1345,7 +1412,7 @@ export function ChatList({
               ) : (
                 <Upload className="h-3.5 w-3.5" />
               )}
-              Import
+              {t('chats.header.import')}
             </Button>
           </div>
         </div>
@@ -1365,7 +1432,7 @@ export function ChatList({
                 e.currentTarget.blur()
               }
             }}
-            placeholder="Search or start a new chat"
+            placeholder={t('chats.search.placeholder')}
             className={cn(
               'h-9 rounded-lg border-none bg-(--wa-panel-2) pl-9 text-[14px] text-(--wa-text) dark:bg-(--wa-row-active) dark:text-(--wa-text) dark:placeholder:text-(--wa-text-2)',
               totalUnread > 0 && 'pr-9'
@@ -1375,8 +1442,8 @@ export function ChatList({
           {totalUnread > 0 && (
             <button
               onClick={handleMarkAllRead}
-              title="Mark all as read"
-              aria-label="Mark all chats as read"
+              title={t('chats.search.markAllTip')}
+              aria-label={t('chats.search.markAllAria')}
               className="absolute right-1 top-1/2 flex h-7 w-7 -translate-y-1/2 items-center justify-center rounded-full text-(--wa-text-2) transition-colors hover:bg-black/10 hover:text-(--wa-accent-strong) dark:hover:bg-white/10 dark:hover:text-(--wa-accent)"
             >
               <CheckCheck className="h-4 w-4" />
@@ -1389,7 +1456,7 @@ export function ChatList({
           <div
             ref={tabsWrapRef}
             role="tablist"
-            aria-label="Chat folders"
+            aria-label={t('chats.folders.aria')}
             className="wa-folder-tabs relative flex items-center gap-1 overflow-x-auto py-1"
           >
             {/* Sliding active-pill indicator */}
@@ -1452,13 +1519,13 @@ export function ChatList({
               ref={setTabRef(FOLDER_MANAGE)}
               role="tab"
               aria-selected={false}
-              title="Manage folders"
-              aria-label="Manage folders"
+              title={t('chats.folders.manage')}
+              aria-label={t('chats.folders.manage')}
               onClick={() => setManagerOpen(true)}
               className="relative z-10 flex h-10 shrink-0 select-none items-center rounded-full px-3 text-white/75 transition-colors duration-[260ms] motion-reduce:transition-none hover:bg-white/10 hover:text-white dark:text-(--wa-text-2) dark:hover:bg-white/10 dark:hover:text-(--wa-text)"
             >
               <Settings2 className="h-4 w-4" />
-              <span className="sr-only">Manage folders</span>
+              <span className="sr-only">{t('chats.folders.manage')}</span>
             </button>
           </div>
         </div>
@@ -1492,12 +1559,12 @@ export function ChatList({
                 <Upload className="h-7 w-7 text-(--wa-accent)" />
               </div>
               <p className="text-[15px] font-medium text-(--wa-text)">
-                Import your chats
+                {t('chats.empty.importTitle')}
               </p>
               <p className="mt-2 max-w-[260px] text-[13px] leading-relaxed text-(--wa-text-2)">
-                Drop WhatsApp export <b>.zip</b> (with media) or <b>.txt</b>{' '}
-                files here — several at once works too — or use the Import
-                button above.
+                {t('chats.empty.importBodyPre')} <b>.zip</b>{' '}
+                {t('chats.empty.importBodyMid')} <b>.txt</b>{' '}
+                {t('chats.empty.importBodyPost')}
               </p>
               <Button
                 className="mt-5 gap-2 rounded-full bg-(--wa-accent) text-white hover:bg-(--wa-accent-strong)"
@@ -1505,18 +1572,17 @@ export function ChatList({
                 disabled={importing}
               >
                 <Sparkles className="h-4 w-4" />
-                Try demo chats
+                {t('chats.empty.tryDemo')}
               </Button>
             </div>
             <p className="mt-6 text-[12px] leading-relaxed text-(--wa-text-2)">
-              Open WhatsApp &gt; a chat &gt; menu &gt; More &gt; Export chat to
-              create an export file.
+              {t('chats.empty.exportHint')}
             </p>
           </div>
         ) : query.trim() && activeChats.length === 0 && archivedChats.length === 0 ? (
           <div className="flex h-full flex-col items-center justify-center gap-4 px-8 py-10 text-center">
             <p className="text-[13.5px] text-(--wa-text-2)">
-              No chats match &quot;{query}&quot;
+              {t('chats.search.noMatch', { query })}
             </p>
             <Button
               variant="secondary"
@@ -1524,7 +1590,7 @@ export function ChatList({
               onClick={() => onOpenGlobalSearch(query.trim())}
             >
               <TextSearch className="h-4 w-4" />
-              Search messages instead
+              {t('chats.search.messagesInstead')}
             </Button>
           </div>
         ) : (
@@ -1535,17 +1601,21 @@ export function ChatList({
                 <button
                   onClick={() => onOpenGlobalSearch(query.trim())}
                   className="anim-fade-up group flex w-full items-center gap-3 border-b border-black/5 px-4 py-2.5 text-left transition-colors hover:bg-(--wa-row-hover) dark:border-white/5 dark:hover:bg-(--wa-row-hover)"
-                  title={`Search messages for "${query.trim()}"`}
+                  title={t('chats.search.searchMessagesFor', {
+                    query: query.trim(),
+                  })}
                 >
                   <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-(--wa-accent)/10 text-(--wa-accent-strong) transition-colors group-hover:bg-(--wa-accent) group-hover:text-white dark:bg-(--wa-accent)/20 dark:text-(--wa-accent) dark:group-hover:text-white">
                     <TextSearch className="h-4 w-4" />
                   </span>
                   <span className="min-w-0 flex-1">
                     <span className="block text-[14.5px] font-medium text-(--wa-text)">
-                      Search messages for &quot;{query.trim()}&quot;
+                      {t('chats.search.searchMessagesFor', {
+                        query: query.trim(),
+                      })}
                     </span>
                     <span className="block truncate text-[12.5px] text-(--wa-text-2)">
-                      Find this text inside every chat
+                      {t('chats.search.findInAll')}
                     </span>
                   </span>
                   <ChevronRight className="h-4 w-4 shrink-0 text-(--wa-text-2) transition-transform group-hover:translate-x-0.5" />
@@ -1570,7 +1640,9 @@ export function ChatList({
                       {(showPinnedDivider || showAllDivider) && (
                         <div className="flex items-center gap-3 bg-(--wa-row-hover)/80 px-4 pb-1 pt-2.5 dark:bg-(--wa-panel)/60">
                           <span className="text-[11px] font-semibold uppercase tracking-wider text-(--wa-text-2)">
-                            {showPinnedDivider ? 'Pinned' : 'All chats'}
+                            {showPinnedDivider
+                              ? t('chats.divider.pinned')
+                              : t('chats.divider.allChats')}
                           </span>
                           <span className="h-px flex-1 bg-black/5 dark:bg-white/5" />
                         </div>
@@ -1628,7 +1700,7 @@ export function ChatList({
       {selectMode && (
         <div
           role="toolbar"
-          aria-label="Selected chat actions"
+          aria-label={t('chats.bulk.aria.toolbar')}
           className="border-t border-black/10 bg-(--wa-panel-2) px-2 pt-1 dark:border-white/5 dark:bg-(--wa-panel-2)"
           style={{ paddingBottom: 'max(0.25rem, env(safe-area-inset-bottom))' }}
         >
@@ -1639,8 +1711,8 @@ export function ChatList({
               className="h-11 w-11 shrink-0"
               onClick={exitSelect}
               disabled={bulkBusy}
-              aria-label="Close selection"
-              title="Close (Esc)"
+              aria-label={t('chats.bulk.aria.close')}
+              title={t('chats.bulk.title.close')}
             >
               <X className="h-5 w-5 text-(--wa-text-2)" />
             </Button>
@@ -1648,7 +1720,7 @@ export function ChatList({
               className="min-w-0 flex-1 truncate px-1 text-[13.5px] font-medium text-(--wa-text)"
               aria-live="polite"
             >
-              {selectedChats.length} selected
+              {t('select.toolbar.selected', { count: selectedChats.length })}
             </span>
             <Button
               variant="ghost"
@@ -1663,22 +1735,22 @@ export function ChatList({
                 )
               }
               disabled={bulkBusy || displayList.length === 0}
-              title="Select all chats in this view"
-              aria-label="Select all chats in this view"
+              title={t('chats.bulk.selectAllTip')}
+              aria-label={t('chats.bulk.selectAllTip')}
             >
               <ListChecks className="h-4 w-4 text-(--wa-text-2)" />
-              Select all
+              {t('chats.bulk.selectAll')}
             </Button>
             <Button
               variant="ghost"
               className="h-11 shrink-0 gap-1.5 rounded-full px-3 text-[13px] font-medium text-(--wa-text)"
               onClick={() => setSelectedIds(new Set())}
               disabled={bulkBusy || selectedChats.length === 0}
-              title="Clear selection"
-              aria-label="Clear selection"
+              title={t('chats.bulk.clearTip')}
+              aria-label={t('chats.bulk.clearTip')}
             >
               <X className="h-4 w-4 text-(--wa-text-2)" />
-              Clear
+              {t('select.action.clear')}
             </Button>
           </div>
           <div className="flex items-center gap-1 overflow-x-auto pb-1">
@@ -1690,10 +1762,10 @@ export function ChatList({
               disabled={bulkBusy || favTargets.length === 0}
               aria-label={
                 allFav
-                  ? 'Remove selected chats from favorites'
-                  : 'Add selected chats to favorites'
+                  ? t('chats.bulk.aria.unfavAll')
+                  : t('chats.bulk.aria.favAll')
               }
-              title={allFav ? 'Unfavorite' : 'Favorite'}
+              title={allFav ? t('chats.bulk.title.unfav') : t('chats.bulk.title.fav')}
             >
               {allFav ? (
                 <StarOff className="h-5 w-5 text-[#f2a33c]" />
@@ -1708,9 +1780,11 @@ export function ChatList({
               onClick={handleBulkPin}
               disabled={bulkBusy || pinnable.length === 0}
               aria-label={
-                allPinned ? 'Unpin selected chats' : 'Pin selected chats'
+                allPinned
+                  ? t('chats.bulk.aria.unpinAll')
+                  : t('chats.bulk.aria.pinAll')
               }
-              title={allPinned ? 'Unpin' : 'Pin'}
+              title={allPinned ? t('chats.bulk.title.unpin') : t('chats.bulk.title.pin')}
             >
               {allPinned ? (
                 <PinOff className="h-5 w-5 text-(--wa-accent)" />
@@ -1724,8 +1798,8 @@ export function ChatList({
               className="h-11 w-11 shrink-0"
               onClick={() => setMoveOpen(true)}
               disabled={bulkBusy || movable.length === 0}
-              aria-label="Move selected chats to a folder"
-              title="Move to folder"
+              aria-label={t('chats.bulk.aria.move')}
+              title={t('select.action.moveFolder')}
             >
               <FolderInput className="h-5 w-5 text-(--wa-text-2)" />
             </Button>
@@ -1735,8 +1809,8 @@ export function ChatList({
               className="h-11 w-11 shrink-0"
               onClick={handleBulkExport}
               disabled={bulkBusy || selectedChats.length === 0}
-              aria-label="Export selected chats as .txt"
-              title="Export as .txt"
+              aria-label={t('chats.bulk.aria.export')}
+              title={t('chats.bulk.title.export')}
             >
               {bulkBusy ? (
                 <Loader2 className="h-5 w-5 animate-spin text-(--wa-text-2)" />
@@ -1750,8 +1824,8 @@ export function ChatList({
               className="h-11 w-11 shrink-0 hover:bg-rose-500/10"
               onClick={() => setBulkDeleteOpen(true)}
               disabled={bulkBusy || deletable.length === 0}
-              aria-label="Delete selected chats"
-              title="Delete"
+              aria-label={t('chats.bulk.aria.delete')}
+              title={t('common.delete')}
             >
               <Trash2 className="h-5 w-5 text-rose-500" />
             </Button>
@@ -1765,7 +1839,7 @@ export function ChatList({
           <div className="rounded-2xl border-2 border-dashed border-(--wa-accent) bg-white/95 px-8 py-6 text-center dark:bg-(--wa-panel)/95">
             <Upload className="mx-auto mb-2 h-8 w-8 text-(--wa-accent)" />
             <p className="text-[14px] font-medium text-(--wa-text)">
-              Drop to import chat export
+              {t('chats.drop.title')}
             </p>
           </div>
         </div>
@@ -1778,14 +1852,13 @@ export function ChatList({
       >
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Delete chat?</AlertDialogTitle>
+            <AlertDialogTitle>{t('chats.delete.title')}</AlertDialogTitle>
             <AlertDialogDescription>
-              &quot;{pendingDelete?.title}&quot; and its messages will be removed
-              from this viewer. This cannot be undone.
+              {t('chats.delete.body', { name: pendingDelete?.title ?? '' })}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogCancel>{t('common.cancel')}</AlertDialogCancel>
             <AlertDialogAction
               className="bg-rose-600 text-white hover:bg-rose-700"
               onClick={() => {
@@ -1793,7 +1866,7 @@ export function ChatList({
                 setPendingDelete(null)
               }}
             >
-              Delete
+              {t('common.delete')}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
@@ -1805,17 +1878,17 @@ export function ChatList({
       <Dialog open={moveOpen} onOpenChange={setMoveOpen}>
         <DialogContent className="sm:max-w-sm">
           <DialogHeader>
-            <DialogTitle>Move to folder</DialogTitle>
+            <DialogTitle>{t('select.action.moveFolder')}</DialogTitle>
             <DialogDescription>
               {movable.length === 1
-                ? 'Pick a folder for the selected chat.'
-                : `Pick a folder for the ${movable.length} selected chats.`}
+                ? t('chats.move.pickOne')
+                : t('chats.move.pickMany', { count: movable.length })}
             </DialogDescription>
           </DialogHeader>
           {folders.length === 0 ? (
             <div className="flex flex-col items-center gap-3 py-4 text-center">
               <p className="text-[13.5px] text-(--wa-text-2)">
-                No custom folders yet.
+                {t('chats.move.noFolders')}
               </p>
               <Button
                 variant="secondary"
@@ -1826,7 +1899,7 @@ export function ChatList({
                 }}
               >
                 <Settings2 className="h-4 w-4" />
-                Create a folder
+                {t('chats.move.create')}
               </Button>
             </div>
           ) : (
@@ -1866,20 +1939,21 @@ export function ChatList({
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>
-              Delete {deletable.length} chat{plural(deletable.length)}?
+              {deletable.length === 1
+                ? t('chats.bulkDelete.titleOne')
+                : t('chats.bulkDelete.titleMany', { count: deletable.length })}
             </AlertDialogTitle>
             <AlertDialogDescription>
-              This cannot be undone. The chats and their messages will be
-              removed from this viewer.
+              {t('chats.bulkDelete.body')}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogCancel>{t('common.cancel')}</AlertDialogCancel>
             <AlertDialogAction
               className="bg-rose-600 text-white hover:bg-rose-700"
               onClick={handleBulkDelete}
             >
-              Delete
+              {t('common.delete')}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

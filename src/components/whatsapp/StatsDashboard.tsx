@@ -4,6 +4,7 @@ import './stats-extras.css'
 
 import { useEffect, useRef, useState } from 'react'
 import {
+  Activity,
   ArrowRight,
   BarChart3,
   CalendarCheck2,
@@ -97,11 +98,20 @@ interface ReplySpeeds {
   myMedianMs?: number
 }
 
+/** One "Activity timeline" bucket — a calendar day, or a 7-day bucket when
+ *  the payload's timelineUnit is 'week'. */
+interface TimelinePoint {
+  date: string
+  count: number
+}
+
 interface StatsExtras {
   topWordsGlobal?: unknown
   emojiLeaderboard?: unknown
   ignoreGraph?: unknown
   replySpeeds?: unknown
+  timeline?: unknown
+  timelineUnit?: unknown
 }
 
 function pickArray<T>(value: unknown, is: (v: unknown) => v is T): T[] {
@@ -136,6 +146,13 @@ const isReplySpeedRow = (v: unknown): v is ReplySpeedRow =>
   typeof (v as { senderKey?: unknown }).senderKey === 'string' &&
   typeof (v as { name?: unknown }).name === 'string' &&
   typeof (v as { medianMs?: unknown }).medianMs === 'number' &&
+  typeof (v as { count?: unknown }).count === 'number'
+
+const isTimelinePoint = (v: unknown): v is TimelinePoint =>
+  typeof v === 'object' &&
+  v !== null &&
+  typeof (v as { date?: unknown }).date === 'string' &&
+  /^\d{4}-\d{2}-\d{2}$/.test((v as { date?: unknown }).date as string) &&
   typeof (v as { count?: unknown }).count === 'number'
 
 function parseReplySpeeds(value: unknown): ReplySpeeds | null {
@@ -761,6 +778,240 @@ function SpeedRow({
   )
 }
 
+/* --------------------------- Activity timeline ---------------------------- */
+
+const TL_VB_W = 720
+const TL_VB_H = 150
+const TL_PAD_L = 6
+const TL_PAD_R = 6
+const TL_PAD_T = 14
+const TL_PAD_B = 8
+
+/** Message-frequency timeline: dependency-free SVG area chart.
+ *  Scales with its container (viewBox + w-full/h-auto — the rendered box
+ *  keeps the viewBox ratio, so pointer→index math stays exact). One shared
+ *  tooltip serves hover (pointer move) and keyboard (arrow keys while the
+ *  SVG is focused); screen readers get a descriptive aria-label instead.
+ *  Point count is bounded server-side (~250 buckets max), so this renders
+ *  fine for 100k+ message archives. */
+function TimelineChart({
+  points,
+  unit,
+}: {
+  points: TimelinePoint[]
+  unit: 'day' | 'week'
+}) {
+  const [tipIdx, setTipIdx] = useState<number | null>(null)
+
+  const plotW = TL_VB_W - TL_PAD_L - TL_PAD_R
+  const plotH = TL_VB_H - TL_PAD_T - TL_PAD_B
+  const max = Math.max(...points.map((p) => p.count), 1)
+  const xAt = (i: number) =>
+    TL_PAD_L +
+    (points.length > 1 ? (i / (points.length - 1)) * plotW : plotW / 2)
+  const yAt = (c: number) => TL_PAD_T + plotH - (c / max) * plotH
+
+  const peakIdx = points.reduce(
+    (best, p, i) => (p.count > points[best].count ? i : best),
+    0
+  )
+  const tipI =
+    tipIdx != null ? Math.min(Math.max(tipIdx, 0), points.length - 1) : null
+  const tip = tipI != null ? points[tipI] : null
+
+  const linePath = points
+    .map(
+      (p, i) =>
+        `${i === 0 ? 'M' : 'L'}${xAt(i).toFixed(2)},${yAt(p.count).toFixed(2)}`
+    )
+    .join(' ')
+  const areaPath =
+    points.length > 1
+      ? `${linePath} L${(TL_PAD_L + plotW).toFixed(2)},${(TL_PAD_T + plotH).toFixed(2)} L${TL_PAD_L},${(TL_PAD_T + plotH).toFixed(2)} Z`
+      : ''
+
+  // Month ticks: emit at month changes, only when there's room for the
+  // label (44 viewBox units ≈ 39px at dialog width) so they never overlap.
+  const ticks: { pct: number; label: string }[] = []
+  let lastX = -Infinity
+  points.forEach((p, i) => {
+    const x = xAt(i)
+    if (
+      i === 0 ||
+      (p.date.slice(0, 7) !== points[i - 1].date.slice(0, 7) &&
+        x - lastX >= 44)
+    ) {
+      ticks.push({
+        pct: (x / TL_VB_W) * 100,
+        label: monthLabel(p.date.slice(0, 7)),
+      })
+      lastX = x
+    }
+  })
+
+  const fmtDay = (key: string) =>
+    new Date(key + 'T12:00:00').toLocaleDateString('en-GB', {
+      weekday: 'short',
+      day: 'numeric',
+      month: 'short',
+      year: 'numeric',
+    })
+
+  const moveTo = (i: number) =>
+    setTipIdx(Math.min(Math.max(i, 0), points.length - 1))
+
+  const onPointer = (e: React.PointerEvent<SVGSVGElement>) => {
+    const rect = e.currentTarget.getBoundingClientRect()
+    if (rect.width === 0) return
+    const vx = ((e.clientX - rect.left) / rect.width) * TL_VB_W
+    if (points.length <= 1) return moveTo(0)
+    moveTo(Math.round(((vx - TL_PAD_L) / plotW) * (points.length - 1)))
+  }
+
+  const onKeyDown = (e: React.KeyboardEvent<SVGSVGElement>) => {
+    if (e.key === 'ArrowLeft') {
+      moveTo((tipI ?? peakIdx) - 1)
+      e.preventDefault()
+    } else if (e.key === 'ArrowRight') {
+      moveTo((tipI ?? peakIdx) + 1)
+      e.preventDefault()
+    } else if (e.key === 'Home') {
+      moveTo(0)
+      e.preventDefault()
+    } else if (e.key === 'End') {
+      moveTo(points.length - 1)
+      e.preventDefault()
+    }
+  }
+
+  const peak = points[peakIdx]
+  const ariaLabel = `Messages per ${unit} from ${fmtDay(points[0].date)} to ${fmtDay(points[points.length - 1].date)}, peak ${peak.count.toLocaleString()} on ${fmtDay(peak.date)}`
+
+  return (
+    <div className="rounded-xl bg-(--wa-panel-2)/60 p-3 dark:bg-(--wa-panel-2)/60">
+      <div className="relative">
+        <svg
+          viewBox={`0 0 ${TL_VB_W} ${TL_VB_H}`}
+          className="block h-auto w-full touch-none select-none"
+          role="img"
+          aria-label={ariaLabel}
+          tabIndex={0}
+          onPointerMove={onPointer}
+          onPointerDown={onPointer}
+          onPointerLeave={() => setTipIdx(null)}
+          onFocus={() => setTipIdx((i) => i ?? peakIdx)}
+          onBlur={() => setTipIdx(null)}
+          onKeyDown={onKeyDown}
+        >
+          <defs>
+            <linearGradient id="wa-tl-fill" x1="0" y1="0" x2="0" y2="1">
+              <stop
+                offset="0%"
+                stopColor="var(--wa-accent)"
+                stopOpacity="0.32"
+              />
+              <stop
+                offset="100%"
+                stopColor="var(--wa-accent)"
+                stopOpacity="0.03"
+              />
+            </linearGradient>
+          </defs>
+          {[0.25, 0.5, 0.75].map((f) => (
+            <line
+              key={f}
+              x1={TL_PAD_L}
+              x2={TL_PAD_L + plotW}
+              y1={TL_PAD_T + plotH * f}
+              y2={TL_PAD_T + plotH * f}
+              stroke="var(--wa-line)"
+              strokeWidth="1"
+            />
+          ))}
+          <path d={areaPath} fill="url(#wa-tl-fill)" className="wa-tl-area" />
+          <path
+            d={linePath}
+            fill="none"
+            stroke="var(--wa-accent)"
+            strokeWidth="2"
+            strokeLinejoin="round"
+            strokeLinecap="round"
+            className="wa-tl-line"
+          />
+          <line
+            x1={TL_PAD_L}
+            x2={TL_PAD_L + plotW}
+            y1={TL_PAD_T + plotH}
+            y2={TL_PAD_T + plotH}
+            stroke="var(--wa-line)"
+            strokeWidth="1"
+          />
+          <circle
+            cx={xAt(peakIdx)}
+            cy={yAt(peak.count)}
+            r="3"
+            fill="var(--wa-accent-strong)"
+          />
+          {tip && tipI != null && (
+            <g className="wa-tl-dot">
+              <line
+                x1={xAt(tipI)}
+                x2={xAt(tipI)}
+                y1={TL_PAD_T}
+                y2={TL_PAD_T + plotH}
+                stroke="var(--wa-accent)"
+                strokeOpacity="0.4"
+                strokeDasharray="3 3"
+              />
+              <circle
+                cx={xAt(tipI)}
+                cy={yAt(tip.count)}
+                r="4"
+                fill="var(--wa-accent)"
+                stroke="var(--wa-panel)"
+                strokeWidth="1.5"
+              />
+            </g>
+          )}
+        </svg>
+        {tip && tipI != null && (
+          <div
+            className="wa-tl-tip pointer-events-none absolute z-10 whitespace-nowrap rounded-md border border-black/5 bg-(--wa-panel) px-2 py-1 text-[11px] shadow-md dark:border-white/10 dark:bg-(--wa-deep)"
+            style={{
+              left: `${Math.min(86, Math.max(14, (xAt(tipI) / TL_VB_W) * 100))}%`,
+              top: `${Math.max(14, (yAt(tip.count) / TL_VB_H) * 100)}%`,
+              transform: 'translate(-50%, -115%)',
+            }}
+            aria-hidden
+          >
+            <b className="tabular-nums text-(--wa-text)">
+              {tip.count.toLocaleString()}
+            </b>{' '}
+            <span className="text-(--wa-text-2)">{fmtDay(tip.date)}</span>
+          </div>
+        )}
+      </div>
+      {/* Month ruler in HTML so labels stay crisp while the SVG scales */}
+      <div className="relative mt-1 h-3.5 text-[9px] text-(--wa-text-2)">
+        {ticks.map((t, i) => (
+          <span
+            key={`${t.label}-${i}`}
+            className="absolute -translate-x-1/2 whitespace-nowrap"
+            style={{ left: `${t.pct}%` }}
+          >
+            {t.label}
+          </span>
+        ))}
+      </div>
+      <p className="mt-1.5 text-[12px] text-(--wa-text-2)">
+        {unit === 'week' ? 'Weekly' : 'Daily'} message totals · peak{' '}
+        <b className="text-(--wa-text)">{peak.count.toLocaleString()}</b> on{' '}
+        {fmtDay(peak.date)}
+      </p>
+    </div>
+  )
+}
+
 /* ------------------------------ Main dialog ----------------------------- */
 
 export function StatsDashboard({
@@ -894,6 +1145,12 @@ export function StatsDashboard({
   // older/cached payload without it degrades to the empty state. Rows arrive
   // fastest-first with a 3-sample floor already applied.
   const replySpeeds = parseReplySpeeds(extras?.replySpeeds)
+  // Activity timeline — parsed defensively like the other extras so an
+  // older/cached payload without it degrades to the "no data" state. The
+  // unit is 'week' only when the payload explicitly says so.
+  const timeline = pickArray<TimelinePoint>(extras?.timeline, isTimelinePoint)
+  const timelineUnit: 'day' | 'week' =
+    extras?.timelineUnit === 'week' ? 'week' : 'day'
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -1045,6 +1302,20 @@ export function StatsDashboard({
                     delay={80}
                   >
                     <Heatmap grid={data.heatmap} total={data.totals.messages} />
+                  </Section>
+
+                  <Section
+                    title="Activity timeline"
+                    icon={<Activity className="h-3 w-3" />}
+                    delay={110}
+                  >
+                    {timeline.length > 0 ? (
+                      <TimelineChart points={timeline} unit={timelineUnit} />
+                    ) : (
+                      <p className="rounded-xl bg-(--wa-panel-2)/60 px-3 py-4 text-center text-[12.5px] text-(--wa-text-2)">
+                        No dated messages yet.
+                      </p>
+                    )}
                   </Section>
 
                   <Section title="Messages per month" delay={140}>

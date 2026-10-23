@@ -217,6 +217,15 @@ export function ChatInfo({
   }, [messages])
 
   const maxSender = stats.senders.length > 0 ? stats.senders[0][1] : 1
+
+  // "Top chatters" (group chats only): top 5 senders by message count.
+  // stats.senders is already sorted count-desc by the stats memo above, so
+  // this is just a bounded slice — 1:1 chats never show the section.
+  const topChatters = useMemo(
+    () => (chat.isGroup ? stats.senders.slice(0, 5) : []),
+    [chat.isGroup, stats.senders]
+  )
+
   const emojis = useMemo(() => topEmojis(messages), [messages])
   const peakHour = stats.hourCounts.reduce(
     (a, b) => (b.count > a.count ? b : a),
@@ -438,6 +447,61 @@ export function ChatInfo({
               })}
             </div>
           </section>
+
+          {/* Top chatters — group chats only: top 5 senders by message count
+              with their share of the chat (compact BarRow-style rows). */}
+          {chat.isGroup && topChatters.length > 0 && (
+            <section className="wa-info-sec" aria-label="Top chatters">
+              <h3 className="mb-2 flex items-center gap-1.5 text-[13px] font-semibold uppercase tracking-wide text-(--wa-text-2)">
+                <BarChart3 className="h-3.5 w-3.5" />
+                Top chatters
+              </h3>
+              <ol className="space-y-2.5">
+                {topChatters.map(([name, count], i) => {
+                  const sharePct = Math.round(
+                    (count / Math.max(1, stats.total)) * 100
+                  )
+                  return (
+                    <li
+                      key={name}
+                      className="flex items-center gap-2.5"
+                      aria-label={`${name}: ${count.toLocaleString()} messages, ${sharePct}% of this chat`}
+                    >
+                      <span
+                        className="w-5 shrink-0 text-center text-[12px] font-bold tabular-nums text-(--wa-text-2)"
+                        aria-hidden
+                      >
+                        {i + 1}
+                      </span>
+                      <span className="shrink-0">
+                        <Avatar name={name} size={28} />
+                      </span>
+                      <div className="min-w-0 flex-1">
+                        <div className="mb-1 flex items-baseline justify-between gap-2">
+                          <span className="truncate text-[13px] font-medium text-(--wa-text)">
+                            {name}
+                          </span>
+                          <span className="shrink-0 text-[11.5px] tabular-nums text-(--wa-text-2)">
+                            {count.toLocaleString()} · {sharePct}%
+                          </span>
+                        </div>
+                        <div className="h-1.5 min-w-0 overflow-hidden rounded-full bg-black/10 dark:bg-white/10">
+                          <div
+                            className="wa-fill h-full rounded-full"
+                            style={{
+                              width: `${Math.max(sharePct, 2)}%`,
+                              backgroundColor: colorForName(name),
+                              animationDelay: `${i * 70}ms`,
+                            }}
+                          />
+                        </div>
+                      </div>
+                    </li>
+                  )
+                })}
+              </ol>
+            </section>
+          )}
 
           {/* Top emojis */}
           {emojis.length > 0 && (

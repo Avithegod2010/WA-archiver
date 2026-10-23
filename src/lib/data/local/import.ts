@@ -530,6 +530,8 @@ export async function importFileToDevice(
   file: File,
   opts: {
     includeAudio?: boolean
+    /** B1: merge into this existing chat (dedup + append) instead of a new one. */
+    mergeIntoChatId?: string
     onProgress?: (p: LocalImportProgress) => void
   } = {}
 ): Promise<LocalImportResult> {

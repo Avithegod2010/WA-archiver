@@ -74,7 +74,10 @@
     .wa-bar-grow,
     .wa-col-grow,
     .wa-heat-row,
-    .wa-stats-rise
+    .wa-stats-rise,
+    .wa-tl-area,
+    .wa-tl-line,
+    .wa-tl-dot
   ) {
   animation-play-state: paused !important;
   opacity: 0;
@@ -195,6 +198,33 @@
   }
 }
 
+/* Activity timeline (task 2-b): the filled area grows up from the
+   baseline (transform-box: fill-box scopes transform-origin to the SVG
+   element's own box), the stroke line fades in over it, and the hover /
+   keyboard marker pops in. */
+.wa-tl-area {
+  transform-box: fill-box;
+  transform-origin: bottom center;
+  animation: wa-col-grow 950ms cubic-bezier(0.22, 1, 0.36, 1) backwards;
+}
+
+.wa-tl-line {
+  animation: wa-fade-in 640ms ease-out 180ms backwards;
+}
+
+.wa-tl-dot {
+  animation: wa-fade-in 280ms ease-out backwards;
+}
+
+@keyframes wa-fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .wa-stats-pop[data-state='open'],
   .wa-stats-pop[data-state='closed'],
@@ -203,7 +233,10 @@
   .wa-bar-grow,
   .wa-col-grow,
   .wa-heat-row,
-  .wa-chip-in {
+  .wa-chip-in,
+  .wa-tl-area,
+  .wa-tl-line,
+  .wa-tl-dot {
     animation: none !important;
     opacity: 1 !important;
     transform: none !important;

@@ -95,6 +95,14 @@ export interface StatsReplySpeeds {
   myMedianMs?: number
 }
 
+/** One "Activity timeline" bucket: a calendar day (or a 7-day bucket, see
+ *  timelineUnit) and how many messages landed inside it. */
+export interface StatsTimelinePoint {
+  /** Day key 'yyyy-mm-dd' — for weeks, the bucket's first day. */
+  date: string
+  count: number
+}
+
 /** Everything GET /api/stats returns: the shared StatsData shape plus the
  *  defensive "extras" sections the dashboard renders (global word cloud,
  *  emoji leaderboard, "left on read" pairs, reply-speed leaderboard). */
@@ -103,6 +111,10 @@ export interface StatsPayload extends StatsData {
   emojiLeaderboard: StatsEmojiLeaderEntry[]
   ignoreGraph: StatsIgnorePair[]
   replySpeeds: StatsReplySpeeds
+  /** Message-frequency timeline (bounded day/week buckets for the Insights
+   *  "Activity timeline" chart). */
+  timeline: StatsTimelinePoint[]
+  timelineUnit: 'day' | 'week'
 }
 
 /* --------------------- "Left on read" pair helpers ---------------------- */
@@ -295,6 +307,95 @@ export function computeReplySpeeds(
   const result: StatsReplySpeeds = { rows: rows.slice(0, REPLY_SPEEDS_LIMIT) }
   if (myDeltas.length > 0) result.myMedianMs = median(myDeltas)
   return result
+}
+
+/* --------------------------- Activity timeline ---------------------------- */
+
+const TIMELINE_WEEK_SPAN_DAYS = 366
+const TIMELINE_MAX_POINTS = 250
+const DAY_MS = 86_400_000
+
+/** Day key 'yyyy-mm-dd' → local-noon timestamp (noon never straddles DST). */
+function dayKeyToTs(key: string): number {
+  return new Date(key + 'T12:00:00').getTime()
+}
+
+/** Local timestamp → day key 'yyyy-mm-dd' (runtime's local timezone). */
+function tsToDayKey(t: number): string {
+  const d = new Date(t)
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+}
+
+/**
+ * Message-frequency timeline for the Insights "Activity timeline" chart.
+ *
+ * Built purely from the per-day counts the main loop already gathered (plus
+ * the sorted day keys the streak math needs anyway) — O(active days), no
+ * extra passes over messages.
+ *
+ * ≤ 366 days of history → one point per active day ('day' unit). Longer
+ * histories → consecutive 7-day buckets anchored on the first active day
+ * ('week'; date = bucket start, count = sum of its days). A final safety
+ * pass keeps the array within ~TIMELINE_MAX_POINTS either way: a chatty
+ * sub-year collapses to weeks, and decade-long weekly buckets fold k-wise
+ * (date stays each fold's first day).
+ */
+function buildTimeline(
+  dayCount: Map<string, number>,
+  sortedDays: string[]
+): { timeline: StatsTimelinePoint[]; timelineUnit: 'day' | 'week' } {
+  if (sortedDays.length === 0) {
+    return { timeline: [], timelineUnit: 'day' }
+  }
+
+  const t0 = dayKeyToTs(sortedDays[0])
+  const spanDays =
+    Math.round((dayKeyToTs(sortedDays[sortedDays.length - 1]) - t0) / DAY_MS) +
+    1
+
+  let unit: 'day' | 'week' =
+    spanDays > TIMELINE_WEEK_SPAN_DAYS ? 'week' : 'day'
+
+  const foldWeeks = (): StatsTimelinePoint[] => {
+    const buckets = new Map<number, number>()
+    for (const day of sortedDays) {
+      const idx = Math.floor((dayKeyToTs(day) - t0) / (7 * DAY_MS))
+      buckets.set(idx, (buckets.get(idx) ?? 0) + (dayCount.get(day) ?? 0))
+    }
+    return [...buckets.entries()]
+      .sort((a, b) => a[0] - b[0])
+      .map(([idx, count]) => ({
+        date: tsToDayKey(t0 + idx * 7 * DAY_MS),
+        count,
+      }))
+  }
+
+  let points: StatsTimelinePoint[] =
+    unit === 'day'
+      ? sortedDays.map((date) => ({ date, count: dayCount.get(date) ?? 0 }))
+      : foldWeeks()
+
+  // Sub-year history that is still denser than the point budget (e.g. 300
+  // active days inside one year) collapses to weeks after all.
+  if (unit === 'day' && points.length > TIMELINE_MAX_POINTS) {
+    unit = 'week'
+    points = foldWeeks()
+  }
+
+  // Week buckets themselves over budget (very long history) → fold k-wise.
+  if (unit === 'week' && points.length > TIMELINE_MAX_POINTS) {
+    const factor = Math.ceil(points.length / TIMELINE_MAX_POINTS)
+    const merged: StatsTimelinePoint[] = []
+    for (let i = 0; i < points.length; i += factor) {
+      const end = Math.min(i + factor, points.length)
+      let count = 0
+      for (let j = i; j < end; j++) count += points[j].count
+      merged.push({ date: points[i].date, count })
+    }
+    points = merged
+  }
+
+  return { timeline: points, timelineUnit: unit }
 }
 
 /* ------------------------------ Main entry ------------------------------- */
@@ -503,6 +604,10 @@ export function computeStats(input: {
     }
   }
 
+  // Message-frequency timeline — reuses the sorted day keys gathered for
+  // the streak math above; O(active days), no extra passes over messages.
+  const { timeline, timelineUnit } = buildTimeline(dayCount, sortedDays)
+
   const daysSpanned =
     firstAt != null && lastAt != null
       ? Math.max(1, Math.round((lastAt - firstAt) / 86_400_000) + 1)
@@ -563,6 +668,8 @@ export function computeStats(input: {
       avgPerDay: dayCount.size > 0 ? Math.round(messages.length / dayCount.size) : 0,
     },
     streak: { longest: longestStreak, longestEnd: longestStreakEnd, current: currentStreak },
+    timeline,
+    timelineUnit,
     fun: { links, questions, longest },
     types: Object.entries(typeCount)
       .sort(([, a], [, b]) => b - a)

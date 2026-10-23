@@ -22,6 +22,7 @@ import {
 // W1 — device-mode preview parsing runs in a Web Worker (with a transparent
 // fallback to the previous main-thread path inside parseExportFile itself).
 import { parseExportFile } from '@/lib/parse-worker-client'
+import { guessTitleFromFilename } from '@/lib/whatsapp-parser'
 import {
   findMergeCandidates,
   type ImportMergeCandidate,
@@ -36,6 +37,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
+import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group'
 import { Progress } from '@/components/ui/progress'
 import { Switch } from '@/components/ui/switch'
 import { colorForName, initialsForName } from './types'
@@ -46,7 +48,7 @@ export interface ImportPanelProps {
   onImported?: (chatIds: string[]) => void
 }
 
-type Phase = 'idle' | 'preview' | 'running' | 'success' | 'error'
+type Phase = 'idle' | 'choice' | 'preview' | 'running' | 'success' | 'error'
 
 interface NdjsonEvent {
   type?: string
@@ -213,6 +215,16 @@ export function ImportPanel({
   // Deliberately NOT reset between imports so a retry keeps the choice.
   const [includeAudio, setIncludeAudio] = useState(true)
 
+  // B1 parity — server transport: candidates detected BEFORE upload (the
+  // device path finds them during parsing). The user picks merge-vs-new in
+  // the 'choice' phase; merging goes through the JSON route which supports
+  // mergeIntoChatId and returns per-message dedup stats.
+  const [serverCandidates, setServerCandidates] = useState<
+    ImportMergeCandidate[]
+  >([])
+  const [serverFile, setServerFile] = useState<File | null>(null)
+  const [choiceTargetId, setChoiceTargetId] = useState<string>('__new__')
+
   const abortRef = useRef<AbortController | null>(null)
   const inputRef = useRef<HTMLInputElement>(null)
   const keyRef = useRef(0)
@@ -237,6 +249,9 @@ export function ImportPanel({
     setPreviewData(null)
     setMergeCandidates([])
     setMergeStats(null)
+    setServerCandidates([])
+    setServerFile(null)
+    setChoiceTargetId('__new__')
     stickRef.current = true
     runIdRef.current += 1
   }, [])
@@ -255,8 +270,148 @@ export function ImportPanel({
     [phase, reset, onOpenChange]
   )
 
-  const startImport = useCallback(
-    (file: File) => {
+  /**
+   * Server transport, streaming upload (new-chat path; also used after
+     * the user picks "Import as new chat" in the choice phase).
+     */
+    const runServerImport = (file: File) => {
+      const controller = new AbortController()
+      abortRef.current = controller
+      const fd = new FormData()
+      fd.append('file', file)
+      fd.append('includeAudio', includeAudio ? '1' : '0')
+
+      void (async () => {
+        try {
+          const res = await fetch('/api/import/stream', {
+            method: 'POST',
+            body: fd,
+            signal: controller.signal,
+          })
+          await consumeImportStream(res, {
+            onStart: (e) => {
+              setTotal(e.messages ?? e.chats ?? null)
+              setParsed(0)
+            },
+            onProgress: (e) => setParsed(e.parsed ?? 0),
+            onMessage: (e) => {
+              if (e.chat) setChatTitle(e.chat)
+              keyRef.current += 1
+              const row: PreviewRow = {
+                key: keyRef.current,
+                sender: e.sender || 'System',
+                time: e.time ?? '',
+                body: e.body ?? '',
+                kind: e.kind ?? 'text',
+              }
+              setRows((prev) => {
+                const next = [...prev, row]
+                return next.length > MAX_PREVIEW_ROWS
+                  ? next.slice(next.length - MAX_PREVIEW_ROWS)
+                  : next
+              })
+            },
+            onDone: (e) => {
+              const ids = e.chatIds ?? []
+              const count = e.count ?? 0
+              setChatIds(ids)
+              setImportedCount(count)
+              setPhase('success')
+              toast.success(`Imported ${count.toLocaleString()} messages`)
+            },
+            onError: (message) => {
+              setErrorMsg(message)
+              setPhase('error')
+            },
+          })
+        } catch {
+          if (controller.signal.aborted) return // user cancelled — ignore
+          setErrorMsg(
+            'Could not reach the import service. Check your connection and try again.'
+          )
+          setPhase('error')
+        }
+      })()
+  }
+
+  /**
+   * Server transport, merge commit — JSON route with mergeIntoChatId
+     * (it dedups per message and reports added/skipped, which the stream
+     * route does not carry). No progress events: the dialog shows an
+     * indeterminate bar for the (usually small) merge delta.
+     */
+    const commitServerMerge = (file: File, target: ImportMergeCandidate) => {
+      const runId = runIdRef.current
+      setPhase('running')
+      setStage(null)
+      setTotal(null)
+      setParsed(0)
+      void (async () => {
+        try {
+          const fd = new FormData()
+          fd.append('file', file)
+          fd.append('includeAudio', includeAudio ? '1' : '0')
+          fd.append('mergeIntoChatId', target.id)
+          const res = await fetch('/api/import', {
+            method: 'POST',
+            body: fd,
+          })
+          const json = (await res.json().catch(() => null)) as {
+            ok?: boolean
+            error?: string
+            chatId?: string
+            messages?: number
+            added?: number
+            duplicatesSkipped?: number
+          } | null
+          if (runIdRef.current !== runId) return
+          if (!res.ok || !json?.ok) {
+            setErrorMsg(
+              json?.error ??
+                'Import failed. Please check the file and try again.'
+            )
+            setPhase('error')
+            return
+          }
+          const added = json.added ?? json.messages ?? 0
+          const skipped = json.duplicatesSkipped ?? 0
+          setChatIds(json.chatId ? [json.chatId] : [])
+          setImportedCount(added)
+          setChatTitle(target.title)
+          setMergeStats({ added, duplicatesSkipped: skipped })
+          setStage('done')
+          setPhase('success')
+          toast.success(
+            `Merged: ${added.toLocaleString()} new, ${skipped.toLocaleString()} duplicates skipped`
+          )
+        } catch {
+          if (runIdRef.current !== runId) return
+          setErrorMsg(
+            'Could not reach the import service. Check your connection and try again.'
+          )
+          setPhase('error')
+        }
+      })()
+  }
+
+  /** Choice phase → dispatch merge (JSON route) or plain stream. */
+    const commitServerChoice = () => {
+      const file = serverFile
+      const target =
+        choiceTargetId === '__new__'
+          ? null
+          : serverCandidates.find((c) => c.id === choiceTargetId) ?? null
+      setServerFile(null)
+      setServerCandidates([])
+      if (!file) {
+        reset()
+        return
+      }
+      if (target) commitServerMerge(file, target)
+      else runServerImport(file)
+  }
+
+  const startImport = (file: File) => {
       const isZip = /\.zip$/i.test(file.name)
       const isTxt = /\.txt$/i.test(file.name)
       if (!isZip && !isTxt) {
@@ -271,6 +426,41 @@ export function ImportPanel({
       reset()
       setPhase('running')
       setFileName(file.name)
+
+      if (mode !== 'device') {
+        // B1 parity — surface existing chats this export could merge into
+        // BEFORE uploading. Title guess mirrors the server's
+        // guessTitleFromFilename; zip transcripts match by file basename
+        // only (the inner .txt name is unknown without a client unzip).
+        // A failed listChats just means no merge option.
+        const runId = runIdRef.current
+        void (async () => {
+          let candidates: ImportMergeCandidate[] = []
+          try {
+            const chats = await dataClient.listChats()
+            candidates = findMergeCandidates({
+              title: isTxt ? guessTitleFromFilename(file.name) : '',
+              sourceFile: file.name,
+              chats,
+            })
+          } catch {
+            candidates = []
+          }
+          if (runIdRef.current !== runId) return
+          if (candidates.length > 0) {
+            setServerCandidates(candidates)
+            setServerFile(file)
+            setChoiceTargetId('__new__')
+            setPhase('choice')
+            setStage(null)
+            setTotal(null)
+            setParsed(0)
+          } else {
+            runServerImport(file)
+          }
+        })()
+        return
+      }
 
       if (mode === 'device') {
         // ---- device transport: parse now, preview, then commit ----------
@@ -331,66 +521,9 @@ export function ImportPanel({
         return
       }
 
-      const controller = new AbortController()
-      abortRef.current = controller
-      const fd = new FormData()
-      fd.append('file', file)
-      fd.append('includeAudio', includeAudio ? '1' : '0')
+      runServerImport(file)
+  }
 
-      void (async () => {
-        try {
-          const res = await fetch('/api/import/stream', {
-            method: 'POST',
-            body: fd,
-            signal: controller.signal,
-          })
-          await consumeImportStream(res, {
-            onStart: (e) => {
-              setTotal(e.messages ?? e.chats ?? null)
-              setParsed(0)
-            },
-            onProgress: (e) => setParsed(e.parsed ?? 0),
-            onMessage: (e) => {
-              if (e.chat) setChatTitle(e.chat)
-              keyRef.current += 1
-              const row: PreviewRow = {
-                key: keyRef.current,
-                sender: e.sender || 'System',
-                time: e.time ?? '',
-                body: e.body ?? '',
-                kind: e.kind ?? 'text',
-              }
-              setRows((prev) => {
-                const next = [...prev, row]
-                return next.length > MAX_PREVIEW_ROWS
-                  ? next.slice(next.length - MAX_PREVIEW_ROWS)
-                  : next
-              })
-            },
-            onDone: (e) => {
-              const ids = e.chatIds ?? []
-              const count = e.count ?? 0
-              setChatIds(ids)
-              setImportedCount(count)
-              setPhase('success')
-              toast.success(`Imported ${count.toLocaleString()} messages`)
-            },
-            onError: (message) => {
-              setErrorMsg(message)
-              setPhase('error')
-            },
-          })
-        } catch {
-          if (controller.signal.aborted) return // user cancelled — ignore
-          setErrorMsg(
-            'Could not reach the import service. Check your connection and try again.'
-          )
-          setPhase('error')
-        }
-      })()
-    },
-    [reset, includeAudio, mode, dataClient]
-  )
 
   /**
    * Idea #13 — commit the previewed import with the chosen selection.
@@ -607,6 +740,77 @@ export function ImportPanel({
               aria-label="Include audio files"
             />
           </div>
+        )}
+
+        {phase === 'choice' && (
+          <>
+          <RadioGroup
+            value={choiceTargetId}
+            onValueChange={setChoiceTargetId}
+            aria-label="Import target"
+            className="flex flex-col gap-3"
+          >
+            <div className="flex items-center gap-2">
+              <GitMerge
+                className="h-4 w-4 shrink-0 text-(--wa-accent)"
+                aria-hidden
+              />
+              <p className="text-sm font-semibold text-(--wa-text)">
+                Existing chat{serverCandidates.length > 1 ? 's' : ''} found
+              </p>
+            </div>
+            <p className="text-[12.5px] leading-snug text-(--wa-text-2)">
+              {serverCandidates.length === 1
+                ? `“${serverCandidates[0].title}” (${serverCandidates[0].messageCount.toLocaleString()} messages) looks like the same chat as this export. Merge into it — exact duplicates are skipped — or import as a new chat.`
+                : 'Several existing chats look like this export. Pick one to merge into, or import as a new chat.'}
+            </p>
+            <div className="flex flex-col gap-1.5">
+              {serverCandidates.map((c) => (
+                <label
+                  key={c.id}
+                  className="flex cursor-pointer items-center gap-2.5 rounded-lg border border-(--wa-line) bg-(--wa-panel-2) px-3 py-2.5 text-[13px] text-(--wa-text) has-[[data-state=checked]]:border-(--wa-accent)"
+                >
+                  <RadioGroupItem value={c.id} aria-label={`Merge into ${c.title}`} />
+                  <span className="min-w-0 flex-1 truncate">
+                    Merge into “{c.title}”
+                  </span>
+                  <span className="shrink-0 text-[11px] text-(--wa-text-2)">
+                    {c.matchedBy.includes('title') ? 'title' : 'file'} match
+                  </span>
+                </label>
+              ))}
+              <label className="flex cursor-pointer items-center gap-2.5 rounded-lg border border-(--wa-line) bg-(--wa-panel-2) px-3 py-2.5 text-[13px] text-(--wa-text) has-[[data-state=checked]]:border-(--wa-accent)">
+                <RadioGroupItem value="__new__" aria-label="Import as a new chat" />
+                <span className="min-w-0 flex-1">Import as a new chat</span>
+              </label>
+            </div>
+          </RadioGroup>
+          <div className="flex items-center justify-end gap-2">
+            <Button variant="outline" size="sm" className="h-10" onClick={reset}>
+              Back
+            </Button>
+              <Button
+                size="sm"
+                className="h-10 gap-2 bg-(--wa-accent) px-4 text-white hover:bg-(--wa-accent-strong)"
+                onClick={commitServerChoice}
+              >
+                {choiceTargetId === '__new__' ? (
+                  <>
+                    <FileText className="h-4 w-4" aria-hidden />
+                    Continue
+                  </>
+                ) : (
+                  <>
+                    <GitMerge className="h-4 w-4" aria-hidden />
+                    Merge into “
+                    {serverCandidates.find((c) => c.id === choiceTargetId)?.title ??
+                      ''}
+                    ”
+                  </>
+                )}
+              </Button>
+          </div>
+          </>
         )}
 
         {phase === 'preview' && previewData && (

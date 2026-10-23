@@ -104,12 +104,18 @@ import { WhatsAppLogo } from './icons'
 import { SAVED_CHAT_ID, type ChatDetail, type ChatSummary } from './types'
 import { DataError, importFileToDevice } from '@/lib/data'
 import {
+  findMergeCandidates,
+  type ImportMergeCandidate,
+} from '@/lib/import-dedup'
+import { guessTitleFromFilename } from '@/lib/whatsapp-parser'
+import {
   DataProvider,
   useData,
   useMessageNormalizer,
 } from './data-provider'
 import { cn } from '@/lib/utils'
 import { installIntentRouter } from '@/lib/intent-router'
+import { useT } from '@/lib/i18n'
 
 // ---- Offline caches (Task 7-e #6) --------------------------------------
 const CHATS_CACHE_KEY = 'wa-viewer:cache:chats'
@@ -157,6 +163,7 @@ function cacheGet<T>(key: string): T | null {
 }
 
 function WhatsAppAppInner() {
+  const t = useT()
   const { theme, resolvedTheme, setTheme } = useTheme()
   // Active transport (Phase 2): 'server' = REST /api/*, 'device' = on-device
   // SQLite-WASM. Every data flow below goes through `data`.
@@ -375,12 +382,12 @@ function WhatsAppAppInner() {
       if (cached && Array.isArray(cached) && cached.length > 0) {
         setChats(cached)
       } else {
-        toast.error('Could not load chats')
+        toast.error(t('shell.toast.loadChatsFailed'))
       }
     } finally {
       setChatsLoading(false)
     }
-  }, [data, mode])
+  }, [data, mode, t])
 
   // Re-sync after app-lock transitions (Task 14-c): while the lock screen is
   // up, data fetches 401 — when the user unlocks (or disables the lock in
@@ -410,12 +417,12 @@ function WhatsAppAppInner() {
         if (data?.migrated?.length) {
           void refreshChats()
           toast.info(
-            `Demo chats upgraded with richer stories: ${data.migrated.join(', ')}`
+            t('shell.toast.demoUpgraded', { names: data.migrated.join(', ') })
           )
         }
       })
       .catch(() => {})
-  }, [modeResolved, refreshChats, mode])
+  }, [modeResolved, refreshChats, mode, t])
 
   // ---- Web Share Target (Task 10-f #2) ------------------------------------
   // Resolve the Saved Messages chat id. GET /api/chats guarantees the chat
@@ -467,9 +474,7 @@ function WhatsAppAppInner() {
             if (fresh) {
               const savedId = await resolveSavedChatId()
               if (!savedId) {
-                toast.error(
-                  'Could not find Saved Messages — shared content was not added'
-                )
+                toast.error(t('shell.toast.savedMissing'))
               } else {
                 let ok = 0
                 let failed = 0
@@ -502,13 +507,13 @@ function WhatsAppAppInner() {
                 if (ok > 0) {
                   toast.success(
                     failed > 0
-                      ? `Shared to Saved Messages (${failed} item${failed === 1 ? '' : 's'} failed)`
-                      : 'Shared to Saved Messages'
+                      ? failed === 1
+                        ? t('shell.toast.sharePartialOne')
+                        : t('shell.toast.sharePartialMany', { count: failed })
+                      : t('shell.toast.shared')
                   )
                 } else {
-                  toast.error(
-                    'Could not save the shared content to Saved Messages'
-                  )
+                  toast.error(t('shell.toast.shareFailed'))
                 }
                 consumed = true
               }
@@ -551,17 +556,17 @@ function WhatsAppAppInner() {
     if (!body) return
     const savedId = await resolveSavedChatId()
     if (!savedId) {
-      toast.error('Could not find Saved Messages — shared text was not added')
+      toast.error(t('shell.toast.savedMissingText'))
       return
     }
     try {
       await postTextToSaved(body)
-      toast.success('Shared to Saved Messages')
+      toast.success(t('shell.toast.shared'))
       void refreshChats()
     } catch {
-      toast.error('Could not save the shared text to Saved Messages')
+      toast.error(t('shell.toast.shareTextFailed'))
     }
-  }, [resolveSavedChatId, postTextToSaved, refreshChats, data])
+  }, [resolveSavedChatId, postTextToSaved, refreshChats, data, t])
 
   // Run once after mount (all URL/localStorage reads stay client-side)
   useEffect(() => {
@@ -614,7 +619,9 @@ function WhatsAppAppInner() {
         }
         if (deleted > 0) {
           toast.success(
-            `Auto-cleaned ${deleted} archived chat${deleted === 1 ? '' : 's'} (30+ days idle)`
+            deleted === 1
+              ? t('shell.toast.autoCleanedOne')
+              : t('shell.toast.autoCleanedMany', { count: deleted })
           )
           void refreshChats()
         }
@@ -622,7 +629,7 @@ function WhatsAppAppInner() {
         /* offline etc. — silently skip */
       }
     })()
-  }, [mounted, refreshChats, data])
+  }, [mounted, refreshChats, data, t])
 
 
   /**
@@ -700,14 +707,14 @@ function WhatsAppAppInner() {
         : null
       if (cached && cached.chat && Array.isArray(cached.messages)) {
         setDetail(cached)
-        toast.info('Offline — showing cached messages')
+        toast.info(t('shell.toast.offlineCached'))
         markChatSeen(id)
         // activeId intentionally kept — the cached chat stays open
       } else {
         toast.error(
           serverAnswered && mode === 'server'
-            ? 'This chat lives in the device storage — switch storage mode in Settings to open it'
-            : 'Could not load this chat'
+            ? t('shell.toast.deviceStorage')
+            : t('shell.toast.loadChatFailed')
         )
         setActiveId(null)
         try {
@@ -721,7 +728,7 @@ function WhatsAppAppInner() {
         setDetailLoading(false)
       }
     }
-  }, [markChatSeen, data, normalizeMessages, mode])
+  }, [markChatSeen, data, normalizeMessages, mode, t])
 
   // AudioDock tap (Task 12-a): open — or re-focus — the chat the currently
   // playing voice note belongs to, optionally jumping to the message.
@@ -757,7 +764,7 @@ function WhatsAppAppInner() {
       setImporting(true)
       const batchToastId =
         files.length > 1
-          ? toast.loading(`Importing 1 of ${files.length}...`)
+          ? toast.loading(t('shell.import.progressOf', { index: 1, total: files.length }))
           : null
       let lastChatId: string | null = null
       let ok = 0
@@ -768,17 +775,45 @@ function WhatsAppAppInner() {
       for (let i = 0; i < files.length; i++) {
         const file = files[i]
         const singleToastId =
-          files.length > 1 ? undefined : toast.loading(`Importing ${file.name}...`)
+          files.length > 1
+            ? undefined
+            : toast.loading(t('shell.import.progressFile', { name: file.name }))
         const progressId = batchToastId ?? singleToastId
         try {
+          // B1 parity — detect existing chats this export could merge into
+          // BEFORE importing (the ImportPanel dialog path does the same via
+          // its preview step). Matching is filename-based here: the parsed
+          // title guess mirrors guessTitleFromFilename, and zip transcripts
+          // match by source-file basename. Auto-merge keeps drag-drop /
+          // batch / share-intent re-imports duplicate-free; the commit is
+          // append-only with per-message dedup, so merging is lossless.
+          let mergeTarget: ImportMergeCandidate | null = null
+          try {
+            const existing = await data.listChats()
+            const candidates = findMergeCandidates({
+              title: guessTitleFromFilename(file.name),
+              sourceFile: file.name,
+              chats: existing,
+            })
+            mergeTarget =
+              candidates.sort(
+                (a, b) => b.matchedBy.length - a.matchedBy.length
+              )[0] ?? null
+          } catch {
+            mergeTarget = null // listChats failed → plain import still works
+          }
           // Device transport: parse + store entirely in the browser.
           // Server transport: multipart upload to /api/import.
           const result =
             mode === 'device'
-              ? await importFileToDevice(file)
+              ? await importFileToDevice(file, {
+                  mergeIntoChatId: mergeTarget?.id,
+                })
               : await (async () => {
                   const form = new FormData()
                   form.append('file', file)
+                  if (mergeTarget)
+                    form.append('mergeIntoChatId', mergeTarget.id)
                   const res = await fetch('/api/import', {
                     method: 'POST',
                     body: form,
@@ -788,14 +823,20 @@ function WhatsAppAppInner() {
                     messages?: number
                     mediaFiles?: number
                     chatId?: string
+                    merged?: boolean
+                    added?: number
+                    duplicatesSkipped?: number
                   } | null
                   if (!res.ok) {
-                    throw new Error(json?.error ?? 'Import failed')
+                    throw new Error(json?.error ?? t('shell.import.failed'))
                   }
                   return {
                     messages: json?.messages ?? 0,
                     mediaFiles: json?.mediaFiles ?? 0,
                     chatId: json?.chatId,
+                    merged: json?.merged,
+                    added: json?.added,
+                    duplicatesSkipped: json?.duplicatesSkipped,
                   }
                 })()
           ok++
@@ -803,25 +844,46 @@ function WhatsAppAppInner() {
           totalMedia += result.mediaFiles ?? 0
           if (result.chatId) lastChatId = result.chatId
           if (files.length === 1 && progressId) {
-            toast.success(
-              `Imported ${(result.messages ?? 0).toLocaleString()} messages${
+            if (result.merged) {
+              toast.success(
+                t('shell.import.merged', {
+                  chat: mergeTarget?.title ?? '',
+                  added: (result.added ?? 0).toLocaleString(),
+                  skipped: (result.duplicatesSkipped ?? 0).toLocaleString(),
+                }),
+                { id: progressId }
+              )
+            } else {
+              const msgCount = (result.messages ?? 0).toLocaleString()
+              const mediaCount = (result.mediaFiles ?? 0).toLocaleString()
+              toast.success(
                 (result.mediaFiles ?? 0) > 0
-                  ? ` and ${(result.mediaFiles ?? 0).toLocaleString()} media files`
-                  : ''
-              }`,
-              { id: progressId }
-            )
+                  ? t('shell.import.doneWithMedia', {
+                      count: msgCount,
+                      media: mediaCount,
+                    })
+                  : t('shell.import.doneMessages', { count: msgCount }),
+                { id: progressId }
+              )
+            }
           } else if (progressId && i < files.length - 1) {
-            toast.loading(`Importing ${i + 2} of ${files.length}...`, {
-              id: progressId,
-            })
+            toast.loading(
+              t('shell.import.progressOf', {
+                index: i + 2,
+                total: files.length,
+              }),
+              {
+                id: progressId,
+              }
+            )
           }
         } catch (err) {
           failed++
           toast.error(
-            `${file.name}: ${
-              err instanceof Error ? err.message : 'Import failed'
-            }`,
+            t('shell.import.fileFailed', {
+              name: file.name,
+              reason: err instanceof Error ? err.message : t('shell.import.failed'),
+            }),
             files.length === 1 && progressId ? { id: progressId } : undefined
           )
         }
@@ -829,15 +891,27 @@ function WhatsAppAppInner() {
 
       if (files.length > 1 && batchToastId) {
         const parts: string[] = []
-        if (ok > 0)
+        if (ok > 0) {
+          const msgs = totalMessages.toLocaleString()
           parts.push(
-            `Imported ${ok} chat${ok === 1 ? '' : 's'} · ${totalMessages.toLocaleString()} messages${
-              totalMedia > 0
-                ? ` · ${totalMedia.toLocaleString()} media files`
-                : ''
-            }`
+            totalMedia > 0
+              ? ok === 1
+                ? t('shell.import.batchOkMediaOne', {
+                    messages: msgs,
+                    media: totalMedia.toLocaleString(),
+                  })
+                : t('shell.import.batchOkMediaMany', {
+                    count: ok,
+                    messages: msgs,
+                    media: totalMedia.toLocaleString(),
+                  })
+              : ok === 1
+                ? t('shell.import.batchOkOne', { messages: msgs })
+                : t('shell.import.batchOkMany', { count: ok, messages: msgs })
           )
-        if (failed > 0) parts.push(`${failed} failed`)
+        }
+        if (failed > 0)
+          parts.push(t('shell.import.batchFailed', { count: failed }))
         toast[failed > 0 && ok === 0 ? 'error' : ok > 0 ? 'success' : 'error'](
           parts.join(' — '),
           { id: batchToastId }
@@ -848,7 +922,7 @@ function WhatsAppAppInner() {
       if (lastChatId) await openChat(lastChatId)
       setImporting(false)
     },
-    [refreshChats, openChat, mode]
+    [refreshChats, openChat, mode, t, data]
   )
 
   // Android intent router (A4): the Capacitor shell forwards VIEW/SEND intents
@@ -864,23 +938,21 @@ function WhatsAppAppInner() {
           void (async () => {
             const savedId = await resolveSavedChatId()
             if (!savedId) {
-              toast.error(
-                'Could not find Saved Messages — shared text was not added'
-              )
+              toast.error(t('shell.toast.savedMissingText'))
               return
             }
             try {
               await postTextToSaved(text)
-              toast.success('Shared to Saved Messages')
+              toast.success(t('shell.toast.shared'))
               void refreshChats()
             } catch {
-              toast.error('Could not save the shared text to Saved Messages')
+              toast.error(t('shell.toast.shareTextFailed'))
             }
           })()
         }
       },
     })
-  }, [mounted, importFiles, resolveSavedChatId, postTextToSaved, refreshChats])
+  }, [mounted, importFiles, resolveSavedChatId, postTextToSaved, refreshChats, t])
 
   const loadDemo = useCallback(() => {
     setDemoPickerOpen(true)
@@ -908,7 +980,7 @@ function WhatsAppAppInner() {
       setDeleting(true)
       try {
         await data.deleteChat(id)
-        toast.success('Chat deleted')
+        toast.success(t('shell.toast.chatDeleted'))
         if (activeId === id) {
           setActiveId(null)
           setDetail(null)
@@ -920,12 +992,12 @@ function WhatsAppAppInner() {
         }
         await refreshChats()
       } catch {
-        toast.error('Could not delete this chat')
+        toast.error(t('shell.toast.deleteFailed'))
       } finally {
         setDeleting(false)
       }
     },
-    [activeId, refreshChats, data]
+    [activeId, refreshChats, data, t]
   )
 
   const togglePin = useCallback(
@@ -939,10 +1011,10 @@ function WhatsAppAppInner() {
         await data.setChatFlags(id, { pinned })
       } catch {
         setChats(prev)
-        toast.error('Could not update pin')
+        toast.error(t('shell.toast.pinFailed'))
       }
     },
-    [chats, data]
+    [chats, data, t]
   )
 
   /** Archive / unarchive a chat (DB-backed, like pinning). */
@@ -954,13 +1026,13 @@ function WhatsAppAppInner() {
       )
       try {
         await data.setChatFlags(id, { archived })
-        toast.success(archived ? 'Chat archived' : 'Chat unarchived')
+        toast.success(archived ? t('shell.toast.archived') : t('shell.toast.unarchived'))
       } catch {
         setChats(prev)
-        toast.error('Could not update archive')
+        toast.error(t('shell.toast.archiveFailed'))
       }
     },
-    [chats, data]
+    [chats, data, t]
   )
 
   /** Star/unstar a message: optimistic DB-backed bookmark with revert. */
@@ -989,10 +1061,10 @@ function WhatsAppAppInner() {
               }
             : d
         )
-        toast.error('Could not update star')
+        toast.error(t('shell.toast.starFailed'))
       }
     },
-    [data]
+    [data, t]
   )
 
   const totalMessages = chats.reduce((s, c) => s + c.messageCount, 0)
@@ -1003,7 +1075,7 @@ function WhatsAppAppInner() {
     () => [
       {
         id: 'search',
-        label: 'Search messages across all chats',
+        label: t('shell.palette.search'),
         icon: <TextSearch />,
         keywords: 'find full text grep messages',
         run: () => {
@@ -1013,69 +1085,71 @@ function WhatsAppAppInner() {
       },
       {
         id: 'media',
-        label: 'Media hub — photos, videos, voice & docs',
+        label: t('shell.palette.media'),
         icon: <Images />,
         keywords: 'gallery photos videos media export storage',
         run: () => setMediaHubOpen(true),
       },
       {
         id: 'insights',
-        label: 'Insights dashboard',
+        label: t('shell.palette.insights'),
         icon: <BarChart3 />,
         keywords: 'stats statistics charts analytics',
         run: () => setStatsOpen(true),
       },
       {
         id: 'memories',
-        label: 'On this day memories',
+        label: t('shell.palette.memories'),
         icon: <CalendarHeart />,
         keywords: 'memories history time machine nostalgia',
         run: () => setMemoriesOpen(true),
       },
       {
         id: 'import',
-        label: 'Import chats (.zip / .txt)',
+        label: t('shell.palette.import'),
         icon: <Upload />,
         keywords: 'add export upload whatsapp zip txt',
         run: () => setImportPanelOpen(true),
       },
       {
         id: 'demo',
-        label: 'Load demo chats',
+        label: t('shell.palette.demo'),
         icon: <Sparkles />,
         keywords: 'sample try example playground',
         run: () => setDemoPickerOpen(true),
       },
       {
         id: 'settings',
-        label: 'Settings',
+        label: t('settings.title'),
         icon: <Settings />,
         keywords: 'preferences lock backup wallpaper font storage',
         run: () => setSettingsOpen(true),
       },
       {
         id: 'theme',
-        label: resolvedTheme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode',
+        label: resolvedTheme === 'dark'
+          ? t('shell.palette.lightMode')
+          : t('shell.palette.darkMode'),
         icon: resolvedTheme === 'dark' ? <Sun /> : <Moon />,
         keywords: 'dark light theme appearance night',
         run: () => setTheme(resolvedTheme === 'dark' ? 'light' : 'dark'),
       },
       {
         id: 'shortcuts',
-        label: 'Keyboard shortcuts',
+        label: t('settings.section.shortcuts'),
         icon: <Keyboard />,
         keywords: 'keys hotkeys help bindings',
         run: () => setShortcutsOpen(true),
       },
       {
         id: 'guide',
-        label: 'Open the guide',
+        label: t('shell.palette.guide'),
         icon: <Compass />,
         keywords: 'help about tutorial walkthrough',
         run: () => setAboutOpen(true),
       },
     ],
-    [resolvedTheme, setTheme]
+    [resolvedTheme, setTheme, t]
   )
 
   // Global keyboard shortcuts (Task 7-e #7)
@@ -1127,7 +1201,7 @@ function WhatsAppAppInner() {
         href="#wa-main"
         className="sr-only focus:not-sr-only focus:absolute focus:left-2 focus:top-2 focus:z-50 focus:rounded-lg focus:bg-(--wa-accent) focus:px-3 focus:py-2 focus:text-[13px] focus:font-semibold focus:text-white focus:shadow-lg"
       >
-        Skip to conversation
+        {t('shell.skipToChat')}
       </a>
       {/* Top app bar */}
       <div className="flex items-center justify-between bg-(--wa-appbar) px-4 py-2">
@@ -1137,10 +1211,10 @@ function WhatsAppAppInner() {
           </span>
           <div className="min-w-0">
             <h1 className="truncate text-[16px] font-semibold leading-tight text-white">
-              WA Archiver
+              {t('app.name')}
             </h1>
             <p className="truncate text-[11px] leading-tight text-white/70">
-              Read your exported chats — private &amp; local
+              {t('app.tagline')}
             </p>
           </div>
         </div>
@@ -1152,8 +1226,8 @@ function WhatsAppAppInner() {
                 size="icon"
                 className="wa-iconbtn h-9 w-9 text-white hover:bg-white/10"
                 onClick={() => setTextSizeOpen((v) => !v)}
-                aria-label="Display settings"
-                title="Text size & font"
+                aria-label={t('shell.aria.displaySettings')}
+                title={t('shell.display.title')}
                 suppressHydrationWarning
               >
                 <ALargeSmall className="h-5 w-5" />
@@ -1164,7 +1238,7 @@ function WhatsAppAppInner() {
               className="wa-scroll max-h-[80vh] w-72 overflow-y-auto p-3"
             >
               <p className="mb-2 text-[13px] font-medium text-(--wa-text)">
-                Reading text size
+                {t('shell.display.textSize')}
               </p>
               <div className="grid grid-cols-4 gap-2">
                 {(Object.keys(TEXT_SIZES) as TextSizeKey[]).map((k) => {
@@ -1196,14 +1270,14 @@ function WhatsAppAppInner() {
                 })}
               </div>
               <p className="mt-2 text-[11px] leading-snug text-(--wa-text-2)">
-                Applies to message text in every chat.
+                {t('shell.display.textSizeHint')}
               </p>
 
               <div className="my-3 h-px bg-black/10 dark:bg-white/10" />
 
               <p className="mb-2 flex items-center gap-1.5 text-[13px] font-medium text-(--wa-text)">
                 <Paintbrush className="h-3.5 w-3.5 text-(--wa-accent)" />
-                App theme
+                {t('shell.display.appTheme')}
               </p>
               <div className="grid grid-cols-4 gap-2">
                 {(Object.keys(APP_THEMES) as AppThemeKey[]).map((k) => {
@@ -1263,15 +1337,14 @@ function WhatsAppAppInner() {
                 })}
               </div>
               <p className="mt-2 text-[11px] leading-snug text-(--wa-text-2)">
-                Recolors the whole app — header, bubbles, buttons and charts.
-                Works with light &amp; dark mode.
+                {t('shell.display.appThemeHint')}
               </p>
 
               <div className="my-3 h-px bg-black/10 dark:bg-white/10" />
 
               <p className="mb-2 flex items-center gap-1.5 text-[13px] font-medium text-(--wa-text)">
                 <Pipette className="h-3.5 w-3.5 text-(--wa-accent)" />
-                Accent color
+                {t('shell.display.accent')}
               </p>
               <div className="flex flex-wrap items-center gap-1.5">
                 {ACCENT_PRESETS.map((a) => {
@@ -1294,7 +1367,7 @@ function WhatsAppAppInner() {
                 })}
                 <label
                   className="relative flex h-7 w-7 cursor-pointer items-center justify-center rounded-full ring-1 ring-black/15 transition-transform duration-150 hover:scale-110 active:scale-95 dark:ring-white/25"
-                  title="Custom color"
+                  title={t('shell.display.customColor')}
                   style={{
                     background:
                       'conic-gradient(#ef4444,#f59e0b,#84cc16,#14b8a6,#3b82f6,#8b5cf6,#ec4899,#ef4444)',
@@ -1302,7 +1375,7 @@ function WhatsAppAppInner() {
                 >
                   <input
                     type="color"
-                    aria-label="Custom accent color"
+                    aria-label={t('shell.display.customColorAria')}
                     className="absolute inset-0 h-full w-full cursor-pointer opacity-0"
                     value={accentKey ?? '#00a884'}
                     onChange={(e) => setAccentOverride(e.target.value)}
@@ -1311,7 +1384,7 @@ function WhatsAppAppInner() {
                 <button
                   onClick={() => setAccentOverride(null)}
                   aria-pressed={accentKey === null}
-                  title="Follow the active theme"
+                  title={t('shell.display.followTheme')}
                   className={cn(
                     'ml-auto rounded-full px-2.5 py-1 text-[11px] font-medium transition-colors',
                     accentKey === null
@@ -1319,27 +1392,27 @@ function WhatsAppAppInner() {
                       : 'text-(--wa-text-2) hover:bg-black/5 dark:hover:bg-white/5'
                   )}
                 >
-                  Theme default
+                  {t('shell.display.themeDefault')}
                 </button>
               </div>
               <p className="mt-2 text-[11px] leading-snug text-(--wa-text-2)">
-                Tints buttons, highlights and heat dots — on top of any theme.
+                {t('shell.display.accentHint')}
               </p>
 
               <div className="my-3 h-px bg-black/10 dark:bg-white/10" />
 
               <p className="mb-2 flex items-center gap-1.5 text-[13px] font-medium text-(--wa-text)">
                 <SunMoon className="h-3.5 w-3.5 text-(--wa-accent)" />
-                Appearance
+                {t('settings.section.appearance')}
               </p>
               <div className="grid grid-cols-3 gap-1.5 rounded-xl bg-black/[0.04] p-1 dark:bg-white/[0.06]">
                 {(
                   [
-                    ['system', 'Auto', MonitorSmartphone],
-                    ['light', 'Light', Sun],
-                    ['dark', 'Dark', Moon],
+                    ['system', 'shell.display.auto', MonitorSmartphone],
+                    ['light', 'shell.display.light', Sun],
+                    ['dark', 'shell.display.dark', Moon],
                   ] as const
-                ).map(([val, label, Icon]) => {
+                ).map(([val, labelKey, Icon]) => {
                   const active = (theme ?? 'system') === val
                   return (
                     <button
@@ -1354,21 +1427,23 @@ function WhatsAppAppInner() {
                       )}
                     >
                       <Icon className="h-3.5 w-3.5" />
-                      {label}
+                      {t(labelKey)}
                     </button>
                   )
                 })}
               </div>
               <p className="mt-2 text-[11px] leading-snug text-(--wa-text-2)">
                 {theme === 'system'
-                  ? `Following your device — currently ${resolvedTheme ?? '…'}.`
-                  : 'Auto follows your device setting.'}
+                  ? t('shell.display.followingDevice', {
+                      mode: resolvedTheme ?? '…',
+                    })
+                  : t('shell.display.autoHint')}
               </p>
 
               <div className="my-3 h-px bg-black/10 dark:bg-white/10" />
 
               <p className="mb-2 text-[13px] font-medium text-(--wa-text)">
-                Chat font
+                {t('shell.display.chatFont')}
               </p>
               <div className="grid grid-cols-2 gap-2">
                 {(Object.keys(FONT_FAMILIES) as FontFamilyKey[]).map((k) => {
@@ -1403,22 +1478,21 @@ function WhatsAppAppInner() {
                         className="w-full truncate text-[10.5px] leading-tight text-(--wa-text-2)"
                         style={{ fontFamily: f.stack }}
                       >
-                        Hello! How are you?
+                        {t('shell.display.fontSample')}
                       </span>
                     </button>
                   )
                 })}
               </div>
               <p className="mt-2 text-[11px] leading-snug text-(--wa-text-2)">
-                Changes the typeface across the chat list and every
-                conversation.
+                {t('shell.display.chatFontHint')}
               </p>
 
               <div className="my-3 h-px bg-black/10 dark:bg-white/10" />
 
               <p className="mb-2 flex items-center gap-1.5 text-[13px] font-medium text-(--wa-text)">
                 <MessageSquareDot className="h-3.5 w-3.5 text-(--wa-accent)" />
-                Bubble style
+                {t('shell.display.bubbleStyle')}
               </p>
               <div className="grid grid-cols-3 gap-2">
                 {(Object.keys(BUBBLE_STYLES) as BubbleStyleKey[]).map((k) => {
@@ -1490,15 +1564,14 @@ function WhatsAppAppInner() {
                 })}
               </div>
               <p className="mt-2 text-[11px] leading-snug text-(--wa-text-2)">
-                Reshapes every message bubble — corners tighten or round, and
-                Compact fits more of the conversation on screen.
+                {t('shell.display.bubbleHint')}
               </p>
 
               <div className="my-3 h-px bg-black/10 dark:bg-white/10" />
 
               <p className="mb-2 flex items-center gap-1.5 text-[13px] font-medium text-(--wa-text)">
                 <Clock3 className="h-3.5 w-3.5 text-(--wa-accent)" />
-                Clock
+                {t('shell.display.clock')}
               </p>
               <div className="grid grid-cols-3 gap-2">
                 {(Object.keys(TIME_FORMATS) as TimeFormatKey[]).map((k) => {
@@ -1528,8 +1601,7 @@ function WhatsAppAppInner() {
                 })}
               </div>
               <p className="mt-2 text-[11px] leading-snug text-(--wa-text-2)">
-                How message times read everywhere — bubbles, lists, media and
-                search results.
+                {t('shell.display.clockHint')}
               </p>
             </PopoverContent>
           </Popover>
@@ -1538,8 +1610,8 @@ function WhatsAppAppInner() {
             size="icon"
             className="wa-iconbtn h-9 w-9 text-white hover:bg-white/10"
             onClick={() => setSettingsOpen(true)}
-            aria-label="Settings"
-            title="Settings — backup, app lock & shortcuts"
+            aria-label={t('settings.title')}
+            title={t('shell.aria.settingsTip')}
           >
             <Settings className="h-5 w-5" />
           </Button>
@@ -1549,7 +1621,7 @@ function WhatsAppAppInner() {
               size="icon"
               className="wa-iconbtn h-9 w-9 text-white hover:bg-white/10"
               onClick={() => setTheme(resolvedTheme === 'dark' ? 'light' : 'dark')}
-              aria-label="Toggle dark mode"
+              aria-label={t('shell.aria.toggleDark')}
             >
               {resolvedTheme === 'dark' ? (
                 <Sun className="h-5 w-5" />
@@ -1563,7 +1635,7 @@ function WhatsAppAppInner() {
             size="icon"
             className="wa-iconbtn h-9 w-9 text-white hover:bg-white/10"
             onClick={() => setAboutOpen(true)}
-            aria-label="About and help"
+            aria-label={t('shell.aria.aboutHelp')}
           >
             <HelpCircle className="h-5 w-5" />
           </Button>
@@ -1579,8 +1651,8 @@ function WhatsAppAppInner() {
           <WifiOff className="h-3.5 w-3.5 shrink-0" aria-hidden />
           <span>
             {mode === 'device'
-              ? "You're offline — everything still works, data lives on this device."
-              : "You're offline — recently opened chats are still readable."}
+              ? t('shell.offline.device')
+              : t('shell.offline.server')}
           </span>
         </div>
       )}
@@ -1589,7 +1661,7 @@ function WhatsAppAppInner() {
       <div className="relative flex min-h-0 min-w-0 flex-1">
         <div
           role="navigation"
-          aria-label="Chats"
+          aria-label={t('chats.title')}
           className={cn('relative flex min-h-0 w-full md:w-auto', activeId ? 'hidden md:flex' : 'flex')}
         >
           <ChatList
@@ -1660,7 +1732,7 @@ function WhatsAppAppInner() {
             <div className="anim-pop flex items-center gap-3 rounded-xl bg-white px-5 py-4 shadow-xl dark:bg-(--wa-panel-2)">
               <Loader2 className="h-5 w-5 animate-spin text-(--wa-accent)" />
               <span className="text-[14px] font-medium text-(--wa-text)">
-                Working on it...
+                {t('shell.working')}
               </span>
             </div>
           </div>
@@ -1672,13 +1744,20 @@ function WhatsAppAppInner() {
         <button
           type="button"
           onClick={() => setImportPanelOpen(true)}
-          title="Import chats (.zip / .txt)"
-          aria-label="Import chats"
+          title={t('shell.palette.import')}
+          aria-label={t('shell.footer.importAria')}
           className="flex w-full cursor-pointer items-center justify-center gap-2 px-4 py-2 text-[11.5px] text-(--wa-text-2) transition-colors hover:text-(--wa-accent-strong) dark:text-(--wa-text-2) dark:hover:text-(--wa-accent)"
         >
           <Upload className="h-3 w-3" />
-          {chats.length} chat{chats.length === 1 ? '' : 's'} ·{' '}
-          {totalMessages.toLocaleString()} messages · all data stays on this device
+          {chats.length === 1
+            ? t('shell.footer.statsOne', {
+                chats: chats.length,
+                messages: totalMessages.toLocaleString(),
+              })
+            : t('shell.footer.statsMany', {
+                chats: chats.length,
+                messages: totalMessages.toLocaleString(),
+              })}
         </button>
       </footer>
 
