@@ -1,14 +1,20 @@
 name: Build Android APK
 
 # Builds a ready-to-install STANDALONE APK and attaches it to GitHub Releases:
-#   • push a tag (v1.2.3…)    → versioned Release with a SIGNED release APK
+#   • push a tag (v1.2.3…)    → versioned Release with SIGNED release APKs + AAB
 #   • push to main            → refreshes the rolling "latest" pre-release (debug APK)
 #   • workflow_dispatch       → refreshes the rolling "latest" pre-release
 #
-# Signing: tags build `assembleRelease` signed with the KEYSTORE_BASE64 /
-# KEYSTORE_PASSWORD / KEYSTORE_ALIAS Actions secrets (see android/app/build.gradle).
-# If the secrets are absent the release build falls back to the debug key, so the
-# pipeline never breaks. main pushes build the plain debug APK.
+# Signing: tags build `assembleRelease bundleRelease` signed with the
+# KEYSTORE_BASE64 / KEYSTORE_PASSWORD / KEYSTORE_ALIAS Actions secrets (see
+# android/app/build.gradle). If the secrets are absent the release build falls
+# back to the debug key, so the pipeline never breaks. main pushes build the
+# plain debug APK.
+#
+# Tag releases attach BOTH formats:
+#   • APKs (universal + per-ABI) — sideload / GitHub / IzzyOnDroid installs
+#   • .aab App Bundle — Google Play upload; Play does the per-device
+#     splitting (ABI, density, language) itself, usually smaller downloads.
 #
 # The APK bundles the whole web app (static export) and the on-device SQLite
 # database — it works with no internet and no hosted URL. Users download it
@@ -67,12 +73,14 @@ jobs:
             echo "KEYSTORE_BASE64 secret not set — release APK will use the debug key."
           fi
 
-      - name: Build APK (Gradle)
+      - name: Build APK + AAB (Gradle)
         run: |
           cd android
           chmod +x gradlew
           if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
-            ./gradlew assembleRelease --no-daemon --stacktrace
+            # bundleRelease → Play Store App Bundle (.aab), signed with the
+            # same release key. One artifact; Play splits per device itself.
+            ./gradlew assembleRelease bundleRelease --no-daemon --stacktrace
           else
             ./gradlew assembleDebug --no-daemon --stacktrace
           fi
@@ -96,6 +104,14 @@ jobs:
               variant=${variant%.apk} # universal-release    | arm64-v8a-release    | …
               cp "$f" "apk-out/WA-Archiver-${GITHUB_REF#refs/tags/}-${variant}.apk"
             done
+            # Play Store App Bundle — attach alongside the APKs when present.
+            AAB_SRC=android/app/build/outputs/bundle/release/app-release.aab
+            if [ -f "$AAB_SRC" ]; then
+              cp "$AAB_SRC" "apk-out/WA-Archiver-${GITHUB_REF#refs/tags/}-release.aab"
+              echo "App Bundle attached: WA-Archiver-${GITHUB_REF#refs/tags/}-release.aab"
+            else
+              echo "::warning::No signed .aab found — skipping Play Bundle artifact"
+            fi
           else
             # Rolling "latest" build: only the universal debug APK keeps the
             # pre-release tidy (per-ABI debug builds add noise, not value).

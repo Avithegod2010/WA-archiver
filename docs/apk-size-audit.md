@@ -56,17 +56,23 @@ splits {
 ## Further options (not done — tradeoffs)
 
 1. **On-demand whisper download** (~−19 MB APK): ship the app without the
-   ASR runtime and fetch it on first use. Rejected for now — it breaks the
-   "works fully offline out of the box" promise and adds a CDN dependency
-   to an otherwise zero-network app.
+   ASR runtime and fetch it on first use. ~~Rejected for now~~ → **DONE in
+   v1.7.0** with an escape hatch: the ORT WASM binaries are no longer
+   bundled; `public/whisper/` carries only the transformers.js bootstrap
+   (~0.9 MB) + `manifest.json`, and `whisper-asr.ts` fetches the
+   matching binaries from jsDelivr on first use (browser Cache API keeps
+   them for offline reuse — same one-online-moment contract as the ~45 MB
+   ASR model, which was always on-demand). Builds that must work offline
+   out of the box set `WHISPER_LOCAL_WASM=1` to re-bundle the binaries.
 2. **Single WASM variant** (~−9 MB): drop `ort-wasm.wasm` and require
    SIMD support. Every Android WebView since 2017 has SIMD; risk is low
    but nonzero for very old devices. Revisit if size pressure grows.
 3. **Brotli/zip-compressed assets served from the APK** — Capacitor
    compresses `assets/` in the APK already (deflate); no further win.
-4. **App Bundle (.aab)** — the real fix for Play Store distribution
-   (Google generates per-device APKs server-side). Blocked only on Play
-   Console access; the Gradle config above is 90% of the way there.
+4. **App Bundle (.aab)** — ~~90% of the way there~~ → **DONE in v1.7.0**:
+   CI tag builds run `assembleRelease bundleRelease` and attach
+   `WA-Archiver-<tag>-release.aab` to the release. Upload it to Play
+   Console and Google generates the per-device APKs server-side.
 
 ## Verification checklist after a release build
 
@@ -74,3 +80,12 @@ splits {
 - [ ] Universal APK installs and boots on arm64 device
 - [ ] Voice-note transcription still works (uses `ort-wasm-simd.wasm`)
 - [ ] Release page shows all four APK assets
+
+## v1.7.0 update (2026-10-23)
+
+- `public/whisper/` weight: 19.6 MB → 0.9 MB (wasm now on-demand from
+  jsDelivr `@xenova/transformers@2.17.2/dist/`, version-locked to the
+  vendored bundle via `manifest.json`).
+- Releases attach a signed .aab alongside the four APKs.
+- `WHISPER_LOCAL_WASM=1` restores the fully-offline bundled build;
+  `WHISPER_ALL_VARIANTS=1` still forces all four wasm variants.

@@ -99,6 +99,9 @@ import {
 } from '@/lib/persona-engine'
 import { runDeviceAi } from '@/lib/device-ai'
 import { suggestReplies } from '@/lib/smart-replies'
+import { chatCsvBlob } from '@/lib/export-csv'
+import { safeFileTitle } from '@/lib/export-text'
+import { downloadBlob } from '@/lib/wordcloud-png'
 import { useData, useMessageNormalizer } from './data-provider'
 
 type SchedItem = {
@@ -1527,8 +1530,40 @@ export function ChatView({
   }
 
   /** JSON (raw data) / CSV (spreadsheet) exports — mirrors handleExportZip. */
-  function handleExportFormat(format: 'json' | 'csv') {
+  async function handleExportFormat(format: 'json' | 'csv') {
     if (!detail) return
+    // Device mode (static APK bundle) has no /api routes — build the file
+    // client-side from the DataClient with the same schema as the server
+    // route (see src/lib/export-csv.ts and /api/chats/[id]/export).
+    if (mode === 'device') {
+      try {
+        const full = await data.getChatDetail(detail.chat.id)
+        const rows = full.messages
+        if (!rows || rows.length === 0) {
+          toast.error('No messages to export')
+          return
+        }
+        const name = `WhatsApp Chat - ${safeFileTitle(detail.chat.title)}`
+        if (format === 'csv') {
+          downloadBlob(chatCsvBlob(rows), `${name}.csv`)
+        } else {
+          downloadBlob(
+            new Blob([JSON.stringify({ chat: detail.chat, count: rows.length, messages: rows }, null, 2)], {
+              type: 'application/json',
+            }),
+            `${name}.json`
+          )
+        }
+        toast.success(
+          format === 'csv'
+            ? 'Chat exported as .csv (spreadsheet) — check your downloads'
+            : 'Chat exported as .json (raw data) — check your downloads'
+        )
+      } catch {
+        toast.error('Could not export this chat')
+      }
+      return
+    }
     const a = document.createElement('a')
     a.href = `/api/chats/${detail.chat.id}/export?format=${format}`
     a.download = ''

@@ -7,6 +7,7 @@ import {
   BarChart3,
   Download,
   FileJson,
+  FileSpreadsheet,
   FileText,
   Film,
   ImageIcon,
@@ -29,6 +30,7 @@ import { useData, useMessageNormalizer } from './data-provider'
 import type { ChatMessage } from './types'
 import { cn } from '@/lib/utils'
 import { downloadBlob } from '@/lib/wordcloud-png'
+import { chatCsvBlob } from '@/lib/export-csv'
 
 function slugify(title: string): string {
   return (
@@ -183,8 +185,8 @@ export function StarredMessages({
     toast.success('Message unstarred')
   }
 
-  /** Trigger a client-side download of the starred list (TXT or JSON). */
-  function exportStarred(fmt: 'txt' | 'json') {
+  /** Trigger a client-side download of the starred list (TXT, JSON or CSV). */
+  function exportStarred(fmt: 'txt' | 'json' | 'csv') {
     if (!items || items.length === 0) {
       toast.error('Nothing to export yet')
       return
@@ -213,6 +215,13 @@ export function StarredMessages({
             type: 'application/json',
           }),
           `starred-${slug}.json`
+        )
+      } else if (fmt === 'csv') {
+        // Same schema as the chat CSV export (src/lib/export-csv.ts) so a
+        // spreadsheet can mix starred rows with full-chat exports.
+        downloadBlob(
+          chatCsvBlob(items),
+          `starred-${slug}.csv`
         )
       } else {
         const lines: string[] = [
@@ -277,6 +286,15 @@ export function StarredMessages({
               >
                 <FileJson className="h-3.5 w-3.5" aria-hidden />
                 Export .json
+              </button>
+              <button
+                type="button"
+                onClick={() => exportStarred('csv')}
+                className="inline-flex items-center gap-1.5 rounded-md border border-black/[0.06] px-2.5 py-1.5 text-[12px] font-medium text-(--wa-text-2) transition-colors hover:bg-(--wa-accent)/10 hover:text-(--wa-accent-strong) dark:border-white/10"
+                title="Download starred messages as .csv (spreadsheet)"
+              >
+                <FileSpreadsheet className="h-3.5 w-3.5" aria-hidden />
+                Export .csv
               </button>
             </div>
           )}

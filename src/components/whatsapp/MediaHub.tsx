@@ -22,13 +22,17 @@ import { toast } from 'sonner'
 import {
   ArrowDownUp,
   AudioLines,
+  CalendarX,
   Check,
+  ChevronLeft,
   Download,
   FileText,
   Film,
   Heart,
   ImageOff,
   Images,
+  Layers,
+  LayoutGrid,
   Loader2,
   MessageSquare,
   Play,
@@ -68,7 +72,25 @@ import type { ChatMessage } from './types'
 
 type KindKey = 'all' | 'photos' | 'videos' | 'voice' | 'stickers' | 'docs'
 type SortKey = 'new' | 'old'
+type ViewKey = 'grid' | 'albums'
 type Kind = 'photo' | 'video' | 'voice' | 'sticker' | 'doc'
+
+/**
+ * A "shared album": one conversation burst of media in a single chat.
+ * Items sorted by time are split whenever the same chat has a gap longer
+ * than ALBUM_GAP_MS — mirrors how WhatsApp itself clusters a photo dump
+ * sent in one sitting (ChatView uses the same 5-min burst heuristic for
+ * sender grouping; media dumps are slower-paced, hence 45 min).
+ */
+interface Album {
+  chatId: string
+  chatTitle: string
+  start: string
+  end: string
+  items: AllMediaItem[]
+}
+
+const ALBUM_GAP_MS = 45 * 60 * 1000
 
 const DOC_EXT_RE =
   /\.(pdf|docx?|pptx?|xlsx?|csv|tsv|txt|rtf|odt|ods|odp|pages|numbers|key|epub|zip|rar|7z|tar|gz|bz2|xz|dmg|iso|apk|exe|msi|deb|rpm|jar|json|xml|sql|ics|vcf)$/i
@@ -125,6 +147,20 @@ function monthLabel(key: string): string {
   return new Date(y, m - 1, 1).toLocaleString([], { month: 'long', year: 'numeric' })
 }
 
+function dayStamp(iso: string): string {
+  return new Date(iso).toLocaleDateString([], {
+    day: 'numeric',
+    month: 'short',
+    year: 'numeric',
+  })
+}
+
+function formatAlbumRange(start: string, end: string): string {
+  const a = start.slice(0, 10)
+  const b = end.slice(0, 10)
+  return a === b ? dayStamp(start) : `${dayStamp(start)} – ${dayStamp(end)}`
+}
+
 /** Sanitize a chat title into a zip-safe folder name. */
 function zipFolder(title: string): string {
   return title.replace(/[\\/:*?"<>|]+/g, '_').replace(/\s+/g, ' ').trim().slice(0, 60) || 'chat'
@@ -163,6 +199,10 @@ export function MediaHub({
   const [deleting, setDeleting] = useState(false)
   const [viewerIdx, setViewerIdx] = useState<number | null>(null)
   const [visibleMonths, setVisibleMonths] = useState(8)
+  const [fromDate, setFromDate] = useState('')
+  const [toDate, setToDate] = useState('')
+  const [view, setView] = useState<ViewKey>('grid')
+  const [openAlbum, setOpenAlbum] = useState<number | null>(null)
   const [quota, setQuota] = useState<{ usage: number; quota: number } | null>(null)
   const scrollRef = useRef<HTMLDivElement>(null)
 
@@ -217,6 +257,10 @@ export function MediaHub({
       setSelectMode(false)
       setViewerIdx(null)
       setVisibleMonths(8)
+      setFromDate('')
+      setToDate('')
+      setView('grid')
+      setOpenAlbum(null)
       load()
     }
   }, [open, modeResolved, load])
@@ -277,6 +321,9 @@ export function MediaHub({
     if (wantKind) rows = rows.filter((it) => classify(it) === wantKind)
     if (chatFilter !== 'all') rows = rows.filter((it) => it.chatId === chatFilter)
     if (favOnly) rows = rows.filter((it) => it.starred)
+    // Date range: ts is ISO — the YYYY-MM-DD prefix compares lexically.
+    if (fromDate) rows = rows.filter((it) => it.ts.slice(0, 10) >= fromDate)
+    if (toDate) rows = rows.filter((it) => it.ts.slice(0, 10) <= toDate)
     if (q) {
       rows = rows.filter(
         (it) =>
@@ -287,7 +334,33 @@ export function MediaHub({
     }
     if (sort === 'old') rows = [...rows].reverse()
     return rows
-  }, [items, kind, chatFilter, favOnly, query, sort])
+  }, [items, kind, chatFilter, favOnly, query, sort, fromDate, toDate])
+
+  /** Shared-album clusters of the filtered rows (newest burst first). */
+  const albums = useMemo(() => {
+    const rows = [...filtered].sort((a, b) => a.ts.localeCompare(b.ts))
+    const out: Album[] = []
+    let cur: Album | null = null
+    let prevTs = 0
+    for (const it of rows) {
+      const t = new Date(it.ts).getTime()
+      if (!cur || cur.chatId !== it.chatId || t - prevTs > ALBUM_GAP_MS) {
+        cur = {
+          chatId: it.chatId,
+          chatTitle: it.chatTitle,
+          start: it.ts,
+          end: it.ts,
+          items: [it],
+        }
+        out.push(cur)
+      } else {
+        cur.items.push(it)
+        cur.end = it.ts
+      }
+      prevTs = t
+    }
+    return out.reverse()
+  }, [filtered])
 
   /** Month-ordered groups of the filtered rows (newest first). */
   const groups = useMemo(() => {
@@ -302,10 +375,12 @@ export function MediaHub({
   }, [filtered])
 
   /** Flat list matching the rendered order (drives the Lightbox). */
-  const flatShown = useMemo(
-    () => groups.slice(0, visibleMonths).flatMap(([, list]) => list),
-    [groups, visibleMonths]
-  )
+  const flatShown = useMemo(() => {
+    if (view === 'albums' && openAlbum != null && albums[openAlbum]) {
+      return albums[openAlbum].items
+    }
+    return groups.slice(0, visibleMonths).flatMap(([, list]) => list)
+  }, [view, openAlbum, albums, groups, visibleMonths])
 
   const totals = useMemo(() => {
     const per = { photo: 0, video: 0, voice: 0, sticker: 0, doc: 0 } as Record<Kind, number>
@@ -587,6 +662,30 @@ export function MediaHub({
               <ArrowDownUp className="h-3.5 w-3.5" />
             </Button>
 
+            {/* View toggle: month grid ↔ shared albums */}
+            <Button
+              size="icon"
+              variant="ghost"
+              className="wa-iconbtn h-8.5 w-8.5 rounded-full bg-white/8 text-white/75 hover:bg-white/15 hover:text-white"
+              onClick={() => {
+                setView((v) => (v === 'grid' ? 'albums' : 'grid'))
+                setOpenAlbum(null)
+              }}
+              title={
+                view === 'grid'
+                  ? 'Month grid — click for shared albums'
+                  : 'Shared albums — click for month grid'
+              }
+              aria-label="Toggle shared albums view"
+              aria-pressed={view === 'albums'}
+            >
+              {view === 'grid' ? (
+                <Layers className="h-3.5 w-3.5" />
+              ) : (
+                <LayoutGrid className="h-3.5 w-3.5" />
+              )}
+            </Button>
+
             {/* Select mode */}
             <Button
               size="sm"
@@ -620,6 +719,41 @@ export function MediaHub({
               className="h-8.5 rounded-full border-white/15 bg-white/8 ps-8 text-[12.5px] text-white placeholder:text-white/40 focus-visible:ring-(--wa-accent)/50"
             />
           </div>
+
+          {/* Date-range filter */}
+          <div className="flex items-center gap-1.5">
+            <Input
+              type="date"
+              value={fromDate}
+              onChange={(e) => setFromDate(e.target.value)}
+              aria-label="From date"
+              className="h-8.5 w-[128px] rounded-full border-white/15 bg-white/8 px-3 text-[12px] text-white [color-scheme:dark] focus-visible:ring-(--wa-accent)/50"
+            />
+            <span className="text-[11px] text-white/40">–</span>
+            <Input
+              type="date"
+              value={toDate}
+              onChange={(e) => setToDate(e.target.value)}
+              aria-label="To date"
+              className="h-8.5 w-[128px] rounded-full border-white/15 bg-white/8 px-3 text-[12px] text-white [color-scheme:dark] focus-visible:ring-(--wa-accent)/50"
+            />
+            {(fromDate || toDate) && (
+              <Button
+                size="icon"
+                variant="ghost"
+                className="wa-iconbtn h-8 w-8 rounded-full bg-white/8 text-white/60 hover:bg-white/15 hover:text-white"
+                onClick={() => {
+                  setFromDate('')
+                  setToDate('')
+                }}
+                title="Clear date range"
+                aria-label="Clear date range"
+              >
+                <CalendarX className="h-3.5 w-3.5" />
+              </Button>
+            )}
+          </div>
+
           <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-white/55">
             {(['photo', 'video', 'voice', 'doc'] as Kind[]).map((k) => {
               if (totals.per[k] === 0) return null
@@ -681,7 +815,8 @@ export function MediaHub({
           </div>
         )}
 
-        {groups.slice(0, visibleMonths).map(([key, list]) => (
+        {view === 'grid' &&
+          groups.slice(0, visibleMonths).map(([key, list]) => (
           <section key={key} className="mb-5">
             <div className="sticky top-0 z-10 -mx-1 mb-2 flex items-center gap-2 bg-[#0b141a]/85 px-1 py-1.5 backdrop-blur-sm">
               <h3 className="text-[12.5px] font-semibold text-white/90">{monthLabel(key)}</h3>
@@ -727,7 +862,118 @@ export function MediaHub({
           </section>
         ))}
 
-        {!loading && groups.length > visibleMonths && (
+        {/* Shared albums: conversation bursts of media, one card each */}
+        {view === 'albums' && openAlbum == null && albums.length > 0 && (
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+            {albums.map((al, i) => {
+              const cover = al.items.find(
+                (it) => classify(it) === 'photo' || classify(it) === 'video'
+              )
+              const coverSrc = cover
+                ? displayMediaSrc(cover.chatId, cover.mediaPath)
+                : null
+              return (
+                <button
+                  key={`${al.chatId}-${al.start}`}
+                  onClick={() => setOpenAlbum(i)}
+                  className="group overflow-hidden rounded-xl border border-white/10 bg-white/5 text-left transition-colors hover:border-(--wa-accent)/50 hover:bg-white/8"
+                  aria-label={`Open album — ${al.chatTitle}, ${formatAlbumRange(al.start, al.end)}`}
+                >
+                  <div className="flex h-28 items-center justify-center overflow-hidden bg-black/30">
+                    {coverSrc ? (
+                      <img
+                        src={coverSrc}
+                        alt=""
+                        loading="lazy"
+                        className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-[1.03]"
+                      />
+                    ) : (
+                      <Images className="h-7 w-7 text-white/30" />
+                    )}
+                  </div>
+                  <div className="p-3">
+                    <p className="truncate text-[13px] font-semibold text-white/90">
+                      {al.chatTitle}
+                    </p>
+                    <p className="mt-0.5 text-[11px] text-white/50">
+                      {formatAlbumRange(al.start, al.end)}
+                    </p>
+                    <p className="mt-1 text-[11px] tabular-nums text-white/60">
+                      {al.items.length} item{al.items.length === 1 ? '' : 's'}
+                    </p>
+                  </div>
+                </button>
+              )
+            })}
+          </div>
+        )}
+
+        {/* One album opened: same tile grid as the month view */}
+        {view === 'albums' && openAlbum != null && albums[openAlbum] && (
+          <section className="mb-5">
+            {(() => {
+              const al = albums[openAlbum]
+              return (
+                <>
+                  <div className="sticky top-0 z-10 -mx-1 mb-2 flex items-center gap-2 bg-[#0b141a]/85 px-1 py-1.5 backdrop-blur-sm">
+                    <button
+                      onClick={() => setOpenAlbum(null)}
+                      className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-white/8 text-white/70 hover:bg-white/15 hover:text-white"
+                      title="Back to albums"
+                      aria-label="Back to albums"
+                    >
+                      <ChevronLeft className="h-4 w-4" />
+                    </button>
+                    <h3 className="truncate text-[12.5px] font-semibold text-white/90">
+                      {al.chatTitle}
+                    </h3>
+                    <span className="shrink-0 text-[10.5px] tabular-nums text-white/40">
+                      {formatAlbumRange(al.start, al.end)} · {al.items.length}
+                    </span>
+                    {selectMode && (
+                      <button
+                        onClick={() =>
+                          setSelected((prev) => {
+                            const next = new Set(prev)
+                            for (const it of al.items) next.add(it.id)
+                            return next
+                          })
+                        }
+                        className="rounded-full bg-white/8 px-2 py-0.5 text-[10.5px] text-white/70 hover:bg-white/15 hover:text-white"
+                      >
+                        Select album
+                      </button>
+                    )}
+                  </div>
+                  <div className="grid grid-cols-3 gap-1.5 sm:grid-cols-4 md:grid-cols-6 lg:grid-cols-8">
+                    {al.items.map((it) => (
+                      <HubTile
+                        key={it.id}
+                        item={it}
+                        selectMode={selectMode}
+                        isSelected={selected.has(it.id)}
+                        onToggleSelect={() => toggleSelect(it.id)}
+                        onOpen={() => {
+                          if (classify(it) === 'doc') saveOne(it)
+                          else
+                            setViewerIdx(flatShown.findIndex((f) => f.id === it.id))
+                        }}
+                        onToggleFav={() => toggleFav(it)}
+                        onJump={() => {
+                          onClose()
+                          onOpenMessage(it.chatId, it.id)
+                        }}
+                        onSave={selectMode ? undefined : () => saveOne(it)}
+                      />
+                    ))}
+                  </div>
+                </>
+              )
+            })()}
+          </section>
+        )}
+
+        {!loading && view === 'grid' && groups.length > visibleMonths && (
           <div className="flex justify-center pt-2">
             <Button
               size="sm"

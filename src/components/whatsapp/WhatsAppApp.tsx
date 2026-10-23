@@ -2,6 +2,7 @@
 
 import './app-extras.css'
 import { assetUrl } from '@/lib/asset-base'
+import { checkForUpdate, markUpdateSeen } from '@/lib/update-check'
 
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
 import { useTheme } from 'next-themes'
@@ -585,6 +586,35 @@ function WhatsAppAppInner() {
       /* SW is a progressive enhancement — ignore failures */
     })
   }, [])
+
+  // ---- Auto-update checker (v1.7.0) ----------------------------------------
+  // Once a day (localStorage-throttled) query the GitHub Releases API; when a
+  // strictly newer release exists, toast once per tag with a link to the
+  // release page. Silent on every failure path — offline APKs never nag.
+  useEffect(() => {
+    if (!mounted) return
+    const timer = setTimeout(() => {
+      void (async () => {
+        try {
+          const update = await checkForUpdate()
+          if (!update) return
+          markUpdateSeen(update.tag)
+          toast.success(`WA Archiver ${update.version} is available`, {
+            description:
+              update.notes || 'A newer release is ready — see what changed.',
+            duration: 15000,
+            action: {
+              label: 'View release',
+              onClick: () => window.open(update.url, '_blank', 'noopener'),
+            },
+          })
+        } catch {
+          /* offline / rate-limited / same version — silent */
+        }
+      })()
+    }, 6000) // let startup (import, DB open, first render) finish first
+    return () => clearTimeout(timer)
+  }, [mounted])
 
   // ---- Auto-clean executor (Task 10-f #4) ---------------------------------
   // When enabled in Settings (`wa-viewer:auto-clean` = '1'), delete archived

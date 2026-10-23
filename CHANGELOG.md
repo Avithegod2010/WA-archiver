@@ -3,6 +3,47 @@
 All notable changes to WA Archiver are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [1.7.0] — 2026-10-23
+
+### Added
+- **Play Store App Bundle (.aab)** — tag releases now also build a signed
+  `bundleRelease` artifact (`WA-Archiver-<tag>-release.aab`), ready to
+  upload to Google Play. Play does the per-device splitting (ABI, density,
+  language) itself, so Play installs download only what they need.
+- **Auto-update checker** — the app reads the GitHub Releases API (at most
+  once a day, localStorage-throttled) and shows a one-time
+  "new version available" toast with a link to the release page whenever a
+  strictly newer version is published. Silent on every failure path —
+  offline APKs never nag.
+- **Device-mode CSV & JSON chat export** — the per-chat `.csv` /
+  `.json` exports now also work fully offline in the APK: in device
+  transport the file is built client-side from the on-device database with
+  the exact same spreadsheet schema as the server route
+  (`idx, timestamp_iso, timestamp_local, sender, type, body, media_name,
+  starred, edited, forwarded, pinned, reactions_summary`).
+- **Starred-messages CSV export** — third button in the starred dialog,
+  same columns as the chat CSV so starred rows and full-chat exports can
+  live in one spreadsheet.
+
+### Changed
+- **On-demand voice transcription (~19 MB off the APK)** — the two ONNX
+  Runtime WASM binaries are no longer bundled; `public/whisper/` now ships
+  only the transformers.js bootstrap (~0.9 MB) plus a manifest, and the
+  runtime fetches the matching binaries from jsDelivr on first use
+  (cached by the browser Cache API, so transcription still works offline
+  after the first run). Set `WHISPER_LOCAL_WASM=1` to restore the
+  fully-bundled offline-out-of-the-box build. The ASR *model* (~45 MB)
+  was already on-demand and is unchanged.
+- **Media Hub: date-range filter** — from/to date pickers in the toolbar
+  narrow the index to a period; a one-tap clear button resets it.
+
+### Added (Media Hub)
+- **Shared albums view** — new view toggle (layers icon) re-groups the
+  filtered media into "albums": bursts of media shared in one conversation
+  split on 45-minute gaps, with cover thumbnail, chat name, date range and
+  item count; opening an album shows the same tile grid with multi-select,
+  ZIP export and the lightbox.
+
 ## [1.6.0] — 2026-10-23
 
 ### Added

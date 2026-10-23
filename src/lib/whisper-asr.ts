@@ -166,6 +166,40 @@ const TRANSCRIPT_MAX_ENTRIES = 300
 const TRANSFORMERS_URL = assetUrl('/whisper/transformers.min.js')
 const WASM_DIR = assetUrl('/whisper/')
 
+/**
+ * Where the ORT wasm binaries come from (v1.7.0 — on-demand):
+ * scripts/copy-whisper.mjs writes a manifest next to the transformers bundle
+ * saying whether the ~19 MB of wasm is bundled locally (WHISPER_LOCAL_WASM=1
+ * full-offline builds) or served from the matching jsdelivr CDN directory
+ * (default). The CDN files land in the browser Cache API on first use, so
+ * after one online moment transcription keeps working offline.
+ */
+interface WhisperManifest {
+  wasm: 'local' | 'cdn'
+  base?: string
+}
+let wasmDirPromise: Promise<string> | null = null
+
+function resolveWasmDir(): Promise<string> {
+  if (wasmDirPromise) return wasmDirPromise
+  wasmDirPromise = (async () => {
+    try {
+      const res = await fetch(assetUrl('/whisper/manifest.json'), {
+        cache: 'no-store',
+      })
+      if (res.ok) {
+        const m = (await res.json()) as WhisperManifest
+        if (m.wasm === 'cdn' && m.base) return m.base
+        if (m.wasm === 'local') return WASM_DIR
+      }
+    } catch {
+      /* fall through to the bundled-assets default */
+    }
+    return WASM_DIR
+  })()
+  return wasmDirPromise
+}
+
 /** Minimal typing of the vendored transformers.js surface we use. */
 interface TransformersModule {
   env: {
@@ -306,11 +340,12 @@ function getPipeline(
 ): Promise<AsrPipeline> {
   if (pipelinePromise) return pipelinePromise
   pipelinePromise = (async () => {
-    const t = await loadTransformers()
-    // Runtime config: our own wasm copies, single-threaded (no
-    // SharedArrayBuffer — the app is not cross-origin isolated).
+    const [t, wasmDir] = await Promise.all([loadTransformers(), resolveWasmDir()])
+    // Runtime config: wasm from the manifest-resolved source (bundled or
+    // CDN), single-threaded (no SharedArrayBuffer — the app is not
+    // cross-origin isolated).
     t.env.allowLocalModels = false
-    t.env.backends.onnx.wasm.wasmPaths = WASM_DIR
+    t.env.backends.onnx.wasm.wasmPaths = wasmDir
     t.env.backends.onnx.wasm.numThreads = 1
 
     const tracker = new DownloadTracker()
