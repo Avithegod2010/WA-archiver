@@ -36,6 +36,8 @@ import {
   APP_THEMES,
   applyAccentOverride,
   applyThemeAttribute,
+  getChatTheme,
+  subscribeChatThemes,
   getAppTheme,
   getAccentOverride,
   setAppTheme,
@@ -326,15 +328,25 @@ function WhatsAppAppInner() {
     }
   }, [])
 
+  // Per-chat theme override (v1.8): when the open chat has its own theme,
+  // it replaces the app theme while that chat is on screen.
+  const [chatThemeOverride, setChatThemeOverride] = useState<AppThemeKey | null>(null)
+  useEffect(() => {
+    const sync = () =>
+      setChatThemeOverride(activeIdRef.current ? getChatTheme(activeIdRef.current) : null)
+    sync()
+    return subscribeChatThemes(sync)
+  }, [activeId])
+
   // Mirror the persisted theme onto <html>; animate the repaint while the
   // new palette cascades through every surface
   useEffect(() => {
     const root = document.documentElement
     root.classList.add('theme-switching')
-    applyThemeAttribute(themeKey)
+    applyThemeAttribute(chatThemeOverride ?? themeKey)
     const t = setTimeout(() => root.classList.remove('theme-switching'), 320)
     return () => clearTimeout(t)
-  }, [themeKey])
+  }, [themeKey, chatThemeOverride])
 
   // Custom accent override rides on top of any theme (inline style on <html>)
   useEffect(() => {

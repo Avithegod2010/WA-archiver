@@ -228,11 +228,15 @@ intermediary server. No key? Everything else keeps working.
 - [x] ~~Personalization: 17 themes, bubble styles, wallpapers~~ *(v1.1)*
 - [x] ~~Year in Review, date-range explorer, bookmarks~~ *(v1.1)*
 - [x] ~~Custom accent color & appearance (auto/light/dark)~~ *(v1.1)*
+- [x] ~~Media Hub: search, favorites, date-range filter, shared albums~~ *(v1.7)*
+- [x] ~~Multi-language UI (i18n): English, हिन्दी, اردو, मराठी, தமிழ்~~ *(v1.6)*
+- [x] ~~CSV export for chats & starred messages~~ *(v1.7)*
+- [x] ~~Play Store App Bundle (.aab) + per-ABI APKs + in-app update checker~~ *(v1.7)*
+- [x] ~~Year-in-review share cards (PNG)~~ *(v1.6)*
+- [ ] Encrypted backups — optional passphrase (AES-GCM) on JSON backups
 - [ ] Message editing / unsend with "edited" tags
 - [ ] Export round-trip for location & contact cards, scheduled messages
 - [ ] Cloud-ready persistence mode (one-click deploy to free hosts)
-- [ ] Multi-language UI (i18n)
-- [ ] Media gallery favorites & albums
 - [ ] One-bundle multi-device transfer
 
 ---

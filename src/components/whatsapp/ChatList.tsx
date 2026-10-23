@@ -108,6 +108,9 @@ import {
   subscribeSeen,
   toggleFavChat,
   unreadFor,
+  computeSmartFolders,
+  isSmartFolderId,
+  SMART_FOLDERS,
   type ChatFolder,
 } from './chat-folders'
 import { getLocale, t as translate, useT } from '@/lib/i18n'
@@ -777,6 +780,7 @@ export function ChatList({
     activeFolderId === FOLDER_MANAGE
       ? false
       : BUILT_IN_FOLDER_IDS.has(activeFolderId) ||
+        isSmartFolderId(activeFolderId) ||
         folders.some((f) => f.id === activeFolderId)
   const effectiveFolderId = folderExists ? activeFolderId : FOLDER_ALL
 
@@ -872,6 +876,9 @@ export function ChatList({
     return { perChat, total, unreadChatCount, groups, favorites, byFolder }
   }, [chats, seen, favSet, folders])
 
+  // Smart collections (v1.8): read-only, recomputed from the live chats.
+  const smartIds = useMemo(() => computeSmartFolders(chats), [chats])
+
   const tabs = useMemo<FolderTab[]>(
     () => [
       { id: FOLDER_ALL, label: t('chats.tab.all'), Icon: MessagesSquare },
@@ -879,6 +886,7 @@ export function ChatList({
       { id: FOLDER_GROUPS, label: t('chats.tab.groups'), Icon: Users },
       { id: FOLDER_FAVORITES, label: t('chats.tab.favorites'), Icon: Star },
       ...folders.map((f) => ({ id: f.id, label: f.name, emoji: f.emoji })),
+      ...SMART_FOLDERS.map((f) => ({ id: f.id, label: f.name, emoji: f.emoji })),
     ],
     [folders, t]
   )
@@ -891,9 +899,17 @@ export function ChatList({
       if (tabId === FOLDER_UNREAD) return unreadStats.unreadChatCount
       if (tabId === FOLDER_GROUPS) return unreadStats.groups
       if (tabId === FOLDER_FAVORITES) return unreadStats.favorites
+      if (isSmartFolderId(tabId)) {
+        const ids = new Set(smartIds[tabId] ?? [])
+        let sum = 0
+        for (const c of chats) {
+          if (!c.archived && ids.has(c.id)) sum += unreadStats.perChat.get(c.id) ?? 0
+        }
+        return sum
+      }
       return unreadStats.byFolder[tabId] ?? 0
     },
-    [unreadStats]
+    [unreadStats, smartIds, chats]
   )
 
   const measurePill = useCallback(() => {
@@ -1159,6 +1175,9 @@ export function ChatList({
       active = active.filter((c) => c.isGroup)
     } else if (effectiveFolderId === FOLDER_FAVORITES) {
       active = active.filter((c) => favSet.has(c.id))
+    } else if (isSmartFolderId(effectiveFolderId)) {
+      const ids = new Set(smartIds[effectiveFolderId] ?? [])
+      active = active.filter((c) => ids.has(c.id))
     } else {
       const custom = folders.find((f) => f.id === effectiveFolderId)
       if (custom) active = active.filter((c) => custom.chatIds.includes(c.id))
@@ -1169,12 +1188,14 @@ export function ChatList({
       active = [...active].sort((a, b) => Number(b.pinned) - Number(a.pinned))
     }
     return { active, archived }
-  }, [chats, query, effectiveFolderId, folders, favSet, unreadStats])
+  }, [chats, query, effectiveFolderId, folders, favSet, unreadStats, smartIds])
 
   const { active: activeChats, archived: archivedChats } = filtered
   const totalUnread = unreadStats.total
   const activeFolderName =
-    folders.find((f) => f.id === effectiveFolderId)?.name ?? ''
+    folders.find((f) => f.id === effectiveFolderId)?.name ??
+    SMART_FOLDERS.find((f) => f.id === effectiveFolderId)?.name ??
+    ''
   const pinnedCount = activeChats.filter((c) => c.pinned).length
   const hasBothSections = pinnedCount > 0 && pinnedCount < activeChats.length
 

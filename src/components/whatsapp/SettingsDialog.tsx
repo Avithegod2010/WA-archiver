@@ -36,6 +36,7 @@ import {
   ShieldCheck,
   Sparkles,
   Trash2,
+  Unlock,
   Upload,
 } from 'lucide-react'
 import { aiHeaders, getGeminiKey, setGeminiKey } from '@/lib/ai-client'
@@ -49,6 +50,11 @@ import {
   type PersonalDataFile,
 } from '@/lib/personal-data'
 import { APP_VERSION } from '@/lib/version'
+import {
+  decryptBackupText,
+  encryptBackupText,
+  isEncryptedBackup,
+} from '@/lib/backup-crypto'
 import {
   ASR_MODEL_MB,
   asrModelReady,
@@ -247,6 +253,14 @@ export function SettingsDialog({
   // Backup reminders (Task 14-j) — read from localStorage in an effect
   // below (hydration-safe; defaults until then)
   const [remindPref, setRemindPref] = useState<BackupRemindPref>(DEFAULT_BACKUP_REMIND)
+  // Encrypted backups (AES-GCM): persisted on/off pref (never the passphrase)
+  // plus transient passphrase state for download and for unlocking an
+  // encrypted file picked for restore.
+  const [encryptBackups, setEncryptBackups] = useState(false)
+  const [backupPass, setBackupPass] = useState('')
+  const [showBackupPass, setShowBackupPass] = useState(false)
+  const [pendingEnc, setPendingEnc] = useState<string | null>(null)
+  const [encBusy, setEncBusy] = useState(false)
   const [remindReady, setRemindReady] = useState(false)
   const [lastBackupAt, setLastBackupAt] = useState<number | null>(null)
 
@@ -620,12 +634,27 @@ export function SettingsDialog({
     toast.success('Preparing your backup…')
     try {
       const blob = await data.exportBackup()
-      const url = URL.createObjectURL(blob)
+      let out = blob
+      let encrypted = false
+      if (encryptBackups) {
+        if (!backupPass || backupPass.length < 8) {
+          toast.error(
+            'Enter a passphrase of at least 8 characters (or turn encryption off)'
+          )
+          setBackingUp(false)
+          return
+        }
+        const text = await blob.text()
+        const encText = await encryptBackupText(text, backupPass)
+        out = new Blob([encText], { type: 'application/json' })
+        encrypted = true
+      }
+      const url = URL.createObjectURL(out)
       const a = document.createElement('a')
       a.href = url
       a.download = `wa-archiver-backup-${new Date()
         .toISOString()
-        .slice(0, 10)}.json`
+        .slice(0, 10)}${encrypted ? '.encrypted' : ''}.json`
       document.body.appendChild(a)
       a.click()
       a.remove()
@@ -640,7 +669,7 @@ export function SettingsDialog({
     } finally {
       setBackingUp(false)
     }
-  }, [data])
+  }, [data, encryptBackups, backupPass])
 
   // Task 14-j — backup reminders: read the stored prefs + fire the
   // once-per-session due check whenever the settings dialog opens.
@@ -651,9 +680,59 @@ export function SettingsDialog({
     if (!open) return
     setRemindPref(readBackupRemindPref())
     setLastBackupAt(readLastBackupAt())
+    try {
+      setEncryptBackups(localStorage.getItem('wa-backup-encrypt') === '1')
+    } catch {
+      /* private mode */
+    }
     setRemindReady(true)
     maybeRemindBackup(() => void downloadBackup())
   }, [open, downloadBackup])
+
+  // Encrypted-restore helpers: a picked file that is an AES-GCM envelope
+  // parks here until the user supplies the passphrase; only the decrypted
+  // plaintext JSON ever reaches the restore path.
+  const handleRestoreFilePick = async (file: File) => {
+    const text = await file.text()
+    if (isEncryptedBackup(text)) {
+      setPendingEnc(text)
+      setBackupPass('')
+      toast.info('This backup is encrypted — enter the passphrase to restore')
+      return
+    }
+    restoreBackup(file)
+  }
+
+  const confirmEncRestore = async () => {
+    if (!pendingEnc) return
+    if (!backupPass) {
+      toast.error('Enter the backup passphrase')
+      return
+    }
+    setEncBusy(true)
+    try {
+      const plain = await decryptBackupText(pendingEnc, backupPass)
+      setPendingEnc(null)
+      setBackupPass('')
+      await restoreBackup(new File([plain], 'restored-backup.json', {
+        type: 'application/json',
+      }))
+    } catch {
+      toast.error('Wrong passphrase or corrupted backup file')
+    } finally {
+      setEncBusy(false)
+    }
+  }
+
+  const toggleEncryptBackups = (on: boolean) => {
+    setEncryptBackups(on)
+    try {
+      localStorage.setItem('wa-backup-encrypt', on ? '1' : '0')
+    } catch {
+      /* private mode */
+    }
+    if (!on) setBackupPass('')
+  }
 
   const restoreBackup = async (file: File) => {
     setRestoring(true)
@@ -1056,10 +1135,103 @@ export function SettingsDialog({
               onChange={(e) => {
                 const file = e.target.files?.[0]
                 e.target.value = ''
-                if (file) void restoreBackup(file)
+                if (file) void handleRestoreFilePick(file)
               }}
             />
           </div>
+
+          {/* Encrypted backups — optional passphrase (AES-GCM-256 + PBKDF2).
+              The pref (never the passphrase) persists in localStorage. */}
+          <div className="flex flex-col gap-1.5">
+            <label className="flex cursor-pointer items-center gap-2 text-[12px] text-(--wa-text-2)">
+              <button
+                type="button"
+                role="switch"
+                aria-checked={encryptBackups}
+                onClick={() => toggleEncryptBackups(!encryptBackups)}
+                className={cn(
+                  'relative h-4.5 w-8 shrink-0 rounded-full transition-colors',
+                  encryptBackups ? 'bg-(--wa-accent)' : 'bg-black/15 dark:bg-white/20'
+                )}
+              >
+                <span
+                  className={cn(
+                    'absolute top-0.5 h-3.5 w-3.5 rounded-full bg-white shadow transition-all',
+                    encryptBackups ? 'left-4' : 'left-0.5'
+                  )}
+                />
+              </button>
+              <Lock className="h-3.5 w-3.5 shrink-0" aria-hidden />
+              Encrypt backup with a passphrase
+            </label>
+            {encryptBackups && (
+              <div className="relative ms-6 max-w-xs">
+                <KeyRound
+                  className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-(--wa-text-2)"
+                  aria-hidden
+                />
+                <input
+                  type={showBackupPass ? 'text' : 'password'}
+                  value={backupPass}
+                  onChange={(e) => setBackupPass(e.target.value)}
+                  placeholder="Passphrase (min 8 characters)"
+                  autoComplete="new-password"
+                  aria-label="Backup passphrase"
+                  className="h-8.5 w-full rounded-md border border-black/10 bg-white/60 ps-8 pe-8 text-[12.5px] text-(--wa-text) outline-none placeholder:text-(--wa-text-2)/60 focus-visible:ring-2 focus-visible:ring-(--wa-accent)/50 dark:border-white/10 dark:bg-white/5"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowBackupPass((v) => !v)}
+                  aria-label={showBackupPass ? 'Hide passphrase' : 'Show passphrase'}
+                  className="absolute right-2 top-1/2 -translate-y-1/2 text-(--wa-text-2) hover:text-(--wa-text)"
+                >
+                  {showBackupPass ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
+                </button>
+              </div>
+            )}
+          </div>
+
+          {/* Encrypted file picked for restore — passphrase gate */}
+          {pendingEnc && (
+            <div
+              role="dialog"
+              aria-label="Encrypted backup passphrase"
+              className="flex flex-col gap-2 rounded-lg border border-(--wa-accent)/30 bg-(--wa-accent)/5 p-3"
+            >
+              <p className="text-[12px] font-medium text-(--wa-text)">
+                <ShieldCheck className="me-1 inline h-3.5 w-3.5 text-(--wa-accent)" aria-hidden />
+                This backup is encrypted. Enter its passphrase to restore.
+              </p>
+              <div className="flex gap-2">
+                <input
+                  type="password"
+                  value={backupPass}
+                  onChange={(e) => setBackupPass(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') void confirmEncRestore()
+                  }}
+                  placeholder="Backup passphrase"
+                  autoComplete="off"
+                  aria-label="Passphrase for encrypted backup"
+                  className="h-8.5 min-w-0 flex-1 rounded-md border border-black/10 bg-white/60 px-3 text-[12.5px] text-(--wa-text) outline-none placeholder:text-(--wa-text-2)/60 focus-visible:ring-2 focus-visible:ring-(--wa-accent)/50 dark:border-white/10 dark:bg-white/5"
+                />
+                <Button size="sm" onClick={() => void confirmEncRestore()} disabled={encBusy || !backupPass}>
+                  {encBusy ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden /> : <Unlock className="h-4 w-4" aria-hidden />}
+                  Decrypt &amp; restore
+                </Button>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  onClick={() => {
+                    setPendingEnc(null)
+                    setBackupPass('')
+                  }}
+                >
+                  Cancel
+                </Button>
+              </div>
+            </div>
+          )}
 
           {/* Task 14-j — last backup line (subtle, under the buttons) */}
           {remindReady && (

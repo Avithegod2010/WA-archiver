@@ -157,6 +157,49 @@ export function applyThemeAttribute(k: AppThemeKey) {
 }
 
 /* ------------------------------------------------------------------ */
+/* Per-chat themes (v1.8) — a theme override scoped to one chat.        */
+/* While that chat is open, its theme replaces the app theme on <html>; */
+/* closing it (or opening an unthemed chat) restores the app theme.     */
+/* ------------------------------------------------------------------ */
+
+export const CHAT_THEMES_EVENT = 'wa-chat-themes'
+
+function chatThemeKey(chatId: string): string {
+  return `wa-viewer:chat-theme:${chatId}`
+}
+
+/** The per-chat theme override, or null when the chat follows the app theme. */
+export function getChatTheme(chatId: string): AppThemeKey | null {
+  try {
+    const v = localStorage.getItem(chatThemeKey(chatId))
+    if (v && v in APP_THEMES) return v as AppThemeKey
+  } catch {
+    /* storage unavailable */
+  }
+  return null
+}
+
+/** Set (or clear with null) the theme override for one chat. */
+export function setChatTheme(chatId: string, k: AppThemeKey | null): void {
+  try {
+    if (k && k in APP_THEMES) localStorage.setItem(chatThemeKey(chatId), k)
+    else localStorage.removeItem(chatThemeKey(chatId))
+  } catch {
+    /* storage unavailable */
+  }
+  window.dispatchEvent(new Event(CHAT_THEMES_EVENT))
+}
+
+export function subscribeChatThemes(cb: () => void): () => void {
+  window.addEventListener(CHAT_THEMES_EVENT, cb)
+  window.addEventListener('storage', cb)
+  return () => {
+    window.removeEventListener(CHAT_THEMES_EVENT, cb)
+    window.removeEventListener('storage', cb)
+  }
+}
+
+/* ------------------------------------------------------------------ */
 /* Custom accent override — any hex color on top of the active theme    */
 /* ------------------------------------------------------------------ */
 

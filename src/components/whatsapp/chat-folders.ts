@@ -29,6 +29,70 @@ export interface ChatSummaryLike {
   lastAt: string | null
 }
 
+// ---------------------------------------------------------------------------
+// Smart collections — auto-computed read-only folders (v1.8). Unlike custom
+// folders they need no persistence: they derive from the live chat list.
+// ---------------------------------------------------------------------------
+
+export const SMART_MEDIA_ID = '__smart_media'
+export const SMART_ACTIVE_ID = '__smart_active'
+export const SMART_BIG_ID = '__smart_big'
+
+/** Chats with at least one photo/video/voice/doc attached. */
+export const SMART_MEDIA = {
+  id: SMART_MEDIA_ID,
+  name: 'Media',
+  emoji: '🖼️',
+} as const
+
+/** Chats whose latest message is within the last 7 days. */
+export const SMART_ACTIVE = {
+  id: SMART_ACTIVE_ID,
+  name: 'Active this week',
+  emoji: '⏱️',
+} as const
+
+/** Top 5 chats by message volume (minimum 20 messages). */
+export const SMART_BIG = {
+  id: SMART_BIG_ID,
+  name: 'Biggest',
+  emoji: '📊',
+} as const
+
+export interface SmartChatLike {
+  id: string
+  messageCount: number
+  mediaCount: number
+  lastAt: string | null
+}
+
+export const SMART_FOLDERS = [SMART_MEDIA, SMART_ACTIVE, SMART_BIG] as const
+
+const SMART_IDS = new Set<string>([SMART_MEDIA_ID, SMART_ACTIVE_ID, SMART_BIG_ID])
+
+export function isSmartFolderId(id: string): boolean {
+  return SMART_IDS.has(id)
+}
+
+/** Chat-id sets per smart folder, computed from the current chat list. */
+export function computeSmartFolders(
+  chats: SmartChatLike[]
+): Record<string, string[]> {
+  const weekCutoff = Date.now() - 7 * 24 * 60 * 60 * 1000
+  const media: string[] = []
+  const active: string[] = []
+  for (const c of chats) {
+    if (c.mediaCount > 0) media.push(c.id)
+    if (c.lastAt && new Date(c.lastAt).getTime() >= weekCutoff) active.push(c.id)
+  }
+  const big = chats
+    .filter((c) => c.messageCount >= 20)
+    .sort((a, b) => b.messageCount - a.messageCount)
+    .slice(0, 5)
+    .map((c) => c.id)
+  return { [SMART_MEDIA_ID]: media, [SMART_ACTIVE_ID]: active, [SMART_BIG_ID]: big }
+}
+
 export const FOLDERS_KEY = 'wa-viewer:folders'
 export const FAVS_KEY = 'wa-viewer:fav-chats'
 export const SEEN_KEY = 'wa-viewer:seen-chats'

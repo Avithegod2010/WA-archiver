@@ -165,11 +165,12 @@ function previewText(type: string, body: string, mediaName: string | null): stri
 export async function refreshChatAggregates(chatId: string): Promise<void> {
   const [messageCount, mediaCount, first, last] = await Promise.all([
     db.message.count({ where: { chatId } }),
-    // Only rows with an actual media file count as media — matches the
-    // import-time definition (isMedia = media type AND mediaPath present),
-    // so re-aggregates after deletes or audio-skipped imports stay in sync.
+    // Media-typed messages, files or not: a photo that wasn't included in
+    // the export is still a photo message (the gallery shows its
+    // "not in export" tile). Keeps re-aggregates in sync with imports and
+    // with synthetic/demo media.
     db.message.count({
-      where: { chatId, type: { in: [...MEDIA_TYPES] }, mediaPath: { not: null } },
+      where: { chatId, type: { in: [...MEDIA_TYPES] } },
     }),
     db.message.findFirst({ where: { chatId }, orderBy: { idx: 'asc' } }),
     db.message.findFirst({ where: { chatId }, orderBy: { idx: 'desc' } }),
@@ -249,7 +250,10 @@ export async function persistParsedChat(opts: PersistOptions): Promise<string> {
     await db.message.createMany({ data: chunk })
   }
 
-  const mediaCount = rows.filter((r) => r.isMedia).length
+  // Broad definition — every media-typed parsed message (see
+  // refreshChatAggregates); mediaPath may be null when the file wasn't
+  // included in the export.
+  const mediaCount = rows.filter((r) => MEDIA_TYPES.has(r.type)).length
   const last =
     parsed.messages.length > 0 ? parsed.messages[parsed.messages.length - 1] : null
   const first = parsed.messages.length > 0 ? parsed.messages[0] : null

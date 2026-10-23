@@ -456,10 +456,12 @@ export class LocalDataClient implements DataClient {
       await e.scalar('SELECT COUNT(*) FROM "Message" WHERE chatId = ?', [chatId])
     )
     const typePlaceholders = [...MEDIA_TYPES].map(() => '?').join(',')
+    // Media-typed messages, files or not — same broad definition as the
+    // server (refreshChatAggregates in chat-service.ts).
     const mediaCount = num(
       await e.scalar(
         `SELECT COUNT(*) FROM "Message"
-          WHERE chatId = ? AND type IN (${typePlaceholders}) AND mediaPath IS NOT NULL`,
+          WHERE chatId = ? AND type IN (${typePlaceholders})`,
         [chatId, ...MEDIA_TYPES]
       )
     )
@@ -658,7 +660,9 @@ export class LocalDataClient implements DataClient {
       }
     }
 
-    let mediaCount = 0
+    // Broad media definition: every media-typed incoming message counts,
+    // even when its file wasn't included in the export.
+    const mediaCount = incoming.filter((m) => MEDIA_TYPES.has(m.type)).length
     // Fresh chats restart idx at 0; merges continue after the current max.
     const baseIdx = merge
       ? num(
@@ -676,7 +680,6 @@ export class LocalDataClient implements DataClient {
         if (stored) {
           mediaPath = stored
           mediaName = stored.split('/').pop() ?? stored
-          mediaCount++
         }
       }
       return {

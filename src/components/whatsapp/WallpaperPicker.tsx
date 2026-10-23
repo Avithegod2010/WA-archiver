@@ -5,6 +5,7 @@ import { toast } from 'sonner'
 import {
   Ban,
   Check,
+  Paintbrush,
   ImagePlus,
   Loader2,
   Palette,
@@ -39,6 +40,13 @@ import {
   writeWallpaper,
   type WallpaperConfig,
 } from './wallpaper'
+import {
+  APP_THEMES,
+  getChatTheme,
+  setChatTheme,
+  subscribeChatThemes,
+  type AppThemeKey,
+} from './app-theme'
 import { useData } from './data-provider'
 import { colorForName } from './types'
 
@@ -291,6 +299,13 @@ export function WallpaperPicker({
   // unavailable — the form swaps for a note.
   const { mode: transportMode } = useData()
 
+  // Per-chat theme override (v1.8) — swatch row below.
+  const chatTheme = useSyncExternalStore(
+    subscribeChatThemes,
+    () => getChatTheme(chatId),
+    () => null
+  )
+
   const raw = useSyncExternalStore(
     subscribeWallpaper,
     () =>
@@ -491,6 +506,54 @@ export function WallpaperPicker({
             ? `Only for ${chatTitle} — other chats keep their own.`
             : 'Applies to every chat. Open a chat to set a per-chat wallpaper.'}
         </p>
+
+        {/* Per-chat theme (v1.8): recolors the app while THIS chat is open. */}
+        <div className="mb-3 rounded-xl border border-dashed border-(--wa-line) bg-black/[0.03] p-2.5 dark:bg-white/[0.04]">
+          <div className="mb-1.5 flex items-center gap-1.5">
+            <Paintbrush className="h-3.5 w-3.5 text-(--wa-accent)" aria-hidden />
+            <p className="text-[12.5px] font-medium text-(--wa-text)">Theme for this chat</p>
+            <span className="ml-auto text-[10.5px] text-(--wa-text-2)" aria-live="polite">
+              {chatTheme ? APP_THEMES[chatTheme].label : 'App default'}
+            </span>
+          </div>
+          <div className="flex flex-wrap gap-1.5" role="radiogroup" aria-label="Theme for this chat">
+            {(Object.keys(APP_THEMES) as AppThemeKey[]).map((k) => {
+              const sw = APP_THEMES[k].swatch
+              const active = chatTheme === k
+              return (
+                <button
+                  key={k}
+                  type="button"
+                  role="radio"
+                  aria-checked={active}
+                  title={`${APP_THEMES[k].label} — ${APP_THEMES[k].hint}`}
+                  onClick={() => setChatTheme(chatId, active ? null : k)}
+                  className={cn(
+                    'h-6 w-6 rounded-full border transition-transform hover:scale-110',
+                    active
+                      ? 'border-(--wa-accent) ring-2 ring-(--wa-accent)/40'
+                      : 'border-black/15 dark:border-white/25'
+                  )}
+                  style={{
+                    background: `linear-gradient(135deg, ${sw.appbar} 50%, ${sw.accent} 50%)`,
+                  }}
+                >
+                  <span className="sr-only">{APP_THEMES[k].label}</span>
+                </button>
+              )
+            })}
+            {chatTheme && (
+              <button
+                type="button"
+                onClick={() => setChatTheme(chatId, null)}
+                title="Back to the app-wide theme"
+                className="ml-1 rounded-full px-2 py-0.5 text-[10.5px] font-medium text-(--wa-text-2) underline-offset-2 hover:text-(--wa-text) hover:underline"
+              >
+                Reset
+              </button>
+            )}
+          </div>
+        </div>
 
         <div className="md:grid md:grid-cols-2 md:gap-x-5">
           {/* ------------------------- LEFT: photo + colors + patterns */}

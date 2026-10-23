@@ -3,6 +3,32 @@
 All notable changes to WA Archiver are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [1.8.0] — 2026-10-24
+
+### Added
+- **Encrypted backups** — optional passphrase on JSON backups. Downloads are
+  sealed with AES-GCM-256 (PBKDF2-SHA256, 310k iterations, random salt+IV)
+  entirely in the browser via WebCrypto; the passphrase never leaves the
+  device. Restoring an encrypted file asks for the passphrase and rejects
+  wrong ones without touching the database.
+- **Smart collections** — three auto-computed, read-only chat folders:
+  🖼️ Media (chats with media), ⏱️ Active this week, 📊 Biggest (top 5 by
+  volume). No setup; they update live with the chat list.
+- **Per-chat themes** — pick any of the 17 themes for a single chat from the
+  Customize (wallpaper) popover. While that chat is open the whole look
+  recolors; switching away snaps back to the app theme. Reset any time.
+
+### Changed
+- `mediaCount` now counts every media-typed message, even when the file
+  wasn't included in the export ("not in export" tiles) — the Media smart
+  collection and chat badges reflect what the chat actually contains.
+- Chat tools → "Media gallery" opens the global Media Hub (shared albums +
+  date-range filter) pre-filtered to the current chat.
+
+### Fixed
+- `/api/media-index` skipped media-typed messages without a stored file, so
+  demo/synthetic media never appeared in the global Media Hub.
+
 ## [1.7.0] — 2026-10-23
 
 ### Added
