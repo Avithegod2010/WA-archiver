@@ -22,6 +22,12 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
 
+            <!-- Static launcher shortcuts (Android 7.1+): long-press icon →
+                 Import / Search / Insights. See res/xml/shortcuts.xml. -->
+            <meta-data
+                android:name="android.app.shortcuts"
+                android:resource="@xml/shortcuts" />
+
             <!-- Open a WhatsApp export (.txt transcript / .zip archive) directly
                  from a file manager or browser download (Task A4). -->
             <intent-filter>

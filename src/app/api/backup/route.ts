@@ -39,6 +39,7 @@ interface BackupMessage {
   pollOptions?: unknown
   pinned?: unknown
   reactions?: unknown
+  replyToId?: unknown
 }
 
 const strOrNull = (v: unknown): string | null =>
@@ -120,6 +121,7 @@ export async function GET(req: Request) {
       pollOptions: true,
       pinned: true,
       reactions: true,
+      replyToId: true,
     },
   })
 
@@ -145,11 +147,12 @@ export async function GET(req: Request) {
       pollOptions: m.pollOptions ? JSON.parse(m.pollOptions) : null,
       pinned: m.pinned,
       reactions: parseReactions(m.reactions),
+      replyToId: m.replyToId,
     })
   }
 
   const payload = {
-    version: 1,
+    version: 2,
     exportedAt: new Date().toISOString(),
     mediaNote: MEDIA_NOTE,
     chats: chats.map((c) => ({
@@ -180,7 +183,13 @@ export async function GET(req: Request) {
  * POST /api/backup
  * Restore a JSON snapshot. Chats whose id OR (title + sourceFile) already
  * exist are skipped; new chats keep their original id when free. Message
- * rows with invalid dates or duplicate ids are dropped.
+ * rows with invalid dates or duplicate ids are dropped. Reply links are
+ * preserved verbatim (plain id column, no FK): a reply whose parent was
+ * skipped/dropped simply resolves to null in the UI, like a deleted
+ * original in WhatsApp.
+ *
+ * version 2 backups carry replyToId; version 1 backups (pre-1.5.1) restore
+ * fine too — their replies come back unlinked, matching what they exported.
  */
 export async function POST(req: NextRequest) {
   const denied = await assertAppUnlocked(req)
@@ -307,6 +316,7 @@ export async function POST(req: NextRequest) {
       pollOptions: string | null
       pinned: boolean
       reactions: string | null
+      replyToId: string | null
     }[] = []
 
     if (Array.isArray(c.messages)) {
@@ -346,6 +356,7 @@ export async function POST(req: NextRequest) {
           pollOptions: jsonListColumn(m.pollOptions),
           pinned: boolOr(m.pinned),
           reactions: jsonReactionsColumn(m.reactions),
+          replyToId: strOrNull(m.replyToId)?.slice(0, 64) ?? null,
         })
       }
     }

@@ -951,6 +951,14 @@ function WhatsAppAppInner() {
           })()
         }
       },
+      // Launcher shortcuts (Android 7.1+): long-press icon → surface.
+      onShortcut: (target) => {
+        if (target === 'import') setImportPanelOpen(true)
+        else if (target === 'search') {
+          setGlobalSearchQuery('')
+          setGlobalSearchOpen(true)
+        } else if (target === 'insights') setStatsOpen(true)
+      },
     })
   }, [mounted, importFiles, resolveSavedChatId, postTextToSaved, refreshChats, t])
 

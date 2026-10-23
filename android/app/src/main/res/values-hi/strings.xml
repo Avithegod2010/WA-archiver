@@ -1,0 +1,10 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <!-- Launcher shortcuts — हिन्दी -->
+    <string name="shortcut_import_short">चैट इंपोर्ट</string>
+    <string name="shortcut_import_long">चैट इंपोर्ट करें</string>
+    <string name="shortcut_search_short">खोज</string>
+    <string name="shortcut_search_long">संदेश खोजें</string>
+    <string name="shortcut_insights_short">इनसाइट्स</string>
+    <string name="shortcut_insights_long">इनसाइट्स डैशबोर्ड</string>
+</resources>

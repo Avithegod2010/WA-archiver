@@ -3,6 +3,36 @@
 All notable changes to WA Archiver are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [1.5.1] — 2026-10-23
+
+### Fixed
+- **Server & device JSON backups keep reply relationships** — backup export
+  now includes `replyToId` and restore writes it back (both the server
+  SQLite transport and the on-device OPFS transport; backup format version
+  bumped to 2, v1 files still restore). Reported with a full reproduction
+  in issue #4 — thank you, @aichance!
+- **PDF / HTML exports render Devanagari everywhere** — chats containing
+  Hindi/Marathi/Nepali text embed a 45 KB subset of Noto Sans Devanagari
+  (OFL 1.1) directly in the exported file, so print-to-PDF no longer shows
+  tofu boxes on machines without Hindi fonts. Latin-only exports are
+  unchanged and stay lightweight.
+
+### Added
+- **Word cloud PNG export** — one tap in the word-cloud dialog re-renders
+  the ranked cloud to a 2160px canvas (title, word-count subtitle, footer)
+  and downloads it — fully on-device.
+- **Android launcher shortcuts** — long-press the app icon for Import
+  chats, Search messages and Insights (localized labels in English and
+  हिन्दी; Android 7.1+, older versions simply don't show them).
+- **EXIF capture dates in the photo viewer** — when a photo's embedded
+  DateTimeOriginal differs from the send time, the Lightbox shows a
+  "Captured" pill (e.g. an old photo re-shared years later). Reads only
+  the first 128 KB of the file; never network-heavy, never blocking.
+- **हिन्दी copy pass** — smoother, more natural phrasing across chat rows,
+  import progress and display settings; the word-cloud dialog is now fully
+  translated (it previously had hardcoded English).
+- versionCode 7.
+
 ## [1.5.0] — 2026-10-22
 
 ### Added — The power pack (18 upgrades)

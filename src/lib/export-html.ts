@@ -12,6 +12,11 @@
  */
 import { promises as fsp } from 'fs'
 import { mimeFromName, resolveMediaPath } from '@/lib/media-store'
+import {
+  DEVANAGARI_FONT_FAMILY,
+  DEVANAGARI_RE,
+  DEVANAGARI_WOFF2_BASE64,
+} from '@/lib/fonts/devanagari-woff2'
 
 export interface ChatHtmlOptions {
   /** Embed voice notes as data URIs (opt-in: ?audio=1 / wa_export_audio=1). */
@@ -313,6 +318,20 @@ export async function buildChatHtml(
   const rows: string[] = []
   let prev: Date | null = null
 
+  // Devanagari support — embed the subset font only when the transcript
+  // actually contains Devanagari text (senders or bodies). Latin-free
+  // exports pay nothing; Hindi ones print correctly even on machines
+  // without any Devanagari system font (tofu otherwise).
+  const hasDevanagari = messages.some(
+    (m) => DEVANAGARI_RE.test(m.body) || (m.sender && DEVANAGARI_RE.test(m.sender))
+  )
+  const fontFaceCss = hasDevanagari
+    ? `\n  @font-face {\n    font-family: 'WA Devanagari';\n    src: url(data:font/woff2;base64,${DEVANAGARI_WOFF2_BASE64}) format('woff2');\n    font-weight: normal;\n    font-style: normal;\n    font-display: swap;\n    unicode-range: U+0900-097F, U+1CD0-1CFF, U+A8E0-A8FF, U+200C-200D, U+0964-0965, U+20B9;\n  }`
+    : ''
+  const bodyFontStack = hasDevanagari
+    ? `-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, ${DEVANAGARI_FONT_FAMILY}`
+    : `-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif`
+
   for (const msg of messages) {
     if (!prev || !sameDay(prev, msg.ts)) {
       rows.push(
@@ -408,7 +427,8 @@ export async function buildChatHtml(
   :root { color-scheme: light; }
   * { box-sizing: border-box; }
   body { margin: 0; background: #efeae2; color: #111b21;
-    font: 14.5px/1.45 -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; }
+    font: 14.5px/1.45 ${bodyFontStack}; }
+${fontFaceCss}
   header.top { background: #008069; color: #fff; padding: 14px 20px;
     display: flex; align-items: center; gap: 12px; }
   header.top .ava { width: 40px; height: 40px; border-radius: 999px;

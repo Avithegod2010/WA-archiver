@@ -1047,6 +1047,7 @@ function ImageContent({
           src={src}
           caption={msg.body || msg.mediaName}
           downloadName={msg.mediaName}
+          sentAt={msg.ts ? new Date(msg.ts).getTime() : undefined}
           onClose={() => setOpen(false)}
         />
       )}

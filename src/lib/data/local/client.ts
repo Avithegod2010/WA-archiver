@@ -1460,7 +1460,7 @@ export class LocalDataClient implements DataClient {
     )
     const messages = await e.all(
       `SELECT id, chatId, idx, ts, sender, body, type, mediaPath, mediaName,
-              starred, edited, forwardedFrom, pollOptions, pinned, reactions
+              starred, edited, forwardedFrom, pollOptions, pinned, reactions, replyToId
          FROM "Message" ORDER BY chatId ASC, idx ASC`
     )
     const byChat = new Map<string, Record<string, unknown>[]>()
@@ -1486,10 +1486,11 @@ export class LocalDataClient implements DataClient {
         pollOptions: parsePollOptions(m.pollOptions),
         pinned: bool(m.pinned),
         reactions: parseReactions(m.reactions),
+        replyToId: nstr(m.replyToId),
       })
     }
     const payload = {
-      version: 1,
+      version: 2,
       exportedAt: new Date().toISOString(),
       mediaNote: 'Media files are not included in JSON backups',
       chats: chats.map((c) => ({
@@ -1603,8 +1604,8 @@ export class LocalDataClient implements DataClient {
         await e.runNoSave(
           `INSERT INTO "Message"
              (id, chatId, idx, ts, sender, body, type, mediaPath, mediaName,
-              starred, edited, forwardedFrom, pollOptions, pinned, reactions)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+              starred, edited, forwardedFrom, pollOptions, pinned, reactions, replyToId)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
           [
             finalId,
             chatId,
@@ -1621,6 +1622,7 @@ export class LocalDataClient implements DataClient {
             jsonListColumn(m.pollOptions),
             boolOr(m.pinned) ? 1 : 0,
             jsonReactionsColumn(m.reactions),
+            strOrNull(m.replyToId)?.slice(0, 64) ?? null,
           ]
         )
         messagesImported++

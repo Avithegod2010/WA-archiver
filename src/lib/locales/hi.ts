@@ -42,7 +42,7 @@ export const strings: Record<TranslationKey, string> = {
   'chats.type.deleted': 'हटाया गया संदेश',
   'chats.type.media': 'मीडिया',
   'chats.row.select': 'चुनें',
-  'chats.row.aria.select': '{name} चुनें',
+  'chats.row.aria.select': '{name} को चुनें',
   'chats.row.aria.pinned': 'पिन किया गया',
   'chats.row.aria.unreadOne': '1 अपठित संदेश',
   'chats.row.aria.unreadMany': '{count} अपठित संदेश',
@@ -50,22 +50,42 @@ export const strings: Record<TranslationKey, string> = {
   'chats.row.aria.unfav': '{name} को पसंदीदा से हटाएँ',
   'chats.row.title.fav': 'पसंदीदा में जोड़ें',
   'chats.row.title.unfav': 'पसंदीदा से हटाएँ',
-  'chats.row.aria.pin': '{name} पिन करें',
-  'chats.row.aria.unpin': '{name} अनपिन करें',
+  'chats.row.aria.pin': '{name} को पिन करें',
+  'chats.row.aria.unpin': '{name} को अनपिन करें',
   'chats.row.title.pin': 'चैट पिन करें',
   'chats.row.title.unpin': 'चैट अनपिन करें',
-  'chats.row.aria.archive': '{name} आर्काइव करें',
-  'chats.row.aria.unarchive': '{name} अनआर्काइव करें',
+  'chats.row.aria.archive': '{name} को आर्काइव करें',
+  'chats.row.aria.unarchive': '{name} को अनआर्काइव करें',
   'chats.row.title.archive': 'चैट आर्काइव करें',
   'chats.row.title.unarchive': 'चैट अनआर्काइव करें',
-  'chats.row.aria.delete': '{name} हटाएँ',
+  'chats.row.aria.delete': '{name} को हटाएँ',
+
+  /* Word cloud dialog (WordCloudDialog) */
+  'wordcloud.title': 'वर्ड क्लाउड',
+  'wordcloud.description':
+    '{chat} के सबसे ज़्यादा इस्तेमाल हुए शब्द — खोजने के लिए किसी पर टैप करें।',
+  'wordcloud.loading': 'वर्ड क्लाउड लोड हो रहा है...',
+  'wordcloud.loadFailed': 'वर्ड क्लाउड लोड नहीं हो सका',
+  'wordcloud.loadFailedHint': 'कुछ गड़बड़ हो गई — थोड़ी देर में फिर कोशिश करें।',
+  'wordcloud.empty': 'अभी कोई शब्द नहीं',
+  'wordcloud.emptyHint': 'इस चैट के टेक्स्ट संदेशों के शब्द यहाँ दिखेंगे।',
+  'wordcloud.aria.word': '{chat} में शब्द {word} खोजें',
+  'wordcloud.usesOne': '1 बार — चैट में खोजें',
+  'wordcloud.usesMany': '{count} बार — चैट में खोजें',
+  'wordcloud.sizeHintOne': '1 शब्द · जितनी बार आया है, उतना बड़ा',
+  'wordcloud.sizeHintMany': '{count} शब्द · जितनी बार आए हैं, उतने बड़े',
+  'wordcloud.exportPng': 'PNG डाउनलोड करें',
+  'wordcloud.exporting': 'PNG बन रहा है...',
+  'wordcloud.exported': 'वर्ड क्लाउड PNG के रूप में सेव हुआ',
+  'wordcloud.exportFailed': 'PNG बनाया नहीं जा सका',
+  'wordcloud.pngFooter': 'WA Archiver से बना',
 
   /* Chats list — header, sidebar menu, search */
   'chats.header.import': 'इंपोर्ट',
   'chats.header.paletteTip':
     'कमांड पैलेट — चैट पर जाएँ और ऐक्शन चलाएँ (Ctrl/⌘+K)',
   'chats.header.paletteAria': 'कमांड पैलेट खोलें',
-  'chats.header.moreTip': 'और — इनसाइट्स, मेमरीज़, मीडिया हब, डेमो',
+  'chats.header.moreTip': 'और टूल — इनसाइट्स, मेमरीज़, मीडिया हब, डेमो',
   'chats.header.moreAria': 'और साइडबार टूल',
   'chats.menu.explore': 'एक्सप्लोर',
   'chats.menu.insights': 'सभी चैट की इनसाइट्स',
@@ -215,7 +235,7 @@ export const strings: Record<TranslationKey, string> = {
   'theme.studio.nameTaken': 'इस नाम का प्रीसेट पहले से मौजूद है।',
   'theme.studio.storageError': 'सेव नहीं हो सका — डिवाइस स्टोरेज भर गया है।',
   'theme.studio.includesWallpaper': 'वॉलपेपर',
-  'theme.studio.aria.applyNamed': 'थीम लागू करें {name}',
+  'theme.studio.aria.applyNamed': '{name} थीम लागू करें',
 
   /* Common / shared */
 
@@ -230,7 +250,7 @@ export const strings: Record<TranslationKey, string> = {
   'shell.display.textSizeHint': 'हर चैट में संदेश के टेक्स्ट पर लागू होता है।',
   'shell.display.appTheme': 'ऐप थीम',
   'shell.display.appThemeHint':
-    'पूरे ऐप के रंग बदलता है — हेडर, बबल, बटन और चार्ट। लाइट और डार्क मोड दोनों के साथ काम करता है।',
+    'पूरे ऐप के रंग बदलते हैं — हेडर, बबल, बटन और चार्ट। लाइट और डार्क मोड दोनों के साथ काम करता है।',
   'shell.display.accent': 'एक्सेंट रंग',
   'shell.display.customColor': 'कस्टम रंग',
   'shell.display.customColorAria': 'कस्टम एक्सेंट रंग',
@@ -249,7 +269,7 @@ export const strings: Record<TranslationKey, string> = {
     'चैट लिस्ट और हर बातचीत में टाइपफ़ेस बदलता है।',
   'shell.display.bubbleStyle': 'बबल स्टाइल',
   'shell.display.bubbleHint':
-    'हर मैसेज बबल का आकार बदलता है — कोने नुकीले या गोल होते हैं, और कॉम्पैक्ट स्क्रीन पर ज़्यादा बातचीत दिखाता है।',
+    'हर मैसेज बबल का आकार बदलता है — कोने टाइट या गोल होते हैं, और कॉम्पैक्ट स्क्रीन पर ज़्यादा बातचीत दिखाता है।',
   'shell.display.clock': 'घड़ी',
   'shell.display.clockHint':
     'संदेश के समय हर जगह इसी अंदाज़ में दिखते हैं — बबल, लिस्ट, मीडिया और खोज परिणाम।',
@@ -308,8 +328,8 @@ export const strings: Record<TranslationKey, string> = {
   'shell.toast.starFailed': 'स्टार अपडेट नहीं हो सका',
 
   /* App shell — import toasts */
-  'shell.import.progressOf': '{index} / {total} इंपोर्ट हो रहा है...',
-  'shell.import.progressFile': '{name} इंपोर्ट हो रहा है...',
+  'shell.import.progressOf': '{total} में से {index} इंपोर्ट हो रहा है...',
+  'shell.import.progressFile': '{name} इंपोर्ट हो रही है...',
   'shell.import.merged':
     '“{chat}” में मर्ज हुआ: +{added} नए, {skipped} डुप्लिकेट छोड़े गए',
   'shell.import.doneMessages': '{count} संदेश इंपोर्ट हुए',

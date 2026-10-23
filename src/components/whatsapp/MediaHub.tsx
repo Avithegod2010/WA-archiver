@@ -846,6 +846,7 @@ export function MediaHub({
             const k = classify(flatShown[viewerIdx])
             return k === 'video' ? 'video' : k === 'voice' ? 'audio' : 'image'
           })()}
+          sentAt={new Date(flatShown[viewerIdx].ts).getTime()}
           position={viewerIdx + 1}
           total={flatShown.length}
           onClose={() => setViewerIdx(null)}

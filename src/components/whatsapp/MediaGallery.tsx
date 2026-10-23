@@ -1195,6 +1195,7 @@ function GalleryViewer({
       caption={item.body || item.mediaName}
       downloadName={item.mediaName}
       kind={kind === 'doc' ? 'image' : kind}
+      sentAt={new Date(item.ts).getTime()}
       onClose={onClose}
       onPrev={() => onNavigate(index - 1)}
       onNext={() => onNavigate(index + 1)}

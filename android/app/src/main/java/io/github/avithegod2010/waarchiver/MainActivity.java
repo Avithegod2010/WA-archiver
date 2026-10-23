@@ -34,6 +34,10 @@ import java.util.ArrayList;
  */
 public class MainActivity extends BridgeActivity {
 
+    /** Custom action fired by the static launcher shortcuts. */
+    private static final String ACTION_SHORTCUT =
+            "io.github.avithegod2010.waarchiver.SHORTCUT";
+
     /** Cap for raw text payloads (~10 MB). */
     private static final long MAX_TEXT_BYTES = 10L * 1024 * 1024;
     /** Cap for binary/file payloads (~60 MB). Oversized streams are truncated;
@@ -62,7 +66,16 @@ public class MainActivity extends BridgeActivity {
         if (intent == null || intent.getAction() == null) return;
         try {
             String action = intent.getAction();
-            if (Intent.ACTION_VIEW.equals(action)) {
+            if (ACTION_SHORTCUT.equals(action)) {
+                // Launcher shortcut (res/xml/shortcuts.xml) — forward the
+                // requested target so the web app opens the right surface.
+                String target = intent.getStringExtra("target");
+                if (target == null || target.isEmpty()) return;
+                JSONObject payload = new JSONObject();
+                payload.put("kind", "shortcut");
+                payload.put("target", target);
+                dispatchToJs(payload);
+            } else if (Intent.ACTION_VIEW.equals(action)) {
                 Uri data = intent.getData();
                 if (data != null) sendUri(data);
             } else if (Intent.ACTION_SEND.equals(action)) {

@@ -31,7 +31,16 @@ type IntentTextPayload = {
   text: string
 }
 
-export type IntentPayload = IntentFilePayload | IntentTextPayload
+/** Static launcher shortcut (Android 7.1+): Import / Search / Insights. */
+type IntentShortcutPayload = {
+  kind: 'shortcut'
+  target: string
+}
+
+export type IntentPayload =
+  | IntentFilePayload
+  | IntentTextPayload
+  | IntentShortcutPayload
 
 export type IntentRouterHandlers = {
   /**
@@ -40,6 +49,12 @@ export type IntentRouterHandlers = {
    * per Uri) are coalesced into a single batch.
    */
   onFiles(files: File[], text?: string): void
+  /**
+   * Launcher shortcut tapped (MainActivity forwards {kind:'shortcut'}).
+   * Target is the raw extra value — 'import' | 'search' | 'insights';
+   * unknown targets are ignored by the consumer.
+   */
+  onShortcut?(target: string): void
 }
 
 declare global {
@@ -87,6 +102,10 @@ export function installIntentRouter(handlers: IntentRouterHandlers): void {
 
   window.__WA_INTENT__ = (payload) => {
     try {
+      if (payload.kind === 'shortcut') {
+        currentHandlers?.onShortcut?.(payload.target)
+        return
+      }
       if (payload.kind === 'text') {
         batchText = payload.text
       } else {

@@ -61,6 +61,27 @@ export const strings = {
   'chats.row.title.unarchive': 'Unarchive chat',
   'chats.row.aria.delete': 'Delete {name}',
 
+  /* Word cloud dialog (WordCloudDialog) */
+  'wordcloud.title': 'Word cloud',
+  'wordcloud.description':
+    'Top words in {chat} — tap one to search it in this chat.',
+  'wordcloud.loading': 'Loading word cloud…',
+  'wordcloud.loadFailed': 'Could not load the word cloud',
+  'wordcloud.loadFailedHint': 'Something went wrong — try again in a moment.',
+  'wordcloud.empty': 'No words yet',
+  'wordcloud.emptyHint':
+    "Words from this chat's text messages will show up here.",
+  'wordcloud.aria.word': 'Search the word {word} in {chat}',
+  'wordcloud.usesOne': '1 use — search in chat',
+  'wordcloud.usesMany': '{count} uses — search in chat',
+  'wordcloud.sizeHintOne': '1 word · sized by how often it appears',
+  'wordcloud.sizeHintMany': '{count} words · sized by how often they appear',
+  'wordcloud.exportPng': 'Download PNG',
+  'wordcloud.exporting': 'Rendering PNG…',
+  'wordcloud.exported': 'Word cloud saved as PNG',
+  'wordcloud.exportFailed': 'Could not render the PNG',
+  'wordcloud.pngFooter': 'Made with WA Archiver',
+
   /* Chats list — header, sidebar menu, search */
   'chats.header.import': 'Import',
   'chats.header.paletteTip':

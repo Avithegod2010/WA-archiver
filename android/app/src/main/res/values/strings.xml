@@ -4,4 +4,12 @@
     <string name="title_activity_main">WA Archiver</string>
     <string name="package_name">io.github.avithegod2010.waarchiver</string>
     <string name="custom_url_scheme">io.github.avithegod2010.waarchiver</string>
+
+    <!-- Launcher shortcuts (res/xml/shortcuts.xml) -->
+    <string name="shortcut_import_short">Import chats</string>
+    <string name="shortcut_import_long">Import chats</string>
+    <string name="shortcut_search_short">Search</string>
+    <string name="shortcut_search_long">Search messages</string>
+    <string name="shortcut_insights_short">Insights</string>
+    <string name="shortcut_insights_long">Insights dashboard</string>
 </resources>

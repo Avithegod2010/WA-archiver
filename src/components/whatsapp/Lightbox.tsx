@@ -18,7 +18,9 @@ import {
   ZoomOut,
 } from 'lucide-react'
 import { toast } from 'sonner'
+import { Camera } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { fetchCapturedAt } from '@/lib/exif'
 
 const MIN_ZOOM = 1
 const MAX_ZOOM = 4
@@ -40,6 +42,7 @@ export function Lightbox({
   caption,
   downloadName,
   kind = 'image',
+  sentAt,
   onClose,
   onPrev,
   onNext,
@@ -50,6 +53,8 @@ export function Lightbox({
   caption?: string | null
   downloadName?: string | null
   kind?: 'image' | 'video' | 'audio'
+  /** Message timestamp (epoch ms) — enables the EXIF "captured on" pill. */
+  sentAt?: number
   onClose: () => void
   onPrev?: () => void
   onNext?: () => void
@@ -79,6 +84,34 @@ export function Lightbox({
   const panStart = useRef<{ px: number; py: number; ox: number; oy: number } | null>(null)
   // Touch swipe -> prev/next on mobile
   const touchStart = useRef<{ x: number; y: number } | null>(null)
+
+  // EXIF capture date (JPEG only): fetch the file head once per src and
+  // surface DateTimeOriginal when it disagrees with the send time by over
+  // a minute (an old photo re-shared years later). Null-safe everywhere —
+  // CORS/binary-less sources just leave the pill hidden.
+  const [capturedAt, setCapturedAt] = useState<number | null>(null)
+  // Reset + re-probe when the viewed item changes (render-time adjustment —
+  // same pattern as the zoom reset above; the async fetch then lands via
+  // its callback, so the effect never sets state synchronously).
+  const [probeKey, setProbeKey] = useState('')
+  const probeKeyNow = kind === 'image' && src ? src : ''
+  if (probeKey !== probeKeyNow) {
+    setProbeKey(probeKeyNow)
+    setCapturedAt(null)
+  }
+  useEffect(() => {
+    if (!probeKeyNow) return
+    let alive = true
+    fetchCapturedAt(probeKeyNow).then((ts) => {
+      if (alive) setCapturedAt(ts)
+    })
+    return () => {
+      alive = false
+    }
+  }, [probeKeyNow])
+  const showCapturedAt =
+    capturedAt !== null &&
+    (sentAt === undefined || Math.abs(capturedAt - sentAt) > 60_000)
 
   /** Clamp pan offsets so the image can never be dragged fully off-screen. */
   const clampOffset = useCallback((z: number, ox: number, oy: number) => {
@@ -387,6 +420,19 @@ export function Lightbox({
           {caption && (
             <p className="max-w-lg rounded-full bg-white/10 px-4 py-1.5 text-[13px] text-white/90">
               {caption}
+            </p>
+          )}
+          {showCapturedAt && (
+            <p
+              className="flex items-center gap-1.5 rounded-full bg-white/10 px-3 py-1 text-[11.5px] font-medium text-white/85"
+              title="Capture date from the photo's EXIF metadata"
+            >
+              <Camera className="h-3.5 w-3.5" aria-hidden />
+              Captured{' '}
+              {new Date(capturedAt).toLocaleString([], {
+                dateStyle: 'medium',
+                timeStyle: 'short',
+              })}
             </p>
           )}
           <p className="flex items-center gap-1.5 text-[11px] text-white/50">
