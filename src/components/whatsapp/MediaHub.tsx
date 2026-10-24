@@ -69,6 +69,8 @@ import { isAudioName, isVideoName } from '@/lib/media-kinds'
 import { formatChatTime } from './display'
 import type { AllMediaItem } from '@/lib/data/types'
 import type { ChatMessage } from './types'
+import { useT } from '@/lib/i18n'
+import type { TranslationKey } from '@/lib/locales/en'
 
 type KindKey = 'all' | 'photos' | 'videos' | 'voice' | 'stickers' | 'docs'
 type SortKey = 'new' | 'old'
@@ -104,13 +106,13 @@ function classify(item: AllMediaItem): Kind {
   return 'photo'
 }
 
-const KIND_TABS: { key: KindKey; label: string }[] = [
-  { key: 'all', label: 'All' },
-  { key: 'photos', label: 'Photos' },
-  { key: 'videos', label: 'Videos' },
-  { key: 'voice', label: 'Voice' },
-  { key: 'stickers', label: 'Stickers' },
-  { key: 'docs', label: 'Docs' },
+const KIND_TABS: { key: KindKey; labelKey: TranslationKey }[] = [
+  { key: 'all', labelKey: 'media.tab.all' },
+  { key: 'photos', labelKey: 'media.tab.photos' },
+  { key: 'videos', labelKey: 'media.tab.videos' },
+  { key: 'voice', labelKey: 'media.tab.voice' },
+  { key: 'stickers', labelKey: 'media.tab.stickers' },
+  { key: 'docs', labelKey: 'media.tab.docs' },
 ]
 
 const KIND_OF_TAB: Partial<Record<KindKey, Kind>> = {
@@ -186,6 +188,7 @@ export function MediaHub({
 }) {
   const { mode, data, modeResolved } = useData()
   const normalizeMessages = useMessageNormalizer()
+  const t = useT()
 
   const [items, setItems] = useState<AllMediaItem[] | null>(null)
   const [truncated, setTruncated] = useState(false)
@@ -247,11 +250,11 @@ export function MediaHub({
       setTruncated(!!tr)
     } catch {
       setItems(null)
-      toast.error('Could not load the media index')
+      toast.error(t('media.toast.loadFailed'))
     } finally {
       setLoading(false)
     }
-  }, [data, mode, modeResolved, normalizeMessages])
+  }, [data, mode, modeResolved, normalizeMessages, t])
 
   useEffect(() => {
     if (open) {
@@ -433,14 +436,14 @@ export function MediaHub({
       setItems((prev) =>
         prev?.map((m) => (m.id === it.id ? { ...m, starred: !next } : m)) ?? prev
       )
-      toast.error('Could not update favorite')
+      toast.error(t('media.toast.favFailed'))
     }
   }
 
   function saveOne(it: AllMediaItem) {
     const src = displayMediaSrc(it.chatId, it.mediaPath)
     if (!src) {
-      toast.error('File not available (missing from export)')
+      toast.error(t('media.toast.missingFile'))
       return
     }
     const a = document.createElement('a')
@@ -454,7 +457,9 @@ export function MediaHub({
   async function exportZip() {
     if (selectedItems.length === 0 || zipping) return
     setZipping(true)
-    const toastId = toast.loading(`Packing 0/${selectedItems.length}…`)
+    const toastId = toast.loading(
+      t('media.toast.packing', { done: 0, total: selectedItems.length })
+    )
     try {
       const { default: JSZip } = await import('jszip')
       const zip = new JSZip()
@@ -486,11 +491,14 @@ export function MediaHub({
           }
         }
         if (n % 5 === 0 || n === selectedItems.length - 1) {
-          toast.loading(`Packing ${n + 1}/${selectedItems.length}…`, { id: toastId })
+          toast.loading(
+            t('media.toast.packing', { done: n + 1, total: selectedItems.length }),
+            { id: toastId }
+          )
         }
       }
       if (added === 0) {
-        toast.error('None of the selected files could be packed', { id: toastId })
+        toast.error(t('media.toast.packFailed'), { id: toastId })
         return
       }
       const blob = await zip.generateAsync({ type: 'blob' })
@@ -503,13 +511,13 @@ export function MediaHub({
       a.remove()
       setTimeout(() => URL.revokeObjectURL(url), 5000)
       toast.success(
-        `Exported ${added} file${added === 1 ? '' : 's'}${failed ? ` · ${failed} unavailable` : ''}`,
+        `${t(added === 1 ? 'media.toast.exportedOne' : 'media.toast.exportedMany', { count: added })}${failed ? ` ${t('media.toast.exportUnavailable', { count: failed })}` : ''}`,
         { id: toastId }
       )
       setSelectMode(false)
       setSelected(new Set())
     } catch {
-      toast.error('Export failed', { id: toastId })
+      toast.error(t('media.toast.exportFailed'), { id: toastId })
     } finally {
       setZipping(false)
     }
@@ -527,15 +535,18 @@ export function MediaHub({
       const n = await data.deleteMessageMedia(selectedItems.map((it) => it.id))
       toast.success(
         n > 0
-          ? `Deleted ${n} file${n === 1 ? '' : 's'} · ${formatBytes(selectedBytes)} freed — chats now show a "Media deleted" note`
-          : 'Nothing to delete — the files were already missing'
+          ? t(n === 1 ? 'media.toast.deletedOne' : 'media.toast.deletedMany', {
+              count: n,
+              size: formatBytes(selectedBytes),
+            })
+          : t('media.toast.deleteNone')
       )
       setConfirmDelete(false)
       setSelectMode(false)
       setSelected(new Set())
       await load()
     } catch {
-      toast.error('Could not delete the selected media')
+      toast.error(t('media.toast.deleteFailed'))
     } finally {
       setDeleting(false)
     }
@@ -548,7 +559,7 @@ export function MediaHub({
       className="fixed inset-0 z-[90] flex flex-col bg-[#0b141a]/95 backdrop-blur-sm"
       role="dialog"
       aria-modal="true"
-      aria-label="Media hub"
+      aria-label={t('media.title')}
     >
       {/* Header */}
       <header className="flex shrink-0 items-center gap-3 border-b border-white/10 px-4 py-3 sm:px-5">
@@ -557,14 +568,14 @@ export function MediaHub({
         </span>
         <div className="min-w-0 flex-1">
           <h2 className="truncate text-[15.5px] font-semibold text-white">
-            Media hub
+            {t('media.title')}
           </h2>
           <p className="truncate text-[11.5px] text-white/60">
             {loading
-              ? 'Loading media index…'
+              ? t('media.loading')
               : items
-                ? `${items.length.toLocaleString()} item${items.length === 1 ? '' : 's'} · ${formatBytes(totals.totalBytes) || '0 B'} across ${chatOptions.length} chat${chatOptions.length === 1 ? '' : 's'}${truncated ? ' (newest 5000)' : ''}`
-                : 'Index unavailable'}
+                ? `${t(items.length === 1 ? 'media.itemsOne' : 'media.itemsMany', { count: items.length.toLocaleString() })} · ${formatBytes(totals.totalBytes) || '0 B'} ${t(chatOptions.length === 1 ? 'media.acrossChatsOne' : 'media.acrossChatsMany', { count: chatOptions.length })}${truncated ? ` ${t('media.truncated')}` : ''}`
+                : t('media.indexUnavailable')}
           </p>
         </div>
         <Button
@@ -573,8 +584,8 @@ export function MediaHub({
           className="wa-iconbtn h-9 w-9 rounded-full text-white/85 hover:bg-white/10"
           onClick={() => load()}
           disabled={loading}
-          title="Refresh index"
-          aria-label="Refresh index"
+          title={t('media.refresh')}
+          aria-label={t('media.refresh')}
         >
           <RefreshCw className={cn('h-4 w-4', loading && 'animate-spin')} />
         </Button>
@@ -583,7 +594,7 @@ export function MediaHub({
           variant="ghost"
           className="wa-iconbtn h-9 w-9 rounded-full text-white/85 hover:bg-white/10"
           onClick={onClose}
-          title="Close (Esc)"
+          title={t('chats.bulk.title.close')}
           aria-label="Close media hub"
         >
           <X className="h-4.5 w-4.5" />
@@ -595,23 +606,23 @@ export function MediaHub({
         <div className="flex flex-wrap items-center gap-2">
           {/* Kind pills */}
           <div className="flex flex-wrap items-center gap-1.5" role="tablist" aria-label="Media kind">
-            {KIND_TABS.map((t) => {
-              const wantKind = KIND_OF_TAB[t.key]
-              const count = t.key === 'all' ? items?.length ?? 0 : wantKind ? totals.per[wantKind] : 0
+            {KIND_TABS.map((tab) => {
+              const wantKind = KIND_OF_TAB[tab.key]
+              const count = tab.key === 'all' ? items?.length ?? 0 : wantKind ? totals.per[wantKind] : 0
               return (
                 <button
-                  key={t.key}
+                  key={tab.key}
                   role="tab"
-                  aria-selected={kind === t.key}
-                  onClick={() => setKind(t.key)}
+                  aria-selected={kind === tab.key}
+                  onClick={() => setKind(tab.key)}
                   className={cn(
                     'rounded-full px-3 py-1.5 text-[12px] font-medium transition-colors',
-                    kind === t.key
+                    kind === tab.key
                       ? 'bg-(--wa-accent) text-white'
                       : 'bg-white/8 text-white/75 hover:bg-white/15 hover:text-white'
                   )}
                 >
-                  {t.label}
+                  {t(tab.labelKey)}
                   {count > 0 && (
                     <span className="ml-1.5 tabular-nums opacity-70">{count}</span>
                   )}
@@ -632,7 +643,7 @@ export function MediaHub({
                   ? 'bg-rose-500/90 text-white hover:bg-rose-500'
                   : 'bg-white/8 text-white/75 hover:bg-white/15 hover:text-white'
               )}
-              title="Favorites only (starred media)"
+              title={t('media.favOnly')}
               aria-pressed={favOnly}
             >
               <Heart className={cn('h-3.5 w-3.5', favOnly && 'fill-current')} />
@@ -642,10 +653,10 @@ export function MediaHub({
             {/* Chat filter */}
             <Select value={chatFilter} onValueChange={setChatFilter}>
               <SelectTrigger className="h-8.5 w-[150px] rounded-full border-white/15 bg-white/8 text-[12px] text-white sm:w-[180px] [&>svg]:text-white/70">
-                <SelectValue placeholder="All chats" />
+                <SelectValue placeholder={t('media.filter.allChats')} />
               </SelectTrigger>
               <SelectContent className="max-h-64">
-                <SelectItem value="all">All chats</SelectItem>
+                <SelectItem value="all">{t('media.filter.allChats')}</SelectItem>
                 {chatOptions.map((c) => (
                   <SelectItem key={c.id} value={c.id}>
                     {c.title}
@@ -660,7 +671,7 @@ export function MediaHub({
               variant="ghost"
               className="wa-iconbtn h-8.5 w-8.5 rounded-full bg-white/8 text-white/75 hover:bg-white/15 hover:text-white"
               onClick={() => setSort((s) => (s === 'new' ? 'old' : 'new'))}
-              title={sort === 'new' ? 'Newest first (click to flip)' : 'Oldest first (click to flip)'}
+              title={t(sort === 'new' ? 'media.sort.new' : 'media.sort.old')}
               aria-label="Toggle sort order"
             >
               <ArrowDownUp className="h-3.5 w-3.5" />
@@ -676,9 +687,7 @@ export function MediaHub({
                 setOpenAlbum(null)
               }}
               title={
-                view === 'grid'
-                  ? 'Month grid — click for shared albums'
-                  : 'Shared albums — click for month grid'
+                t(view === 'grid' ? 'media.view.grid' : 'media.view.albums')
               }
               aria-label="Toggle shared albums view"
               aria-pressed={view === 'albums'}
@@ -707,7 +716,7 @@ export function MediaHub({
               aria-pressed={selectMode}
             >
               <Check className="h-3.5 w-3.5" />
-              Select
+              {t('media.select')}
             </Button>
           </div>
         </div>
@@ -719,7 +728,7 @@ export function MediaHub({
             <Input
               value={query}
               onChange={(e) => setQuery(e.target.value)}
-              placeholder="Search file name, sender or chat…"
+              placeholder={t('media.search.placeholder')}
               className="h-8.5 rounded-full border-white/15 bg-white/8 ps-8 text-[12.5px] text-white placeholder:text-white/40 focus-visible:ring-(--wa-accent)/50"
             />
           </div>
@@ -750,7 +759,7 @@ export function MediaHub({
                   setFromDate('')
                   setToDate('')
                 }}
-                title="Clear date range"
+                title={t('media.clearDates')}
                 aria-label="Clear date range"
               >
                 <CalendarX className="h-3.5 w-3.5" />
@@ -764,19 +773,19 @@ export function MediaHub({
               const label =
                 k === 'photo'
                   ? totals.per[k] === 1
-                    ? 'photo'
-                    : 'photos'
+                    ? t('media.kind.photoOne')
+                    : t('media.kind.photoMany')
                   : k === 'video'
                     ? totals.per[k] === 1
-                      ? 'video'
-                      : 'videos'
+                      ? t('media.kind.videoOne')
+                      : t('media.kind.videoMany')
                     : k === 'voice'
                       ? totals.per[k] === 1
-                        ? 'voice note'
-                        : 'voice notes'
+                        ? t('media.kind.voiceOne')
+                        : t('media.kind.voiceMany')
                       : totals.per[k] === 1
-                        ? 'doc'
-                        : 'docs'
+                        ? t('media.kind.docOne')
+                        : t('media.kind.docMany')
               return (
                 <span key={k} className="tabular-nums">
                   {totals.per[k]} {label} · {formatBytes(totals.bytesPer[k])}
@@ -785,8 +794,12 @@ export function MediaHub({
             })}
             {quota && (
               <span className="tabular-nums text-white/40">
-                device store {formatBytes(quota.usage)}
-                {quota.quota ? ` of ${formatBytes(quota.quota)}` : ''}
+                {quota.quota
+                  ? t('media.quota.usageOf', {
+                      size: formatBytes(quota.usage),
+                      quota: formatBytes(quota.quota),
+                    })
+                  : t('media.quota.usage', { size: formatBytes(quota.usage) })}
               </span>
             )}
           </div>
@@ -809,11 +822,11 @@ export function MediaHub({
               <ImageOff className="h-7 w-7" />
             </span>
             <div>
-              <p className="text-[14px] font-medium text-white/85">No media found</p>
+              <p className="text-[14px] font-medium text-white/85">{t('media.empty.title')}</p>
               <p className="mt-1 max-w-xs text-[12px] leading-relaxed text-white/50">
                 {items.length === 0
-                  ? 'Import a WhatsApp export with photos, videos or voice notes and they will show up here.'
-                  : 'Try clearing the filters or search.'}
+                  ? t('media.empty.import')
+                  : t('media.empty.clearFilters')}
               </p>
             </div>
           </div>
@@ -825,7 +838,7 @@ export function MediaHub({
             <div className="sticky top-0 z-10 -mx-1 mb-2 flex items-center gap-2 bg-[#0b141a]/85 px-1 py-1.5 backdrop-blur-sm">
               <h3 className="text-[12.5px] font-semibold text-white/90">{monthLabel(key)}</h3>
               <span className="text-[10.5px] tabular-nums text-white/40">
-                {list.length} item{list.length === 1 ? '' : 's'}
+                {t(list.length === 1 ? 'media.itemsOne' : 'media.itemsMany', { count: list.length })}
               </span>
               {selectMode && (
                 <button
@@ -838,7 +851,7 @@ export function MediaHub({
                   }
                   className="rounded-full bg-white/8 px-2 py-0.5 text-[10.5px] text-white/70 hover:bg-white/15 hover:text-white"
                 >
-                  Select month
+                  {t('media.selectMonth')}
                 </button>
               )}
             </div>
@@ -903,7 +916,7 @@ export function MediaHub({
                       {formatAlbumRange(al.start, al.end)}
                     </p>
                     <p className="mt-1 text-[11px] tabular-nums text-white/60">
-                      {al.items.length} item{al.items.length === 1 ? '' : 's'}
+                      {t(al.items.length === 1 ? 'media.itemsOne' : 'media.itemsMany', { count: al.items.length })}
                     </p>
                   </div>
                 </button>
@@ -923,8 +936,8 @@ export function MediaHub({
                     <button
                       onClick={() => setOpenAlbum(null)}
                       className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-white/8 text-white/70 hover:bg-white/15 hover:text-white"
-                      title="Back to albums"
-                      aria-label="Back to albums"
+                      title={t('media.backToAlbums')}
+                      aria-label={t('media.backToAlbums')}
                     >
                       <ChevronLeft className="h-4 w-4" />
                     </button>
@@ -945,7 +958,7 @@ export function MediaHub({
                         }
                         className="rounded-full bg-white/8 px-2 py-0.5 text-[10.5px] text-white/70 hover:bg-white/15 hover:text-white"
                       >
-                        Select album
+                        {t('media.selectAlbum')}
                       </button>
                     )}
                   </div>
@@ -985,14 +998,14 @@ export function MediaHub({
               className="wa-iconbtn rounded-full bg-white/8 px-4 text-[12px] text-white/80 hover:bg-white/15 hover:text-white"
               onClick={() => setVisibleMonths((m) => m + 8)}
             >
-              Show older months ({groups.length - visibleMonths} more)
+              {t('media.showOlder', { count: groups.length - visibleMonths })}
             </Button>
           </div>
         )}
 
         {!loading && truncated && items && (
           <p className="pt-3 text-center text-[11px] text-white/40">
-            Showing the newest 5000 items — older media is not listed.
+            {t('media.truncatedNote')}
           </p>
         )}
       </div>
@@ -1002,7 +1015,7 @@ export function MediaHub({
         <div className="pointer-events-none absolute inset-x-0 bottom-0 flex justify-center p-4">
           <div className="pointer-events-auto flex items-center gap-2 rounded-full border border-white/10 bg-[#111b21]/95 py-2 pl-4 pr-2 shadow-2xl backdrop-blur">
             <span className="text-[12.5px] font-medium text-white/90 tabular-nums">
-              {selected.size} selected
+              {t('media.selected', { count: selected.size })}
               {selectedBytes > 0 && (
                 <span className="ms-1.5 font-normal text-white/50">{formatBytes(selectedBytes)}</span>
               )}
@@ -1014,7 +1027,7 @@ export function MediaHub({
               className="h-8 rounded-full px-3 text-[12px] text-white/70 hover:bg-white/10 hover:text-white"
               onClick={selectAllShown}
             >
-              Select all
+              {t('media.selectAll')}
             </Button>
             <Button
               size="sm"
@@ -1023,7 +1036,7 @@ export function MediaHub({
               disabled={selected.size === 0 || zipping}
             >
               {zipping ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Download className="h-3.5 w-3.5" />}
-              Export ZIP
+              {t('media.exportZip')}
             </Button>
             <Button
               size="sm"
@@ -1032,7 +1045,7 @@ export function MediaHub({
               disabled={selected.size === 0 || deleting}
             >
               {deleting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />}
-              Delete
+              {t('media.delete')}
             </Button>
             <Button
               size="icon"
@@ -1042,7 +1055,7 @@ export function MediaHub({
                 setSelectMode(false)
                 setSelected(new Set())
               }}
-              title="Exit selection"
+              title={t('media.exitSelection')}
               aria-label="Exit selection mode"
             >
               <X className="h-4 w-4" />
@@ -1056,17 +1069,23 @@ export function MediaHub({
         <AlertDialogContent className="max-w-[min(92vw,420px)]">
           <AlertDialogHeader>
             <AlertDialogTitle>
-              Delete {selected.size} file{selected.size === 1 ? '' : 's'}?
+              {t(
+                selected.size === 1
+                  ? 'media.delete.titleOne'
+                  : 'media.delete.titleMany',
+                { count: selected.size }
+              )}
             </AlertDialogTitle>
             <AlertDialogDescription>
-              The files are removed from this device
-              {selectedBytes > 0 ? ` (${formatBytes(selectedBytes)} freed)` : ''} and the
-              messages stay in their chats with a “Media deleted” note. This cannot
-              be undone.
+              {t('media.delete.bodyPre')}
+              {selectedBytes > 0
+                ? ` ${t('media.delete.freed', { size: formatBytes(selectedBytes) })}`
+                : ''}{' '}
+              {t('media.delete.bodyPost')}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel disabled={deleting}>Cancel</AlertDialogCancel>
+            <AlertDialogCancel disabled={deleting}>{t('common.cancel')}</AlertDialogCancel>
             <AlertDialogAction
               className="bg-rose-600 text-white hover:bg-rose-700 focus-visible:ring-rose-600/40"
               disabled={deleting}
@@ -1076,7 +1095,7 @@ export function MediaHub({
                 void deleteSelected()
               }}
             >
-              {deleting ? 'Deleting…' : 'Delete files'}
+              {deleting ? t('media.deleting') : t('media.deleteFiles')}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
@@ -1131,6 +1150,7 @@ function HubTile({
   onJump: () => void
   onSave?: () => void
 }) {
+  const t = useT()
   const kind = classify(item)
   const src = displayMediaSrc(item.chatId, item.mediaPath)
 
@@ -1185,7 +1205,7 @@ function HubTile({
               selectMode && 'left-8'
             )
           }>
-            <Film className="h-3 w-3" /> Video
+            <Film className="h-3 w-3" /> {t('media.badge.video')}
           </span>
           <span className="pointer-events-none absolute inset-0 flex items-center justify-center">
             <span className="flex h-9 w-9 items-center justify-center rounded-full bg-black/55 text-white backdrop-blur-sm transition-transform duration-200 group-hover:scale-110">
@@ -1200,7 +1220,7 @@ function HubTile({
             <AudioLines className="h-5 w-5" />
           </span>
           <span className="max-w-[88%] truncate px-2 text-[10px] text-white/60">
-            {item.mediaName ?? 'Voice message'}
+            {item.mediaName ?? t('chats.type.voice')}
           </span>
         </span>
       )}
@@ -1208,7 +1228,7 @@ function HubTile({
         <span className="flex h-full w-full flex-col items-center justify-center gap-1.5 text-[#f2a33c]">
           <FileText className="h-8 w-8" />
           <span className="max-w-[88%] truncate px-2 text-[10px] text-white/60">
-            {item.mediaName ?? 'Document'}
+            {item.mediaName ?? t('chats.type.document')}
           </span>
         </span>
       )}
@@ -1218,7 +1238,7 @@ function HubTile({
             {kind === 'photo' || kind === 'sticker' ? 'IMG' : kind === 'video' ? 'VID' : kind === 'voice' ? 'AUD' : 'DOC'}
           </i>
           <span className="line-clamp-2 text-[10px] leading-tight text-white/45">
-            {item.mediaName ?? 'Not in export'}
+            {item.mediaName ?? t('media.notInExport')}
           </span>
         </span>
       )}
@@ -1228,7 +1248,7 @@ function HubTile({
         <span className="absolute inset-x-0 bottom-0 flex items-center gap-1 bg-gradient-to-t from-black/85 via-black/55 to-transparent px-1.5 pb-1.5 pt-6 opacity-0 transition-opacity duration-200 group-hover:opacity-100">
           <span className="min-w-0 flex-1">
             <span className="block truncate text-left text-[10px] font-medium text-white/95">
-              {item.sender === 'You' ? 'You' : item.sender ?? item.type}
+              {item.sender === 'You' ? t('common.you') : item.sender ?? item.type}
             </span>
             <span className="block truncate text-left text-[9px] text-white/60">
               {item.chatTitle}
@@ -1247,8 +1267,8 @@ function HubTile({
             e.stopPropagation()
             onToggleFav()
           }}
-          aria-label={item.starred ? 'Remove favorite' : 'Add favorite'}
-          title={item.starred ? 'Remove favorite' : 'Add favorite'}
+          aria-label={item.starred ? t('media.fav.remove') : t('media.fav.add')}
+          title={item.starred ? t('media.fav.remove') : t('media.fav.add')}
           className={cn(
             'absolute right-1.5 top-1.5 flex h-7 w-7 items-center justify-center rounded-full backdrop-blur-sm transition-all duration-200 hover:scale-110 focus-visible:opacity-100 group-hover:opacity-100',
             item.starred
@@ -1267,8 +1287,8 @@ function HubTile({
             e.stopPropagation()
             onSave()
           }}
-          aria-label="Save file"
-          title="Save file"
+          aria-label={t('snapshots.save')}
+          title={t('snapshots.save')}
           className="absolute right-9 top-1.5 flex h-7 w-7 items-center justify-center rounded-full bg-black/55 text-white opacity-0 backdrop-blur-sm transition-all duration-200 hover:scale-110 hover:bg-(--wa-accent) focus-visible:opacity-100 group-hover:opacity-100"
         >
           <Save className="h-3.5 w-3.5" />
@@ -1282,8 +1302,8 @@ function HubTile({
             e.stopPropagation()
             onJump()
           }}
-          aria-label="Show in chat"
-          title="Show in chat"
+          aria-label={t('media.showInChat')}
+          title={t('media.showInChat')}
           className="absolute right-1.5 top-9 flex h-7 w-7 items-center justify-center rounded-full bg-black/55 text-white opacity-0 backdrop-blur-sm transition-all duration-200 hover:scale-110 hover:bg-(--wa-accent) focus-visible:opacity-100 group-hover:opacity-100"
         >
           <MessageSquare className="h-3.5 w-3.5" />

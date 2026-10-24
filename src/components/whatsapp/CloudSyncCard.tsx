@@ -20,7 +20,7 @@
  * Android webview in the APK build.
  */
 
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import {
   CheckCircle2,
   CloudDownload,
@@ -28,6 +28,8 @@ import {
   Download,
   Eye,
   EyeOff,
+  FileUp,
+  GitCompare,
   History,
   KeyRound,
   Link2,
@@ -50,6 +52,13 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { Switch } from '@/components/ui/switch'
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog'
 import { useData } from './data-provider'
 import { useT } from '@/lib/i18n'
 import {
@@ -67,6 +76,12 @@ import {
   type CloudSyncConfig,
 } from '@/lib/cloud-sync'
 import {
+  SYNC_FILE_ACCEPT,
+  decryptFromSyncFile,
+  looksLikeSyncFile,
+} from '@/lib/sync-crypto'
+import { isDeltaEnvelope } from '@/lib/sync-delta'
+import {
   buildConsentUrl,
   defaultRedirectUri,
   exchangeAuthCode,
@@ -78,6 +93,21 @@ import type { ChatSummary } from './types'
 import { writeLastBackupAt, formatRelativeTime } from './backup-reminder'
 
 const HISTORY_OPTIONS = ['0', '3', '5', '10'] as const
+
+/** v1.9.1 — result of comparing a cloud snapshot with the live cloud copy. */
+interface SnapshotDiff {
+  snapName: string
+  snapChats: number
+  snapMessages: number
+  liveChats: number
+  liveMessages: number
+  /** Chat titles present in the snapshot but not in the live copy. */
+  newInSnapshot: string[]
+  /** Chat titles added to the live copy since the snapshot. */
+  newSince: string[]
+  /** Biggest per-chat message-count deltas (snapshot vs live). */
+  changes: Array<{ title: string; delta: number }>
+}
 
 export function CloudSyncCard({
   onRefreshChats,
@@ -136,10 +166,15 @@ export function CloudSyncCard({
   // one-bundle transfer (v1.9)
   const [transferOpen, setTransferOpen] = useState(false)
 
+  // v1.9.1 — snapshot file import + compare (diff) viewer
+  const snapFileRef = useRef<HTMLInputElement>(null)
+  const [diff, setDiff] = useState<SnapshotDiff | null>(null)
+  const [diffOpen, setDiffOpen] = useState(false)
+
   const [passphrase, setPassphrase] = useState('')
   const [showPw, setShowPw] = useState(false)
   const [busy, setBusy] = useState<
-    'test' | 'push' | 'pull' | 'snapshots' | null
+    'test' | 'push' | 'pull' | 'snapshots' | 'compare' | null
   >(null)
   const [lastPush, setLastPush] = useState<number | undefined>(saved?.lastPushAt)
   const [lastPull, setLastPull] = useState<number | undefined>(saved?.lastPullAt)
@@ -423,6 +458,124 @@ export function CloudSyncCard({
       toast.success('Snapshot saved as ' + snapPick)
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Download failed')
+    } finally {
+      setBusy(null)
+    }
+  }
+
+  /**
+   * v1.9.1 — import a previously saved encrypted .wasync snapshot file
+   * straight from disk (offline path: cloud snapshot → Save file → share →
+   * import here). No provider config needed — just the sync passphrase.
+   */
+  const doImportSnapshotFile = async (file: File | undefined) => {
+    if (!file || busy) return
+    setBusy('pull')
+    try {
+      const text = await file.text()
+      if (!looksLikeSyncFile(text)) {
+        throw new Error('That file is not a WA Archiver encrypted backup')
+      }
+      const json = await decryptFromSyncFile(text, passphrase)
+      if (isDeltaEnvelope(json)) {
+        throw new Error(
+          'That file is an incremental delta — restore it from the cloud so its snapshot chain can be resolved'
+        )
+      }
+      await restoreJson(json)
+      const at = Date.now()
+      const cfg = await freshConfig()
+      persist({ ...cfg, lastPullAt: at })
+      setLastPull(at)
+      writeLastBackupAt()
+      setPassphrase('')
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Import failed')
+    } finally {
+      setBusy(null)
+    }
+  }
+
+  /**
+   * v1.9.1 — compare the selected snapshot with the live cloud copy:
+   * chat counts, message counts, chats only on one side, and the most
+   * changed chats. Read-only — nothing is restored.
+   */
+  const doCompareSnapshot = async () => {
+    if (busy || !fieldsOk || !pwOk || !snapPick) return
+    setBusy('compare')
+    try {
+      const cfg = await freshConfig()
+      const [snapJson, liveJson] = await Promise.all([
+        pullFromCloud(cfg, passphrase, snapPick),
+        pullFromCloud(cfg, passphrase),
+      ])
+      const parseChats = (
+        j: string
+      ): Array<{ id?: unknown; title?: unknown; messages?: unknown[] }> | null => {
+        try {
+          const p = JSON.parse(j) as {
+            chats?: Array<{
+              id?: unknown
+              title?: unknown
+              messages?: unknown[]
+            }>
+          }
+          if (!Array.isArray(p.chats)) return null
+          return p.chats.filter(
+            (c): c is { id?: unknown; title?: unknown; messages?: unknown[] } =>
+              !!c && typeof c === 'object'
+          )
+        } catch {
+          return null
+        }
+      }
+      const snapChats = parseChats(snapJson)
+      const liveChats = parseChats(liveJson)
+      if (!snapChats || !liveChats) {
+        throw new Error('Could not parse the snapshot contents')
+      }
+      const msgCount = (c: { messages?: unknown[] }) =>
+        Array.isArray(c.messages) ? c.messages.length : 0
+      const snapMap = new Map(
+        snapChats.map((c) => [String(c.id ?? ''), c])
+      )
+      const liveMap = new Map(
+        liveChats.map((c) => [String(c.id ?? ''), c])
+      )
+      const label = (c: { id?: unknown; title?: unknown }) =>
+        String(c.title ?? c.id ?? 'Untitled')
+      const newInSnapshot: string[] = []
+      const newSince: string[] = []
+      const changes: Array<{ title: string; delta: number }> = []
+      for (const [id, sc] of snapMap) {
+        const lc = liveMap.get(id)
+        if (!lc) {
+          newInSnapshot.push(label(sc))
+          continue
+        }
+        const delta = msgCount(sc) - msgCount(lc)
+        if (delta !== 0) changes.push({ title: label(sc), delta })
+      }
+      for (const [id, lc] of liveMap) {
+        if (!snapMap.has(id)) newSince.push(label(lc))
+      }
+      changes.sort((a, b) => Math.abs(b.delta) - Math.abs(a.delta))
+      const sum = (list: Array<{ messages?: unknown[] }>) =>
+        list.reduce((s, c) => s + msgCount(c), 0)
+      setDiff({
+        snapName: snapPick,
+        snapChats: snapMap.size,
+        snapMessages: sum(snapChats),
+        liveChats: liveMap.size,
+        liveMessages: sum(liveChats),
+        newInSnapshot: newInSnapshot.slice(0, 20),
+        newSince: newSince.slice(0, 20),
+        changes: changes.slice(0, 8),
+      })
+      setDiffOpen(true)
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Compare failed')
     } finally {
       setBusy(null)
     }
@@ -956,6 +1109,33 @@ export function CloudSyncCard({
           )}
           {t('cloud.pull')}
         </Button>
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={() => snapFileRef.current?.click()}
+          disabled={busy !== null || !pwOk}
+          className="gap-1.5"
+          title="Import a saved encrypted .wasync snapshot file from this device (offline — no cloud config needed)"
+        >
+          {busy === 'pull' ? (
+            <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
+          ) : (
+            <FileUp className="h-4 w-4" aria-hidden />
+          )}
+          {t('snapshots.fromFile')}
+        </Button>
+        <input
+          ref={snapFileRef}
+          type="file"
+          accept={SYNC_FILE_ACCEPT}
+          className="hidden"
+          aria-hidden
+          tabIndex={-1}
+          onChange={(e) => {
+            void doImportSnapshotFile(e.target.files?.[0])
+            e.target.value = ''
+          }}
+        />
         {historyKeep > 0 && (
           <Button
             variant="ghost"
@@ -1019,6 +1199,21 @@ export function CloudSyncCard({
             <Download className="h-4 w-4" aria-hidden />
             {t('snapshots.save')}
           </Button>
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => void doCompareSnapshot()}
+            disabled={busy !== null || !pwOk || !snapPick}
+            className="gap-1.5"
+            title="Compare this snapshot with the live cloud copy — nothing is restored"
+          >
+            {busy === 'compare' ? (
+              <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
+            ) : (
+              <GitCompare className="h-4 w-4" aria-hidden />
+            )}
+            {t('snapshots.compare')}
+          </Button>
         </div>
       )}
 
@@ -1058,6 +1253,117 @@ export function CloudSyncCard({
           {lastPull != null && <>Last restore: {formatRelativeTime(lastPull)}.</>}
         </p>
       )}
+      {/* v1.9.1 — snapshot vs live diff dialog */}
+      <Dialog open={diffOpen} onOpenChange={setDiffOpen}>
+        <DialogContent className="max-h-[85vh] max-w-md overflow-y-auto wa-scroll">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-[15px]">
+              <GitCompare
+                className="h-4 w-4 text-(--wa-accent)"
+                aria-hidden
+              />
+              {t('snapshots.diff.title')}
+            </DialogTitle>
+            <DialogDescription className="text-[12px]">
+              {t('snapshots.diff.subtitle').replace('{name}', diff?.snapName ?? '')}
+            </DialogDescription>
+          </DialogHeader>
+          {diff && (
+            <div className="flex flex-col gap-3">
+              <div className="grid grid-cols-2 gap-2">
+                <div className="rounded-md bg-black/[0.03] p-2.5 dark:bg-white/[0.05]">
+                  <p className="text-[10.5px] font-semibold uppercase tracking-wide text-(--wa-text-2)">
+                    {t('snapshots.diff.snapshot')}
+                  </p>
+                  <p className="mt-0.5 text-[13px] font-semibold text-(--wa-text)">
+                    {diff.snapChats} chats · {diff.snapMessages.toLocaleString()}{' '}
+                    msgs
+                  </p>
+                </div>
+                <div className="rounded-md bg-black/[0.03] p-2.5 dark:bg-white/[0.05]">
+                  <p className="text-[10.5px] font-semibold uppercase tracking-wide text-(--wa-text-2)">
+                    {t('snapshots.diff.live')}
+                  </p>
+                  <p className="mt-0.5 text-[13px] font-semibold text-(--wa-text)">
+                    {diff.liveChats} chats · {diff.liveMessages.toLocaleString()}{' '}
+                    msgs
+                  </p>
+                </div>
+              </div>
+              {diff.newInSnapshot.length > 0 && (
+                <div>
+                  <p className="text-[11.5px] font-semibold text-(--wa-text)">
+                    {t('snapshots.diff.newInSnapshot')}
+                  </p>
+                  <ul className="mt-1 flex max-h-24 flex-col gap-0.5 overflow-y-auto wa-scroll">
+                    {diff.newInSnapshot.map((n) => (
+                      <li
+                        key={n}
+                        className="truncate text-[11.5px] text-(--wa-text-2)"
+                      >
+                        • {n}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+              {diff.newSince.length > 0 && (
+                <div>
+                  <p className="text-[11.5px] font-semibold text-(--wa-text)">
+                    {t('snapshots.diff.newSince')}
+                  </p>
+                  <ul className="mt-1 flex max-h-24 flex-col gap-0.5 overflow-y-auto wa-scroll">
+                    {diff.newSince.map((n) => (
+                      <li
+                        key={n}
+                        className="truncate text-[11.5px] text-(--wa-text-2)"
+                      >
+                        • {n}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+              {diff.changes.length > 0 && (
+                <div>
+                  <p className="text-[11.5px] font-semibold text-(--wa-text)">
+                    {t('snapshots.diff.changed')}
+                  </p>
+                  <ul className="mt-1 flex flex-col gap-1">
+                    {diff.changes.map((c) => (
+                      <li
+                        key={c.title}
+                        className="flex items-center justify-between gap-2 text-[11.5px]"
+                      >
+                        <span className="min-w-0 truncate text-(--wa-text-2)">
+                          {c.title}
+                        </span>
+                        <span
+                          className={
+                            c.delta > 0
+                              ? 'shrink-0 font-semibold text-emerald-600 dark:text-emerald-400'
+                              : 'shrink-0 font-semibold text-red-500'
+                          }
+                        >
+                          {c.delta > 0 ? `+${c.delta}` : c.delta}
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+              {diff.newInSnapshot.length === 0 &&
+                diff.newSince.length === 0 &&
+                diff.changes.length === 0 && (
+                  <p className="rounded-md bg-black/[0.03] px-3 py-2.5 text-[12px] text-(--wa-text-2) dark:bg-white/[0.05]">
+                    {t('snapshots.diff.none')}
+                  </p>
+                )}
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
+
       <TransferDialog
         open={transferOpen}
         onOpenChange={setTransferOpen}

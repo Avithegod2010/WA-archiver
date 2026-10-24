@@ -94,8 +94,16 @@ export async function checkForUpdate(force = false): Promise<UpdateInfo | null> 
     tag,
     version: tag.replace(/^v/, ''),
     url: rel.html_url ?? RELEASES_URL,
-    // First line of the release notes as a teaser (truncate to be toast-safe).
-    notes: (rel.body ?? '').split('\n').find((l) => l.trim())?.slice(0, 120) ?? '',
+    // First content line of the release notes as a teaser — skip markdown
+    // headers (### Added) and link definitions, strip bullet markers,
+    // truncate to be toast-safe.
+    notes:
+      (rel.body ?? '')
+        .split('\n')
+        .filter((l) => !/^\s*#/.test(l) && !/^\s*\[[^\]]+\]:/.test(l))
+        .map((l) => l.replace(/^\s*[-*]\s*/, '').trim())
+        .find((l) => l.length > 0)
+        ?.slice(0, 120) ?? '',
   }
 }
 

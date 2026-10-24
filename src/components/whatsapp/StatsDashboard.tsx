@@ -47,6 +47,7 @@ import {
   renderInsightsSharePng,
 } from '@/lib/insights-share'
 import { downloadBlob } from '@/lib/wordcloud-png'
+import { useT } from '@/lib/i18n'
 
 const TYPE_LABELS: Record<string, string> = {
   text: 'Text',
@@ -497,6 +498,7 @@ function Heatmap({ grid, total }: { grid: number[][]; total: number }) {
 /* --------------------------- Active hours chart -------------------------- */
 
 function HoursChart({ hours }: { hours: StatsData['hours'] }) {
+  const t = useT()
   const max = Math.max(...hours.map((h) => h.count), 1)
   const peak = hours.reduce((a, b) => (b.count > a.count ? b : a), hours[0])
   const total = hours.reduce((s, h) => s + h.count, 0)
@@ -540,11 +542,12 @@ function HoursChart({ hours }: { hours: StatsData['hours'] }) {
         ))}
       </div>
       <p className="mt-1.5 text-[12px] text-(--wa-text-2)">
-        Busiest hour <b className="text-(--wa-text)">{hourLabel(peak.hour)}</b>
+        {t('stats.hours.busiest')}{' '}
+        <b className="text-(--wa-text)">{hourLabel(peak.hour)}</b>
         {nightShare >= 25 ? (
-          <> — night owls: {nightShare}% of messages after 8pm.</>
+          <>{' '}{t('stats.hours.nightOwls', { count: nightShare })}</>
         ) : (
-          <> — early birds: {100 - nightShare}% land before 8pm.</>
+          <>{' '}{t('stats.hours.earlyBirds', { count: 100 - nightShare })}</>
         )}
       </p>
     </div>
@@ -631,6 +634,7 @@ function WordCloud({ words }: { words: GlobalWordEntry[] }) {
 /** Ranked emoji leaderboard — medal emojis for the top 3, numbers after. */
 function EmojiLeaderboard({ rows }: { rows: EmojiLeaderEntry[] }) {
   const medals = ['🥇', '🥈', '🥉']
+  const t = useT()
   return (
     <div className="grid gap-2 sm:grid-cols-2">
       {rows.map((e, i) => (
@@ -662,7 +666,7 @@ function EmojiLeaderboard({ rows }: { rows: EmojiLeaderEntry[] }) {
             <p className="truncate text-[11px] text-(--wa-text-2)">
               {e.topUser ? (
                 <>
-                  Top user{' '}
+                  {t('stats.emoji.topUser')}{' '}
                   <b style={{ color: colorForName(e.topUser) }}>{e.topUser}</b>
                 </>
               ) : (
@@ -679,6 +683,7 @@ function EmojiLeaderboard({ rows }: { rows: EmojiLeaderEntry[] }) {
 /** One playful "A leaves B on read" row: Avatar → dashed line with the
  *  % label → ArrowRight → Avatar, plus a bar sized by the percentage. */
 function IgnoreRow({ pair, index }: { pair: IgnorePair; index: number }) {
+  const t = useT()
   return (
     <div
       className="wa-kpi-pop rounded-xl border border-black/5 bg-(--wa-panel-2)/60 p-3 dark:border-white/5 dark:bg-(--wa-panel-2)/60"
@@ -694,7 +699,7 @@ function IgnoreRow({ pair, index }: { pair: IgnorePair; index: number }) {
         <div className="relative h-6 min-w-0 flex-1">
           <div className="absolute inset-x-0 top-1/2 border-t border-dashed border-(--wa-accent)/40 dark:border-(--wa-accent)/50" />
           <span className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 whitespace-nowrap rounded-full bg-(--wa-accent)/10 px-2 py-0.5 text-[10.5px] font-semibold tabular-nums text-(--wa-accent-strong) dark:bg-(--wa-accent)/20">
-            {pair.leftOnReadPct}% left on read
+            {t('stats.ignore.pctOnRead', { count: pair.leftOnReadPct })}
           </span>
         </div>
         <ArrowRight className="h-3.5 w-3.5 shrink-0 text-(--wa-text-2)" />
@@ -737,6 +742,7 @@ function SpeedRow({
   fastestMs: number
   index: number
 }) {
+  const t = useT()
   // width ∝ 1/median, normalized to the fastest row (100%); the 4% floor
   // keeps the slowest visible, mirroring the other bar rows.
   const pct =
@@ -778,7 +784,7 @@ function SpeedRow({
           />
         </div>
         <p className="mt-0.5 text-[10.5px] tabular-nums text-(--wa-text-2)">
-          {row.count.toLocaleString()} {row.count === 1 ? 'reply' : 'replies'}
+          {t(row.count === 1 ? 'stats.speed.repliesOne' : 'stats.speed.repliesMany', { count: row.count })}
         </p>
       </div>
     </li>
@@ -809,6 +815,7 @@ function TimelineChart({
   unit: 'day' | 'week'
 }) {
   const [tipIdx, setTipIdx] = useState<number | null>(null)
+  const t = useT()
 
   const plotW = TL_VB_W - TL_PAD_L - TL_PAD_R
   const plotH = TL_VB_H - TL_PAD_T - TL_PAD_B
@@ -1011,9 +1018,9 @@ function TimelineChart({
         ))}
       </div>
       <p className="mt-1.5 text-[12px] text-(--wa-text-2)">
-        {unit === 'week' ? 'Weekly' : 'Daily'} message totals · peak{' '}
-        <b className="text-(--wa-text)">{peak.count.toLocaleString()}</b> on{' '}
-        {fmtDay(peak.date)}
+        {unit === 'week' ? t('stats.timeline.weekly') : t('stats.timeline.daily')}{' '}
+        <b className="text-(--wa-text)">{peak.count.toLocaleString()}</b>{' '}
+        {t('stats.timeline.onDate', { date: fmtDay(peak.date) })}
       </p>
     </div>
   )
@@ -1032,6 +1039,7 @@ export function StatsDashboard({
   const [data, setData] = useState<StatsData | null | undefined>(undefined)
   const [chatQuery, setChatQuery] = useState('')
   const { mode, data: dataClient, ready } = useData()
+  const t = useT()
 
   useEffect(() => {
     if (!open || mode !== 'server') return
@@ -1149,16 +1157,16 @@ export function StatsDashboard({
           new Promise<'timeout'>((r) => setTimeout(() => r('timeout'), 4000)),
         ])
         if (outcome === 'shared') {
-          toast.success('Insights card shared')
+          toast.success(t('stats.toast.shared'))
           return
         }
         if (outcome === 'canceled') return
         // timeout / failed → fall through to the plain download
       }
       downloadBlob(blob, insightsShareFileName())
-      toast.success('Share card saved as PNG')
+      toast.success(t('stats.toast.saved'))
     } catch {
-      toast.error('Could not render the share card')
+      toast.error(t('stats.toast.failed'))
     } finally {
       setShareBusy(false)
     }
@@ -1214,11 +1222,11 @@ export function StatsDashboard({
         <DialogHeader className="wa-stats-rise wa-revealed">
           <DialogTitle className="flex items-center gap-2">
             <BarChart3 className="h-5 w-5 text-(--wa-accent)" />
-            Insights
+            {t('stats.title')}
           </DialogTitle>
           <DialogDescription className="flex flex-wrap items-center justify-between gap-2 pr-1">
             <span>
-              Deep analytics across all your imported chats — computed locally.
+              {t('stats.description')}
             </span>
             {data && (
               <button
@@ -1226,14 +1234,14 @@ export function StatsDashboard({
                 onClick={() => void shareCard()}
                 disabled={shareBusy}
                 className="inline-flex items-center gap-1.5 rounded-full border border-black/10 px-2.5 py-1 text-[11.5px] font-medium text-(--wa-text-2) transition-colors hover:border-(--wa-accent) hover:text-(--wa-accent-strong) dark:border-white/15 dark:hover:text-(--wa-accent)"
-                title="Render the headline numbers as a shareable PNG"
+                title={t('stats.shareTip')}
               >
                 {shareBusy ? (
                   <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden />
                 ) : (
                   <Share2 className="h-3.5 w-3.5" aria-hidden />
                 )}
-                Share card
+                {t('stats.share')}
               </button>
             )}
           </DialogDescription>
@@ -1243,11 +1251,11 @@ export function StatsDashboard({
           {loading && !data ? (
             <div className="flex h-40 items-center justify-center gap-2 text-[13.5px] text-(--wa-text-2)">
               <Loader2 className="h-4 w-4 animate-spin" />
-              Crunching numbers...
+              {t('stats.loading')}
             </div>
           ) : !data ? (
             <p className="py-10 text-center text-[13.5px] text-(--wa-text-2)">
-              Could not load statistics.
+              {t('stats.loadFailed')}
             </p>
           ) : (
             <>
@@ -1255,7 +1263,7 @@ export function StatsDashboard({
               <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
                 <Kpi
                   icon={<MessageSquare className="h-4 w-4" />}
-                  label="Messages"
+                  label={t('stats.kpi.messages')}
                   value={data.totals.messages.toLocaleString()}
                   countTo={data.totals.messages}
                   accent="var(--wa-accent)"
@@ -1263,9 +1271,12 @@ export function StatsDashboard({
                 />
                 <Kpi
                   icon={<Group className="h-4 w-4" />}
-                  label={`Chats (${data.totals.groupChats} ${
-                    data.totals.groupChats === 1 ? 'group' : 'groups'
-                  })`}
+                  label={t(
+                    data.totals.groupChats === 1
+                      ? 'stats.kpi.chatsGroupedOne'
+                      : 'stats.kpi.chatsGroupedMany',
+                    { count: data.totals.groupChats }
+                  )}
                   value={data.totals.chats.toLocaleString()}
                   countTo={data.totals.chats}
                   accent="#e542a3"
@@ -1273,7 +1284,7 @@ export function StatsDashboard({
                 />
                 <Kpi
                   icon={<Images className="h-4 w-4" />}
-                  label="Media items"
+                  label={t('stats.kpi.media')}
                   value={data.totals.media.toLocaleString()}
                   countTo={data.totals.media}
                   accent="#f2a33c"
@@ -1281,7 +1292,7 @@ export function StatsDashboard({
                 />
                 <Kpi
                   icon={<Type className="h-4 w-4" />}
-                  label="Words"
+                  label={t('stats.kpi.words')}
                   value={data.totals.words.toLocaleString()}
                   countTo={data.totals.words}
                   accent="#0ea5a4"
@@ -1289,7 +1300,7 @@ export function StatsDashboard({
                 />
                 <Kpi
                   icon={<Smile className="h-4 w-4" />}
-                  label="Emojis sent"
+                  label={t('stats.kpi.emojis')}
                   value={data.totals.emojis.toLocaleString()}
                   countTo={data.totals.emojis}
                   accent="#b06ad4"
@@ -1297,7 +1308,7 @@ export function StatsDashboard({
                 />
                 <Kpi
                   icon={<CalendarDays className="h-4 w-4" />}
-                  label="Sent by you"
+                  label={t('stats.kpi.sentByYou')}
                   value={
                     data.totals.messages > 0
                       ? `${Math.round((data.totals.outgoing / data.totals.messages) * 100)}%`
@@ -1316,7 +1327,7 @@ export function StatsDashboard({
                 />
                 <Kpi
                   icon={<CalendarCheck2 className="h-4 w-4" />}
-                  label="Active days"
+                  label={t('stats.kpi.activeDays')}
                   value={data.range.activeDays.toLocaleString()}
                   countTo={data.range.activeDays}
                   accent="#12b886"
@@ -1324,7 +1335,7 @@ export function StatsDashboard({
                 />
                 <Kpi
                   icon={<Flame className="h-4 w-4" />}
-                  label="Longest streak"
+                  label={t('stats.kpi.streak')}
                   value={`${data.streak.longest} day${data.streak.longest === 1 ? '' : 's'}`}
                   countTo={data.streak.longest}
                   countSuffix={data.streak.longest === 1 ? ' day' : ' days'}
@@ -1333,7 +1344,12 @@ export function StatsDashboard({
                 />
                 <Kpi
                   icon={<HardDrive className="h-4 w-4" />}
-                  label={`Media storage (${data.storage.files} file${data.storage.files === 1 ? '' : 's'})`}
+                  label={t(
+                    data.storage.files === 1
+                      ? 'stats.kpi.storageOne'
+                      : 'stats.kpi.storageMany',
+                    { count: data.storage.files }
+                  )}
                   value={
                     data.storage.totalBytes > 0
                       ? formatBytes(data.storage.totalBytes)
@@ -1346,13 +1362,13 @@ export function StatsDashboard({
 
               {data.totals.messages === 0 ? (
                 <p className="py-6 text-center text-[13px] text-(--wa-text-2)">
-                  No messages yet — import a chat to see insights.
+                  {t('stats.empty.noMessages')}
                 </p>
               ) : (
                 <>
                   {data.range.busiestDay && (
                     <p className="wa-stats-rise wa-revealed rounded-lg bg-(--wa-accent)/10 px-3 py-2 text-[12.5px] text-(--wa-accent-strong)" style={{ animationDelay: '30ms' }}>
-                      Busiest day:{' '}
+                      {t('stats.busiestDay.label')}{' '}
                       <b>
                         {new Date(
                           data.range.busiestDay.date + 'T12:00:00'
@@ -1363,15 +1379,17 @@ export function StatsDashboard({
                           year: 'numeric',
                         })}
                       </b>{' '}
-                      with {data.range.busiestDay.count.toLocaleString()} messages
+                      {t('stats.busiestDay.with', {
+                        count: data.range.busiestDay.count.toLocaleString(),
+                      })}
                       {data.range.avgPerDay > 0 && (
-                        <> · {data.range.avgPerDay}/day on active days</>
+                        <>{' '}{t('stats.busiestDay.avg', { count: data.range.avgPerDay })}</>
                       )}
                     </p>
                   )}
 
                   <Section
-                    title="Activity heatmap"
+                    title={t('stats.section.heatmap')}
                     icon={<CalendarDays className="h-3 w-3" />}
                     delay={80}
                   >
@@ -1379,7 +1397,7 @@ export function StatsDashboard({
                   </Section>
 
                   <Section
-                    title="Activity timeline"
+                    title={t('stats.section.timeline')}
                     icon={<Activity className="h-3 w-3" />}
                     delay={110}
                   >
@@ -1387,16 +1405,16 @@ export function StatsDashboard({
                       <TimelineChart points={timeline} unit={timelineUnit} />
                     ) : (
                       <p className="rounded-xl bg-(--wa-panel-2)/60 px-3 py-4 text-center text-[12.5px] text-(--wa-text-2)">
-                        No dated messages yet.
+                        {t('stats.timeline.empty')}
                       </p>
                     )}
                   </Section>
 
-                  <Section title="Messages per month" delay={140}>
+                  <Section title={t('stats.section.perMonth')} delay={140}>
                     <div className="flex h-28 items-end gap-1.5 rounded-xl bg-(--wa-panel-2)/60 p-3 dark:bg-(--wa-panel-2)/60">
                       {data.months.length === 0 ? (
                         <p className="w-full text-center text-[12px] text-(--wa-text-2)">
-                          No dated messages
+                          {t('stats.months.empty')}
                         </p>
                       ) : (
                         data.months.map((m, i) => (
@@ -1425,14 +1443,14 @@ export function StatsDashboard({
                   </Section>
 
                   <Section
-                    title="Most active hours"
+                    title={t('stats.section.hours')}
                     icon={<CalendarCheck2 className="h-3 w-3" />}
                     delay={200}
                   >
                     <HoursChart hours={data.hours} />
                   </Section>
 
-                  <Section title="Activity by weekday" delay={260}>
+                  <Section title={t('stats.section.weekdays')} delay={260}>
                     <div className="space-y-1.5">
                       {data.weekdays.map((w, i) => (
                         <BarRow
@@ -1451,7 +1469,7 @@ export function StatsDashboard({
                   {(data.topWords.length > 0 || data.topEmojis.length > 0) && (
                     <div className="grid gap-5 sm:grid-cols-2">
                       {data.topWords.length > 0 && (
-                        <Section title="Top words" delay={320}>
+                        <Section title={t('stats.section.topWords')} delay={320}>
                           <div className="flex flex-wrap gap-1.5">
                             {data.topWords.map((w, i) => (
                               <span
@@ -1469,7 +1487,7 @@ export function StatsDashboard({
                         </Section>
                       )}
                       {data.topEmojis.length > 0 && (
-                        <Section title="Top emojis" delay={320}>
+                        <Section title={t('stats.section.topEmojis')} delay={320}>
                           <div className="flex flex-wrap gap-2">
                             {data.topEmojis.map((e, i) => (
                               <div
@@ -1485,7 +1503,7 @@ export function StatsDashboard({
                                 </span>
                                 {i === 0 && (
                                   <span className="text-[9px] uppercase tracking-wide text-(--wa-accent)">
-                                    favorite
+                                    {t('stats.emoji.favorite')}
                                   </span>
                                 )}
                               </div>
@@ -1496,12 +1514,12 @@ export function StatsDashboard({
                     </div>
                   )}
 
-                  <Section title="Fun facts" delay={380}>
+                  <Section title={t('stats.section.funFacts')} delay={380}>
                     <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
                       <FunFact
                         icon={<Flame className="h-4 w-4" />}
                         value={`${data.streak.current} day${data.streak.current === 1 ? '' : 's'}`}
-                        label="Current streak"
+                        label={t('stats.fun.currentStreak')}
                         accent="#ef8c6c"
                         countTo={data.streak.current}
                         countSuffix={data.streak.current === 1 ? ' day' : ' days'}
@@ -1510,7 +1528,7 @@ export function StatsDashboard({
                       <FunFact
                         icon={<Link2 className="h-4 w-4" />}
                         value={data.fun.links.toLocaleString()}
-                        label="Links shared"
+                        label={t('stats.fun.links')}
                         accent="#0ea5a4"
                         countTo={data.fun.links}
                         delay={355}
@@ -1518,7 +1536,7 @@ export function StatsDashboard({
                       <FunFact
                         icon={<HelpCircle className="h-4 w-4" />}
                         value={data.fun.questions.toLocaleString()}
-                        label="Questions asked"
+                        label={t('stats.fun.questions')}
                         accent="#f2a33c"
                         countTo={data.fun.questions}
                         delay={410}
@@ -1526,7 +1544,7 @@ export function StatsDashboard({
                       <FunFact
                         icon={<Trash2 className="h-4 w-4" />}
                         value={deletedCount.toLocaleString()}
-                        label="Deleted messages"
+                        label={t('stats.fun.deleted')}
                         accent="#ef6c6c"
                         countTo={deletedCount}
                         delay={465}
@@ -1534,7 +1552,7 @@ export function StatsDashboard({
                       <FunFact
                         icon={<CalendarCheck2 className="h-4 w-4" />}
                         value={`${data.range.avgPerDay.toLocaleString()}`}
-                        label="Avg msgs / active day"
+                        label={t('stats.fun.avgPerDay')}
                         accent="#12b886"
                         countTo={data.range.avgPerDay}
                         delay={520}
@@ -1546,7 +1564,7 @@ export function StatsDashboard({
                             ? data.fun.longest.chars.toLocaleString()
                             : '—'
                         }
-                        label="Longest message (chars)"
+                        label={t('stats.fun.longest')}
                         accent="#b06ad4"
                         countTo={data.fun.longest?.chars}
                         delay={575}
@@ -1570,7 +1588,7 @@ export function StatsDashboard({
                     )}
                   </Section>
 
-                  <Section title="Top chats" delay={440}>
+                  <Section title={t('stats.section.topChats')} delay={440}>
                     {(data.perChat.length > 2 || q) && (
                       <div className="relative mb-2">
                         <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-(--wa-text-2)" />
@@ -1578,14 +1596,14 @@ export function StatsDashboard({
                           suppressHydrationWarning
                           value={chatQuery}
                           onChange={(e) => setChatQuery(e.target.value)}
-                          placeholder="Filter chats by name…"
+                          placeholder={t('stats.filter.placeholder')}
                           className="h-8 rounded-lg bg-white pl-8 text-[12.5px] dark:bg-(--wa-row-active) dark:text-(--wa-text) dark:placeholder:text-(--wa-text-2)"
                         />
                       </div>
                     )}
                     {q && filteredChats.length === 0 ? (
                       <p className="py-3 text-center text-[12.5px] text-(--wa-text-2)">
-                        No chats match &quot;{chatQuery.trim()}&quot;
+                        {t('stats.filter.noMatch', { query: chatQuery.trim() })}
                       </p>
                     ) : (
                       <div className="space-y-1.5">
@@ -1610,7 +1628,7 @@ export function StatsDashboard({
                   </Section>
 
                   {data.participants.length > 0 && (
-                    <Section title="Most active people" delay={500}>
+                    <Section title={t('stats.section.people')} delay={500}>
                       <div className="space-y-2.5">
                         {data.participants.map((p, i) => (
                           <div
@@ -1655,7 +1673,7 @@ export function StatsDashboard({
                     </Section>
                   )}
 
-                  <Section title="Message types" delay={560}>
+                  <Section title={t('stats.section.types')} delay={560}>
                     <div className="flex flex-wrap gap-1.5">
                       {data.types.map((t, i) => (
                         <span
@@ -1676,7 +1694,7 @@ export function StatsDashboard({
                   </Section>
 
                   {data.storage.perChat.length > 0 && (
-                    <Section title="Media storage by chat" delay={620}>
+                    <Section title={t('stats.section.storageByChat')} delay={620}>
                       <div className="space-y-1.5">
                         {filteredStorage.map((s, i) => (
                           <BarRow
@@ -1696,8 +1714,9 @@ export function StatsDashboard({
                           />
                         ))}
                         <p className="pt-0.5 text-right text-[10.5px] text-(--wa-text-2)">
-                          Bars show file sizes · total{' '}
-                          <b>{formatBytes(data.storage.totalBytes)}</b> on disk
+                          {t('stats.storage.hintPre')}{' '}
+                          <b>{formatBytes(data.storage.totalBytes)}</b>{' '}
+                          {t('stats.storage.hintPost')}
                         </p>
                       </div>
                     </Section>
@@ -1707,7 +1726,7 @@ export function StatsDashboard({
                       "who leaves who on read" — same scroll-reveal system. */}
 
                   <Section
-                    title="Word cloud"
+                    title={t('stats.section.wordCloud')}
                     icon={<Cloud className="h-3 w-3" />}
                     delay={700}
                   >
@@ -1715,13 +1734,13 @@ export function StatsDashboard({
                       <WordCloud words={topWordsGlobal} />
                     ) : (
                       <p className="rounded-xl bg-(--wa-panel-2)/60 px-3 py-4 text-center text-[12.5px] text-(--wa-text-2)">
-                        No words yet — import a chat with text messages first.
+                        {t('stats.wordcloud.empty')}
                       </p>
                     )}
                   </Section>
 
                   <Section
-                    title="Emoji leaderboard"
+                    title={t('stats.section.emojiBoard')}
                     icon={<Smile className="h-3 w-3" />}
                     delay={780}
                   >
@@ -1729,13 +1748,13 @@ export function StatsDashboard({
                       <EmojiLeaderboard rows={emojiLeaderboard.slice(0, 8)} />
                     ) : (
                       <p className="rounded-xl bg-(--wa-panel-2)/60 px-3 py-4 text-center text-[12.5px] text-(--wa-text-2)">
-                        No emojis yet — send a few and they&apos;ll rank up here.
+                        {t('stats.emojiboard.empty')}
                       </p>
                     )}
                   </Section>
 
                   <Section
-                    title="Who leaves who on read"
+                    title={t('stats.section.ignore')}
                     icon={<EyeOff className="h-3 w-3" />}
                     delay={860}
                   >
@@ -1747,19 +1766,16 @@ export function StatsDashboard({
                       </div>
                     ) : (
                       <p className="rounded-xl bg-(--wa-panel-2)/60 px-3 py-4 text-center text-[12.5px] text-(--wa-text-2)">
-                        No repeat offenders yet — everyone&apos;s replying (or
-                        there isn&apos;t enough history).
+                        {t('stats.ignore.empty')}
                       </p>
                     )}
                     <p className="mt-2 text-[10.5px] leading-snug text-(--wa-text-2)">
-                      Playful estimate based on reply timing — a message counts
-                      as &quot;left on read&quot; when the other person sends
-                      nothing within 24 hours.
+                      {t('stats.ignore.hint')}
                     </p>
                   </Section>
 
                   <Section
-                    title="Fastest repliers"
+                    title={t('stats.section.speed')}
                     icon={<Timer className="h-3 w-3" />}
                     delay={940}
                   >
@@ -1778,7 +1794,7 @@ export function StatsDashboard({
                         </ol>
                         {replySpeeds.myMedianMs != null && (
                           <p className="mt-2 text-[10.5px] tabular-nums text-(--wa-text-2)">
-                            Your median reply:{' '}
+                            {t('stats.speed.yourMedian')}{' '}
                             <b className="text-(--wa-text)">
                               {fmtMedian(replySpeeds.myMedianMs)}
                             </b>
@@ -1787,13 +1803,11 @@ export function StatsDashboard({
                       </>
                     ) : (
                       <p className="rounded-xl bg-(--wa-panel-2)/60 px-3 py-4 text-center text-[12.5px] text-(--wa-text-2)">
-                        Not enough reply data yet
+                        {t('stats.speed.empty')}
                       </p>
                     )}
                     <p className="mt-2 text-[10.5px] leading-snug text-(--wa-text-2)">
-                      Median time from your message to each person&apos;s next
-                      one (replies within 6 hours, 3+ samples). Bars compare
-                      speed — the fastest replier is the widest.
+                      {t('stats.speed.hint')}
                     </p>
                   </Section>
                 </>

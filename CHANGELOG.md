@@ -3,6 +3,29 @@
 All notable changes to WA Archiver are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [Unreleased]
+
+### Added
+- **Snapshot file import (offline restore path)** — "From file…" next to
+  Pull & restore imports any previously saved encrypted `.wasync` snapshot
+  straight from disk with just the sync passphrase — no cloud config needed.
+  Completes the loop: cloud snapshot → Save file → share by any channel →
+  import here. Incremental delta files are rejected with guidance (their
+  chain lives in the cloud).
+- **Snapshot comparison viewer** — "Compare" in the snapshot history shows
+  what differs between a stored snapshot and the live cloud copy: chat and
+  message totals on both sides, chats only in the snapshot, chats added
+  since, and the biggest per-chat message deltas — read-only, nothing is
+  restored.
+
+### Fixed
+- Update-check toast teaser now skips markdown headers/link definitions and
+  shows real release-note content.
+
+### Internationalization
+- Insights dashboard and Media Hub fully localized: 141 new keys across
+  en / hi / ur / mr / ta (KPIs, sections, tabs, toasts, empty states).
+
 ## [1.9.0] — 2026-10-25
 
 ### Added
