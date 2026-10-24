@@ -2,7 +2,7 @@
 
 import './app-extras.css'
 import { assetUrl } from '@/lib/asset-base'
-import { checkForUpdate, markUpdateSeen } from '@/lib/update-check'
+import { checkForUpdate, fetchApkDownloadUrl, markUpdateSeen } from '@/lib/update-check'
 
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
 import { useTheme } from 'next-themes'
@@ -607,10 +607,51 @@ function WhatsAppAppInner() {
     })
   }, [])
 
-  // ---- Auto-update checker (v1.7.0) ----------------------------------------
+  // ---- Auto-update checker (v1.7.0) + APK download action (Task 2-c) --------
   // Once a day (localStorage-throttled) query the GitHub Releases API; when a
   // strictly newer release exists, toast once per tag with a link to the
   // release page. Silent on every failure path — offline APKs never nag.
+
+  // update.* i18n keys ship via agent-ctx/keys-2c.json and are merged into
+  // src/lib/locales/* in a follow-up; until then fall back to the English
+  // copy instead of rendering the raw key (t() returns the key when missing).
+  const updateStr = useCallback(
+    (key: string, en: string) => {
+      const v = t(key as Parameters<typeof t>[0])
+      return v === key ? en : v
+    },
+    [t]
+  )
+
+  const startApkDownload = useCallback(async () => {
+    toast.loading(updateStr('update.downloadStarting', 'Starting download…'), {
+      id: 'update-apk-download',
+      duration: 20000,
+    })
+    const apk = await fetchApkDownloadUrl()
+    if (!apk) {
+      // Offline / rate-limited / no universal asset — one quiet error toast.
+      toast.error(
+        updateStr('update.downloadFailed', "Couldn't reach the release — try again later."),
+        { id: 'update-apk-download' }
+      )
+      return
+    }
+    try {
+      const a = document.createElement('a')
+      a.href = apk.url
+      a.download = 'wa-archiver-universal.apk'
+      a.rel = 'noopener'
+      document.body.appendChild(a)
+      a.click()
+      a.remove()
+    } catch {
+      window.open(apk.url, '_blank', 'noopener')
+    }
+    // Download handed to the browser — stop the "starting…" toast quietly.
+    toast.dismiss('update-apk-download')
+  }, [updateStr])
+
   useEffect(() => {
     if (!mounted) return
     const timer = setTimeout(() => {
@@ -624,6 +665,12 @@ function WhatsAppAppInner() {
               update.notes || 'A newer release is ready — see what changed.',
             duration: 15000,
             action: {
+              label: updateStr('update.downloadApk', 'Download APK'),
+              onClick: () => void startApkDownload(),
+            },
+            // Sonner's secondary button keeps the original "view release"
+            // behaviour alongside the new direct-download action.
+            cancel: {
               label: 'View release',
               onClick: () => window.open(update.url, '_blank', 'noopener'),
             },
@@ -634,7 +681,7 @@ function WhatsAppAppInner() {
       })()
     }, 6000) // let startup (import, DB open, first render) finish first
     return () => clearTimeout(timer)
-  }, [mounted])
+  }, [mounted, updateStr, startApkDownload])
 
   // ---- Auto-clean executor (Task 10-f #4) ---------------------------------
   // When enabled in Settings (`wa-viewer:auto-clean` = '1'), delete archived

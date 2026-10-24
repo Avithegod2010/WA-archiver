@@ -2,13 +2,14 @@
 
 import './stats-extras.css'
 
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import {
   Activity,
   ArrowRight,
   BarChart3,
   CalendarCheck2,
   CalendarDays,
+  ChevronDown,
   Cloud,
   EyeOff,
   Flame,
@@ -20,6 +21,7 @@ import {
   Group,
   Search,
   Smile,
+  Sparkles,
   Timer,
   Type,
   HardDrive,
@@ -47,7 +49,17 @@ import {
   renderInsightsSharePng,
 } from '@/lib/insights-share'
 import { downloadBlob } from '@/lib/wordcloud-png'
-import { useT } from '@/lib/i18n'
+import { useT, type TParams } from '@/lib/i18n'
+import type { TranslationKey } from '@/lib/locales/en'
+import {
+  computeLiteDigests,
+  computeMonthlyDigests,
+  digestMonthLabel,
+  digestShareFileName,
+  renderDigestPng,
+  type DigestMessageRow,
+  type MonthlyDigest,
+} from '@/lib/monthly-digest'
 
 const TYPE_LABELS: Record<string, string> = {
   text: 'Text',
@@ -414,6 +426,53 @@ function fmtMedianSpoken(ms: number): string {
   return rem > 0
     ? `${hrs} hour${hrs === 1 ? '' : 's'} ${rem} minute${rem === 1 ? '' : 's'}`
     : `${hrs} hour${hrs === 1 ? '' : 's'}`
+}
+
+/* --------------------------- PNG share helper ---------------------------- */
+
+type PngShareOutcome = 'shared' | 'canceled' | 'saved' | 'failed'
+
+/** Share a rendered PNG via the native share sheet when available, falling
+ *  back to a plain download. Shared by the insights card (v1.9) and the
+ *  monthly digest card (2-e) — identical flow, one implementation. */
+async function sharePngBlob(
+  blob: Blob,
+  fileName: string,
+  shareTitle: string,
+  shareText: string
+): Promise<PngShareOutcome> {
+  try {
+    const file = new File([blob], fileName, { type: 'image/png' })
+    const nav = navigator as Navigator & {
+      canShare?: (d: { files: File[] }) => boolean
+      share?: (d: {
+        files?: File[]
+        title?: string
+        text?: string
+      }) => Promise<void>
+    }
+    if (nav.canShare?.({ files: [file] }) && nav.share) {
+      // Some environments (embedded webviews, headless runs) never resolve
+      // the share promise — race it so the button can't lock forever.
+      const outcome = await Promise.race([
+        nav
+          .share({ files: [file], title: shareTitle, text: shareText })
+          .then(() => 'shared' as const)
+          .catch((e: unknown) =>
+            e instanceof Error && e.name === 'AbortError'
+              ? ('canceled' as const)
+              : ('failed' as const)
+          ),
+        new Promise<'timeout'>((r) => setTimeout(() => r('timeout'), 4000)),
+      ])
+      if (outcome === 'shared' || outcome === 'canceled') return outcome
+      // timeout / failed → fall through to the plain download
+    }
+    downloadBlob(blob, fileName)
+    return 'saved'
+  } catch {
+    return 'failed'
+  }
 }
 
 /* ------------------------------- Heatmap ------------------------------- */
@@ -1026,6 +1085,266 @@ function TimelineChart({
   )
 }
 
+/* ---------------------------- Monthly digest ----------------------------- */
+
+/** Fun-fact line for a digest, pre-translated. */
+function digestFunFactText(
+  digest: MonthlyDigest,
+  td: (key: string, params?: TParams) => string
+): string | null {
+  const fact = digest.funFact
+  if (!fact) return null
+  if (
+    fact.kind === 'spike' &&
+    fact.day &&
+    fact.count != null &&
+    fact.multiple != null
+  ) {
+    const when = new Date(fact.day + 'T12:00:00').toLocaleDateString('en-GB', {
+      day: 'numeric',
+      month: 'short',
+    })
+    return td('digest.fact.spike', {
+      count: fact.count.toLocaleString(),
+      date: when,
+      multiple: fact.multiple,
+    })
+  }
+  if (fact.kind === 'chat' && fact.chatTitle && fact.chatCount != null) {
+    return td('digest.fact.chat', {
+      chat: fact.chatTitle,
+      count: fact.chatCount.toLocaleString(),
+    })
+  }
+  return null
+}
+
+/** Monthly digest (task 2-e) — month picker + compact recap card + PNG
+ *  export in the same visual family as the insights share card. Null /
+ *  empty digest fields (server-mode lite digests) hide their rows. */
+function MonthlyDigestSection({ digests }: { digests: MonthlyDigest[] }) {
+  const t = useT()
+  // digest.* keys ship with the next locale-file sync; the cast keeps the
+  // TranslationKey union happy until then (t falls back to the key).
+  const td = (key: string, params?: TParams): string =>
+    t(key as TranslationKey, params)
+
+  const [month, setMonth] = useState<string>(digests[0]?.month ?? '')
+  useEffect(() => {
+    // Keep the selection valid across dialog reopens / new imports.
+    if (digests.length > 0 && !digests.some((d) => d.month === month)) {
+      setMonth(digests[0].month)
+    }
+  }, [digests, month])
+
+  const [busy, setBusy] = useState(false)
+  if (digests.length === 0) return null
+  const current = digests.find((d) => d.month === month) ?? digests[0]
+  const factText = digestFunFactText(current, td)
+  const maxChatter = current.topChatters[0]?.count ?? 1
+  const fmtShort = (iso: string) =>
+    new Date(iso + 'T12:00:00').toLocaleDateString('en-GB', {
+      day: 'numeric',
+      month: 'short',
+    })
+
+  // Digest card PNG — same canvas approach as the insights share card.
+  const shareDigest = async (): Promise<void> => {
+    if (busy) return
+    setBusy(true)
+    try {
+      const blob = await renderDigestPng(current, {
+        brand: 'WA Archiver',
+        heading: td('digest.png.heading'),
+        monthName: digestMonthLabel(current.month),
+        kMessages: td('digest.k.messages'),
+        kActiveDays: td('digest.k.activeDays'),
+        kBusiestDay: td('digest.k.busiestDay'),
+        kSentByYou: td('digest.k.you'),
+        busiestDayValue: current.busiestDay
+          ? td('digest.onDate', {
+              count: current.busiestDay.count.toLocaleString(),
+              date: fmtShort(current.busiestDay.date),
+            })
+          : '—',
+        sentByYouValue: current.youPct != null ? `${current.youPct}%` : '—',
+        topChatters: td('digest.topChatters'),
+        topEmojiValue: current.topEmoji
+          ? `×${current.topEmoji.count.toLocaleString()}`
+          : null,
+        funFact: factText,
+        footer: 'made with WA Archiver — local-first WhatsApp archives',
+      })
+      const outcome = await sharePngBlob(
+        blob,
+        digestShareFileName(current.month),
+        'WA Archiver — Monthly digest',
+        digestMonthLabel(current.month)
+      )
+      if (outcome === 'shared') toast.success(td('digest.toast.shared'))
+      else if (outcome === 'saved') toast.success(td('digest.toast.saved'))
+      else if (outcome === 'failed') toast.error(td('digest.toast.failed'))
+    } catch {
+      toast.error(td('digest.toast.failed'))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <Section
+      title={td('digest.section')}
+      icon={<CalendarDays className="h-3 w-3" />}
+      delay={155}
+    >
+      <div className="rounded-xl border border-black/5 bg-(--wa-panel-2)/60 p-3 dark:border-white/5 dark:bg-(--wa-panel-2)/60">
+        {/* Month picker + share row */}
+        <div className="mb-3 flex items-center justify-between gap-2">
+          <div className="relative min-w-0 flex-1 sm:max-w-52">
+            <ChevronDown
+              className="pointer-events-none absolute right-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-(--wa-text-2)"
+              aria-hidden
+            />
+            <select
+              value={current.month}
+              onChange={(e) => setMonth(e.target.value)}
+              aria-label={td('digest.pick')}
+              className="h-8 w-full cursor-pointer appearance-none rounded-lg bg-white pl-2.5 pr-7 text-[12.5px] text-(--wa-text) outline-none dark:bg-(--wa-row-active)"
+            >
+              {digests.map((d) => (
+                <option key={d.month} value={d.month}>
+                  {digestMonthLabel(d.month)}
+                </option>
+              ))}
+            </select>
+          </div>
+          <button
+            type="button"
+            onClick={() => void shareDigest()}
+            disabled={busy}
+            className="inline-flex shrink-0 items-center gap-1.5 rounded-full border border-black/10 px-2.5 py-1 text-[11.5px] font-medium text-(--wa-text-2) transition-colors hover:border-(--wa-accent) hover:text-(--wa-accent-strong) dark:border-white/15 dark:hover:text-(--wa-accent)"
+            title={td('digest.shareTip')}
+          >
+            {busy ? (
+              <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden />
+            ) : (
+              <Share2 className="h-3.5 w-3.5" aria-hidden />
+            )}
+            {td('digest.share')}
+          </button>
+        </div>
+
+        <p className="text-[15px] font-semibold text-(--wa-text)">
+          {digestMonthLabel(current.month)}
+        </p>
+
+        {/* Headline numbers */}
+        <div className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-3">
+          <FunFact
+            icon={<MessageSquare className="h-4 w-4" />}
+            value={current.total.toLocaleString()}
+            label={td('digest.k.messages')}
+            accent="var(--wa-accent)"
+            countTo={current.total}
+            delay={0}
+          />
+          {current.activeDays != null && (
+            <FunFact
+              icon={<CalendarCheck2 className="h-4 w-4" />}
+              value={current.activeDays.toLocaleString()}
+              label={td('digest.k.activeDays')}
+              accent="#12b886"
+              countTo={current.activeDays}
+              delay={55}
+            />
+          )}
+          {current.busiestDay && (
+            <FunFact
+              icon={<Flame className="h-4 w-4" />}
+              value={td('digest.onDate', {
+                count: current.busiestDay.count.toLocaleString(),
+                date: fmtShort(current.busiestDay.date),
+              })}
+              label={td('digest.k.busiestDay')}
+              accent="#ef8c6c"
+              countTo={current.busiestDay.count}
+              delay={110}
+            />
+          )}
+          {current.youPct != null && (
+            <FunFact
+              icon={<CalendarDays className="h-4 w-4" />}
+              value={`${current.youPct}%`}
+              label={td('digest.k.you')}
+              accent="#ef6c6c"
+              countTo={current.youPct}
+              countSuffix="%"
+              delay={165}
+            />
+          )}
+          {current.topEmoji && (
+            <FunFact
+              icon={<Smile className="h-4 w-4" />}
+              value={`${current.topEmoji.emoji} ×${current.topEmoji.count.toLocaleString()}`}
+              label={td('digest.k.topEmoji')}
+              accent="#b06ad4"
+              countTo={current.topEmoji.count}
+              delay={220}
+            />
+          )}
+        </div>
+
+        {/* Top 3 chatters */}
+        {current.topChatters.length > 0 && (
+          <div className="mt-3">
+            <p className="mb-1.5 text-[10.5px] font-semibold uppercase tracking-wider text-(--wa-text-2)">
+              {td('digest.topChatters')}
+            </p>
+            <div className="space-y-1.5">
+              {current.topChatters.map((c, i) => (
+                <div key={c.name} className="flex items-center gap-2.5">
+                  <span className="w-4 shrink-0 text-center text-[11px] font-bold tabular-nums text-(--wa-text-2)">
+                    {i + 1}
+                  </span>
+                  <span className="shrink-0">
+                    <Avatar name={c.name} size={22} />
+                  </span>
+                  <span className="w-20 min-w-0 shrink-0 truncate text-[12px] text-(--wa-text) sm:w-28">
+                    {c.name}
+                  </span>
+                  <div className="h-1.5 min-w-0 flex-1 overflow-hidden rounded-full bg-black/5 dark:bg-white/10">
+                    <div
+                      className="wa-bar-grow h-full rounded-full"
+                      style={{
+                        width: `${Math.max((c.count / maxChatter) * 100, 4)}%`,
+                        backgroundColor: colorForName(c.name),
+                        animationDelay: `${120 + i * 60}ms`,
+                      }}
+                    />
+                  </div>
+                  <span className="w-14 shrink-0 text-right text-[11px] tabular-nums text-(--wa-text-2)">
+                    {c.count.toLocaleString()}
+                  </span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Fun fact */}
+        {factText && (
+          <div className="mt-3 flex gap-2.5 rounded-lg bg-(--wa-accent)/10 px-3 py-2">
+            <Sparkles className="mt-0.5 h-3.5 w-3.5 shrink-0 text-(--wa-accent-strong)" />
+            <p className="text-[12px] leading-snug text-(--wa-accent-strong) dark:text-(--wa-accent)">
+              {factText}
+            </p>
+          </div>
+        )}
+      </div>
+    </Section>
+  )
+}
+
 /* ------------------------------ Main dialog ----------------------------- */
 
 export function StatsDashboard({
@@ -1047,10 +1366,18 @@ export function StatsDashboard({
     fetch('/api/stats', { cache: 'no-store' })
       .then((r) => r.json())
       .then((d) => {
-        if (alive) setData(d as StatsData)
+        if (alive) {
+          setData(d as StatsData)
+          // Raw message rows are not part of the /api/stats payload — the
+          // digest degrades to the lite variant in server mode.
+          setDigestRows(null)
+        }
       })
       .catch(() => {
-        if (alive) setData(null)
+        if (alive) {
+          setData(null)
+          setDigestRows(null)
+        }
       })
     return () => {
       alive = false
@@ -1101,6 +1428,10 @@ export function StatsDashboard({
           }))
           .filter((row) => row.files > 0)
           .sort((a, b) => b.bytes - a.bytes)
+        // Stash the rows for the monthly digest (2-e) — the same projection
+        // this effect already built, so the digest adds zero extra queries.
+        setDigestRows(messages)
+        setDigestTitles(new Map(ordered.map((c) => [c.id, c.title] as const)))
         setData(
           computeStats({
             chats: ordered,
@@ -1124,6 +1455,14 @@ export function StatsDashboard({
   const loading = data === undefined
   const [shareBusy, setShareBusy] = useState(false)
 
+  // Monthly digest (task 2-e): device mode stashes the raw rows this
+  // component's load effect already gathered (no extra queries); server mode
+  // falls back to lite digests derived from the /api/stats payload.
+  const [digestRows, setDigestRows] = useState<DigestMessageRow[] | null>(null)
+  const [digestTitles, setDigestTitles] = useState<Map<string, string>>(
+    new Map()
+  )
+
   // v1.9 — Insights share card: render the dashboard headline numbers as a
   // PNG (download + native share sheet when available).
   const shareCard = async (): Promise<void> => {
@@ -1131,40 +1470,16 @@ export function StatsDashboard({
     setShareBusy(true)
     try {
       const blob = await renderInsightsSharePng(data)
-      const file = new File([blob], insightsShareFileName(), {
-        type: 'image/png',
-      })
-      const nav = navigator as Navigator & {
-        canShare?: (d: { files: File[] }) => boolean
-        share?: (d: { files?: File[]; title?: string; text?: string }) => Promise<void>
-      }
-      if (nav.canShare?.({ files: [file] }) && nav.share) {
-        // Some environments (embedded webviews, headless runs) never resolve
-        // the share promise — race it so the button can't lock forever.
-        const outcome = await Promise.race([
-          nav
-            .share({
-              files: [file],
-              title: 'WA Archiver — Insights',
-              text: 'My WhatsApp archive in numbers',
-            })
-            .then(() => 'shared' as const)
-            .catch((e: unknown) =>
-              e instanceof Error && e.name === 'AbortError'
-                ? ('canceled' as const)
-                : ('failed' as const)
-            ),
-          new Promise<'timeout'>((r) => setTimeout(() => r('timeout'), 4000)),
-        ])
-        if (outcome === 'shared') {
-          toast.success(t('stats.toast.shared'))
-          return
-        }
-        if (outcome === 'canceled') return
-        // timeout / failed → fall through to the plain download
-      }
-      downloadBlob(blob, insightsShareFileName())
-      toast.success(t('stats.toast.saved'))
+      const outcome = await sharePngBlob(
+        blob,
+        insightsShareFileName(),
+        'WA Archiver — Insights',
+        'My WhatsApp archive in numbers'
+      )
+      if (outcome === 'shared') toast.success(t('stats.toast.shared'))
+      else if (outcome === 'saved') toast.success(t('stats.toast.saved'))
+      else if (outcome === 'failed') toast.error(t('stats.toast.failed'))
+      // 'canceled' — user closed the share sheet; nothing to report
     } catch {
       toast.error(t('stats.toast.failed'))
     } finally {
@@ -1215,6 +1530,25 @@ export function StatsDashboard({
   const timeline = pickArray<TimelinePoint>(extras?.timeline, isTimelinePoint)
   const timelineUnit: 'day' | 'week' =
     extras?.timelineUnit === 'week' ? 'week' : 'day'
+
+  // Monthly digest (2-e) — full recap from the stashed device rows, or a
+  // lite recap from the payload (per-month totals + daily timeline buckets)
+  // when raw rows aren't available (server mode).
+  const digests = useMemo(() => {
+    if (digestRows) {
+      return computeMonthlyDigests(
+        digestRows,
+        (id) => digestTitles.get(id) ?? 'Deleted chat'
+      )
+    }
+    if (data) {
+      return computeLiteDigests(
+        data.months,
+        timelineUnit === 'day' ? timeline : []
+      )
+    }
+    return []
+  }, [digestRows, digestTitles, data, timeline, timelineUnit])
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -1441,6 +1775,8 @@ export function StatsDashboard({
                       )}
                     </div>
                   </Section>
+
+                  <MonthlyDigestSection digests={digests} />
 
                   <Section
                     title={t('stats.section.hours')}

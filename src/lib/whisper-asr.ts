@@ -271,6 +271,54 @@ function pruneTranscripts(): void {
   }
 }
 
+// ---- Task 2-d — transcript sync (backup envelope) ---------------------------
+
+/**
+ * Snapshot every cached transcript as a messageId → text map, for embedding
+ * in a backup envelope (LocalDataClient.exportBackup). Reads the same
+ * localStorage cache that on-device transcription writes.
+ */
+export function collectTranscripts(): Record<string, string> {
+  const out: Record<string, string> = {}
+  try {
+    for (let i = 0; i < localStorage.length; i++) {
+      const k = localStorage.key(i)
+      if (!k || !k.startsWith(TRANSCRIPT_PREFIX)) continue
+      const id = k.slice(TRANSCRIPT_PREFIX.length)
+      if (!id) continue
+      const text = cachedTranscript(id)
+      if (text !== null) out[id] = text
+    }
+  } catch {
+    /* storage unavailable */
+  }
+  return out
+}
+
+/**
+ * Restore transcripts carried in a backup envelope (messageId → text).
+ * Skips malformed/empty rows and ids that already have a cached transcript
+ * (idempotent re-imports keep whatever is already on the device). Returns
+ * how many entries were written.
+ */
+export function restoreTranscripts(map: Record<string, unknown>): number {
+  let n = 0
+  for (const [id, raw] of Object.entries(map)) {
+    if (!id || typeof raw !== 'string') continue
+    const text = raw.trim().slice(0, TRANSCRIPT_MAX_CHARS)
+    if (!text || !/\p{L}|\p{N}/u.test(text)) continue
+    if (cachedTranscript(id) !== null) continue
+    try {
+      localStorage.setItem(TRANSCRIPT_PREFIX + id, JSON.stringify(text))
+      n++
+    } catch {
+      /* storage unavailable */
+    }
+  }
+  if (n > 0) pruneTranscripts()
+  return n
+}
+
 // ---- transformers.js loader (script-tag pattern, like sql.js) --------------
 
 let transformersPromise: Promise<TransformersModule> | null = null

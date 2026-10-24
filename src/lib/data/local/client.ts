@@ -36,6 +36,13 @@ import {
 } from '../types'
 import { makeMsgKey } from '@/lib/import-dedup'
 import { getEngine, type LocalEngine } from './engine'
+// Task 2-d — voice-note transcript sync: on-device Whisper transcripts are
+// cached in localStorage (whisper-asr.ts); exportBackup collects them into
+// the envelope and importBackup writes them back after a restore.
+import {
+  collectTranscripts,
+  restoreTranscripts,
+} from '@/lib/whisper-asr'
 // Post-import rolling snapshots (idea #14) — fire-and-forget, never breaks
 // the import flow. Component-scoped store, safe to import here (no cycle:
 // rolling-backups imports the ENGINE, not this client).
@@ -1600,15 +1607,21 @@ export class LocalDataClient implements DataClient {
          FROM "Message" ORDER BY chatId ASC, idx ASC`
     )
     const byChat = new Map<string, Record<string, unknown>[]>()
+    // Task 2-d — snapshot the on-device Whisper transcript cache once; only
+    // audio messages pick entries out of it below.
+    const transcripts = collectTranscripts()
     for (const m of messages) {
       const chatId = str(m.chatId)
+      const msgId = str(m.id)
       let list = byChat.get(chatId)
       if (!list) {
         list = []
         byChat.set(chatId, list)
       }
+      const transcript =
+        str(m.type) === 'audio' ? transcripts[msgId] : undefined
       list.push({
-        id: str(m.id),
+        id: msgId,
         idx: num(m.idx),
         ts: isoDate(m.ts) ?? new Date(0).toISOString(),
         sender: nstr(m.sender),
@@ -1623,6 +1636,9 @@ export class LocalDataClient implements DataClient {
         pinned: bool(m.pinned),
         reactions: parseReactions(m.reactions),
         replyToId: nstr(m.replyToId),
+        // Task 2-d — included only when a transcript exists (same shape as
+        // GET /api/backup; absent field is a no-op for older consumers).
+        ...(transcript ? { transcript } : {}),
       })
     }
     const payload = {
@@ -1664,6 +1680,9 @@ export class LocalDataClient implements DataClient {
     const e = await this.db()
     let chatsCreated = 0
     let messagesImported = 0
+    // Task 2-d — transcripts that traveled inside the envelope, keyed by the
+    // id of the row that was actually inserted. Written back once at the end.
+    const transcriptBackfill: Record<string, unknown> = {}
 
     for (const raw of chats) {
       if (!raw || typeof raw !== 'object' || Array.isArray(raw)) continue
@@ -1762,13 +1781,28 @@ export class LocalDataClient implements DataClient {
           ]
         )
         messagesImported++
+        // Task 2-d — queue the transcript for the id actually stored (the
+        // original id when free, a fresh one otherwise).
+        const transcript = strOrNull(m.transcript)
+        if (transcript && transcript.trim()) {
+          transcriptBackfill[finalId] = transcript
+        }
       }
       await this.refreshAggregates(e, chatId)
     }
     if (chatsCreated > 0) await this.engine.flush()
+    // Task 2-d — write restored transcripts into the localStorage cache the
+    // VoicePlayer reads (whisper-asr.cachedTranscript). Returns 0 when the
+    // envelope carried none; storage failures degrade to no-op inside.
+    const transcriptsRestored =
+      chatsCreated > 0 ? restoreTranscripts(transcriptBackfill) : 0
     // Idea #14: rolling on-device snapshot after backup restores too.
     if (chatsCreated > 0) maybeAutoSnapshot()
-    return { chats: chatsCreated, messages: messagesImported }
+    return {
+      chats: chatsCreated,
+      messages: messagesImported,
+      ...(transcriptsRestored > 0 ? { transcripts: transcriptsRestored } : {}),
+    }
   }
 }
 

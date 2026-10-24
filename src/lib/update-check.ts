@@ -111,3 +111,41 @@ export async function checkForUpdate(force = false): Promise<UpdateInfo | null> 
 export function markUpdateSeen(tag: string) {
   store(SEEN_TAG_KEY, tag)
 }
+
+export interface ApkDownload {
+  /** browser_download_url of the universal APK asset. */
+  url: string
+  /** Asset size in bytes (0 when GitHub omits it). */
+  size: number
+}
+
+/**
+ * Resolve the *universal* APK asset of the latest release (Task 2-c): hits the
+ * same releases/latest endpoint as checkForUpdate and returns the
+ * browser-download URL of the asset named `*-universal-release.apk` plus its
+ * byte size. Returns null on every failure path — offline, rate-limited, or a
+ * release without a universal APK — never throws (a checker must not annoy).
+ */
+export async function fetchApkDownloadUrl(): Promise<ApkDownload | null> {
+  if (typeof window === 'undefined') return null
+  try {
+    if (!navigator.onLine) return null
+    const res = await fetch(REPO_API, {
+      headers: { Accept: 'application/vnd.github+json' },
+      cache: 'no-store',
+      signal: AbortSignal.timeout(15000),
+    })
+    if (!res.ok) return null
+    const rel = (await res.json()) as {
+      assets?: Array<{ name?: string; browser_download_url?: string; size?: number }>
+    }
+    const apk = (rel.assets ?? []).find(
+      (a) => typeof a.name === 'string' && a.name.endsWith('-universal-release.apk')
+    )
+    if (!apk?.browser_download_url) return null
+    return { url: apk.browser_download_url, size: apk.size ?? 0 }
+  } catch {
+    /* offline / rate-limited / malformed payload — silent */
+    return null
+  }
+}

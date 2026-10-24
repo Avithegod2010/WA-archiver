@@ -1,0 +1,11 @@
+Selective restore: pull a cloud backup or snapshot and choose exactly which chats to bring back — the rest are skipped, existing chats merge.
+
+PDF export: any chat exports as a clean, print-ready PDF transcript (date separators, replies, reactions, starred flags) via the share/print menu.
+
+One-tap APK download: the update notification now has a "Download APK" button — grabs the latest universal APK straight from GitHub Releases.
+
+Voice-note transcripts sync: on-demand whisper transcripts now travel inside the encrypted backup — restore on a new device and they're already there.
+
+Monthly digest: Insights gets a month-by-month recap card (totals, busiest day, top chatters, top emoji) with its own shareable PNG.
+
+Plus: Insights dashboard and Media Hub fully translated in Hindi, Urdu, Marathi and Tamil (141 new strings), and snapshot files (.wasync) can now be imported straight from disk — offline, no cloud needed.

@@ -33,6 +33,7 @@ import {
   History,
   KeyRound,
   Link2,
+  ListChecks,
   Loader2,
   PlugZap,
   QrCode,
@@ -60,7 +61,14 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog'
 import { useData } from './data-provider'
-import { useT } from '@/lib/i18n'
+import { useT, type TParams } from '@/lib/i18n'
+import type { TranslationKey } from '@/lib/locales/en'
+import {
+  RestorePickerDialog,
+  filterBackupJsonByIds,
+  parseBackupChats,
+  type BackupChatMeta,
+} from './RestorePickerDialog'
 import {
   cloudFileUrl,
   filterBackupJson,
@@ -170,6 +178,16 @@ export function CloudSyncCard({
   const snapFileRef = useRef<HTMLInputElement>(null)
   const [diff, setDiff] = useState<SnapshotDiff | null>(null)
   const [diffOpen, setDiffOpen] = useState(false)
+
+  // v1.9.2 — selective restore: decrypt first, then pick chats in a dialog
+  const [restOpen, setRestOpen] = useState(false)
+  const [restJson, setRestJson] = useState<string | null>(null)
+  const [restChats, setRestChats] = useState<BackupChatMeta[]>([])
+  const [restSource, setRestSource] = useState('')
+  /** Live pulls update lastPullAt bookkeeping once the restore completes. */
+  const [restFromLive, setRestFromLive] = useState(false)
+  /** Bumped per presented backup — remounts the picker with a fresh state. */
+  const [restNonce, setRestNonce] = useState(0)
 
   const [passphrase, setPassphrase] = useState('')
   const [showPw, setShowPw] = useState(false)
@@ -438,6 +456,83 @@ export function CloudSyncCard({
       setPassphrase('')
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Snapshot restore failed')
+    } finally {
+      setBusy(null)
+    }
+  }
+
+  // v1.9.2 — selective restore: restsel.* keys ship via agent-ctx/keys-2a.json
+  // and are merged into the locale files by the locale agent; t() falls back
+  // to the key until then, so translate through a string cast here.
+  const tsel = (key: string, params?: TParams) =>
+    t(key as TranslationKey, params)
+
+  /** Decrypt succeeded — parse its chat list and open the picker dialog. */
+  const openRestorePicker = (json: string, source: string, fromLive: boolean) => {
+    const meta = parseBackupChats(json)
+    if (!meta || meta.length === 0) {
+      toast.error(tsel('restsel.parseError'))
+      return
+    }
+    setRestJson(json)
+    setRestSource(source)
+    setRestChats(meta)
+    setRestFromLive(fromLive)
+    setRestNonce((n) => n + 1)
+    setRestOpen(true)
+  }
+
+  /** "Choose chats…" — pull + decrypt the LIVE cloud file, then pick. */
+  const doPullSelective = async () => {
+    if (busy || !fieldsOk || !pwOk) return
+    setBusy('pull')
+    try {
+      const cfg = await freshConfig()
+      const json = await pullFromCloud(cfg, passphrase)
+      openRestorePicker(json, tsel('restsel.sourceLive'), true)
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Pull failed')
+    } finally {
+      setBusy(null)
+    }
+  }
+
+  /** Snapshot row "Choose…" — pull + decrypt the picked snapshot, then pick. */
+  const doPullSnapshotSelective = async () => {
+    if (busy || !fieldsOk || !pwOk || !snapPick) return
+    setBusy('pull')
+    try {
+      const cfg = await freshConfig()
+      const json = await pullFromCloud(cfg, passphrase, snapPick)
+      openRestorePicker(
+        json,
+        tsel('restsel.sourceSnapshot', { name: snapPick }),
+        false
+      )
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Snapshot restore failed')
+    } finally {
+      setBusy(null)
+    }
+  }
+
+  /** Picker confirmed — filter the backup to the chosen chats and restore. */
+  const doSelectiveRestore = async (ids: string[]) => {
+    if (!restJson || busy) return
+    setBusy('pull')
+    try {
+      await restoreJson(filterBackupJsonByIds(restJson, ids))
+      setRestOpen(false)
+      setRestJson(null)
+      setPassphrase('')
+      if (restFromLive) {
+        const at = Date.now()
+        persist({ ...(await freshConfig()), lastPullAt: at })
+        setLastPull(at)
+        writeLastBackupAt()
+      }
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Restore failed')
     } finally {
       setBusy(null)
     }
@@ -1112,6 +1207,21 @@ export function CloudSyncCard({
         <Button
           variant="ghost"
           size="sm"
+          onClick={() => void doPullSelective()}
+          disabled={busy !== null || !fieldsOk || !pwOk}
+          className="gap-1.5"
+          title={tsel('restsel.title')}
+        >
+          {busy === 'pull' ? (
+            <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
+          ) : (
+            <ListChecks className="h-4 w-4" aria-hidden />
+          )}
+          {tsel('restsel.choose')}
+        </Button>
+        <Button
+          variant="ghost"
+          size="sm"
           onClick={() => snapFileRef.current?.click()}
           disabled={busy !== null || !pwOk}
           className="gap-1.5"
@@ -1187,6 +1297,21 @@ export function CloudSyncCard({
               <CloudDownload className="h-4 w-4" aria-hidden />
             )}
             {t('snapshots.restore')}
+          </Button>
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => void doPullSnapshotSelective()}
+            disabled={busy !== null || !pwOk || !snapPick}
+            className="gap-1.5"
+            title={tsel('restsel.title')}
+          >
+            {busy === 'pull' ? (
+              <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
+            ) : (
+              <ListChecks className="h-4 w-4" aria-hidden />
+            )}
+            {tsel('restsel.snapChoose')}
           </Button>
           <Button
             variant="ghost"
@@ -1363,6 +1488,17 @@ export function CloudSyncCard({
           )}
         </DialogContent>
       </Dialog>
+
+      {/* v1.9.2 — selective restore picker (chat checkboxes per backup) */}
+      <RestorePickerDialog
+        key={restNonce}
+        open={restOpen}
+        onOpenChange={setRestOpen}
+        chats={restChats}
+        source={restSource}
+        busy={busy === 'pull'}
+        onConfirm={(ids) => void doSelectiveRestore(ids)}
+      />
 
       <TransferDialog
         open={transferOpen}

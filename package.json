@@ -1,6 +1,6 @@
 {
   "name": "wa-archiver",
-  "version": "1.9.0",
+  "version": "1.9.1",
   "private": true,
   "scripts": {
     "dev": "node scripts/copy-sql-wasm.mjs && node scripts/copy-whisper.mjs && next dev -p 3000 2>&1 | tee dev.log",

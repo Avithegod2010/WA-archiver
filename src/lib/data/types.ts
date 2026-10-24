@@ -190,7 +190,30 @@ export interface MemoriesResult {
 export interface BackupImportResult {
   chats: number
   messages: number
+  /**
+   * Task 2-d — voice-note transcripts restored from the backup envelope.
+   * Optional: absent on backups/envelopes produced before transcript sync
+   * (and always absent when the backup carried no transcripts).
+   */
+  transcripts?: number
 }
+
+/*
+ * Task 2-d — voice-note transcript sync.
+ *
+ * Backup envelopes (version 2, GET /api/backup / exportBackup) may carry an
+ * OPTIONAL `transcript: string` on any message row (in practice only
+ * type='audio' rows produce one — see /api/transcribe and whisper-asr.ts).
+ * Absent field = no-op: v1/v2 backups without it restore exactly as before,
+ * and the "Verify" round-trip self-test (which exercises the .txt export
+ * path, not the JSON envelope) is unaffected.
+ *
+ * Where transcripts live per transport:
+ *   • server — AppSetting row `transcript:<messageId>` (cache written by
+ *     POST /api/transcribe; served back from there on repeat requests).
+ *   • device — localStorage `wa-viewer:transcript:<messageId>` (cache
+ *     written by src/lib/whisper-asr.ts; read via cachedTranscript()).
+ */
 
 /** Live status of the on-device database (drives the Device storage card). */
 export interface DeviceStatus {

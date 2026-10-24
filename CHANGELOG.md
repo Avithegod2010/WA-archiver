@@ -3,9 +3,32 @@
 All notable changes to WA Archiver are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-## [Unreleased]
+## [1.9.1] — 2026-10-25
 
 ### Added
+- **Selective restore** — "Choose chats…" next to Pull & restore (and in
+  the snapshot history): the backup is pulled + decrypted first, then a
+  picker lists its chats (search, select all/none, live summary) and only
+  the chosen ones are restored — existing chats merge as before. Full
+  restore remains the default path.
+- **PDF transcript export** — "PDF document" in the chat export menu
+  renders a clean A4 transcript (date separators, sender colors, reply
+  quotes, reactions, starred/edited/pinned flags, media placeholders) and
+  prints it through the system pipeline — Android print framework ("Save
+  as PDF") in the APK, print dialog on desktop. Zero dependencies.
+- **One-tap APK download** — the update-available toast gains a "Download
+  APK" action that fetches the latest universal APK straight from GitHub
+  Releases (silent failure handling, "View release" kept).
+- **Voice-note transcription sync** — on-demand whisper transcripts now
+  travel inside the encrypted backup: the server producer attaches
+  `transcript` fields (from its AppSetting cache), the device producer
+  from its localStorage cache; both importers restore them
+  cross-transport (server ⇄ device). Absent field = no-op for old
+  envelopes. Import results report `transcriptsRestored`.
+- **Monthly digest** — new Insights section: pick any month and get a
+  recap card (total messages, active days, busiest day, sent-by-you %,
+  top emoji, top 3 chatters, fun fact) with its own 1080×1440 shareable
+  PNG. Server mode falls back to a lite digest from existing stats.
 - **Snapshot file import (offline restore path)** — "From file…" next to
   Pull & restore imports any previously saved encrypted `.wasync` snapshot
   straight from disk with just the sync passphrase — no cloud config needed.
@@ -25,6 +48,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ### Internationalization
 - Insights dashboard and Media Hub fully localized: 141 new keys across
   en / hi / ur / mr / ta (KPIs, sections, tabs, toasts, empty states).
+- Snapshot file import / compare viewer / selective restore / PDF export /
+  update download / monthly digest strings localized — 59 new keys across
+  en / hi / ur / mr / ta.
 
 ## [1.9.0] — 2026-10-25
 

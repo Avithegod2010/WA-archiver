@@ -10,6 +10,14 @@ export const maxDuration = 120
 const MAX_BODY_BYTES = 50 * 1024 * 1024 // ~50MB guard
 const MEDIA_NOTE = 'Media files are not included in JSON backups'
 
+// Task 2-d — voice-note transcript sync. Server-side on-demand transcription
+// caches its result in AppSetting under `transcript:<messageId>` (see
+// /api/transcribe). The same prefix is used here so transcripts round-trip
+// through the backup envelope.
+const TRANSCRIPT_KEY_PREFIX = 'transcript:'
+/** Same cap the transcription cache itself enforces (64k chars). */
+const MAX_SYNC_TRANSCRIPT_CHARS = 64_000
+
 interface BackupChat {
   id?: unknown
   title?: unknown
@@ -40,6 +48,8 @@ interface BackupMessage {
   pinned?: unknown
   reactions?: unknown
   replyToId?: unknown
+  /** Task 2-d — optional voice-note transcript carried in the envelope. */
+  transcript?: unknown
 }
 
 const strOrNull = (v: unknown): string | null =>
@@ -125,6 +135,23 @@ export async function GET(req: Request) {
     },
   })
 
+  // Task 2-d — load cached voice-note transcripts and attach them to their
+  // messages so a restore on another device can show them instantly. This is
+  // best-effort: a settings-table hiccup must never fail the whole backup.
+  const transcriptMap = new Map<string, string>()
+  try {
+    const rows = await db.appSetting.findMany({
+      where: { key: { startsWith: TRANSCRIPT_KEY_PREFIX } },
+      select: { key: true, value: true },
+    })
+    for (const r of rows) {
+      const id = r.key.slice(TRANSCRIPT_KEY_PREFIX.length)
+      if (id && r.value) transcriptMap.set(id, r.value)
+    }
+  } catch {
+    /* transcripts are optional — proceed without them */
+  }
+
   const byChat = new Map<string, BackupMessage[]>()
   for (const m of messages) {
     let list = byChat.get(m.chatId)
@@ -148,6 +175,11 @@ export async function GET(req: Request) {
       pinned: m.pinned,
       reactions: parseReactions(m.reactions),
       replyToId: m.replyToId,
+      // Task 2-d — only included when a transcript exists (older consumers
+      // ignore unknown fields; absent means "nothing to restore").
+      ...(transcriptMap.has(m.id)
+        ? { transcript: transcriptMap.get(m.id) }
+        : {}),
     })
   }
 
@@ -232,6 +264,7 @@ export async function POST(req: NextRequest) {
   let chatsCreated = 0
   let chatsSkipped = 0
   let messagesImported = 0
+  let transcriptsRestored = 0
   const createdIds: string[] = []
   // Prisma's createMany({ skipDuplicates }) is unsupported on SQLite, so
   // explicit message ids that already exist are pre-filtered instead.
@@ -317,6 +350,8 @@ export async function POST(req: NextRequest) {
       pinned: boolean
       reactions: string | null
       replyToId: string | null
+      /** Task 2-d — transcript to write back after the row is inserted. */
+      transcript: string | null
     }[] = []
 
     if (Array.isArray(c.messages)) {
@@ -357,16 +392,46 @@ export async function POST(req: NextRequest) {
           pinned: boolOr(m.pinned),
           reactions: jsonReactionsColumn(m.reactions),
           replyToId: strOrNull(m.replyToId)?.slice(0, 64) ?? null,
+          // Task 2-d — restore the transcript only for voice-note rows that
+          // keep their original id (the one the producer keyed it by). The
+          // transcribe route only ever reads these keys for type='audio'
+          // messages, so non-audio transcripts would be dead weight anyway.
+          transcript:
+            (typeof m.type === 'string' ? m.type : '') === 'audio'
+              ? (strOrNull(m.transcript)?.slice(0, MAX_SYNC_TRANSCRIPT_CHARS) ??
+                null)
+              : null,
         })
       }
     }
 
     const CHUNK = 150
     for (let i = 0; i < rows.length; i += CHUNK) {
+      const chunk = rows.slice(i, i + CHUNK)
       const res = await db.message.createMany({
-        data: rows.slice(i, i + CHUNK),
+        data: chunk.map(({ transcript: _t, ...row }) => row),
       })
       messagesImported += res.count
+      // Task 2-d — write the carried transcripts back into the AppSetting
+      // cache so /api/transcribe serves them instantly after a restore.
+      // (Only rows that were actually inserted have an id here — duplicate
+      // ids were skipped above and keep their existing local transcript.)
+      for (const r of chunk) {
+        if (!r.id || !r.transcript) continue
+        try {
+          await db.appSetting.upsert({
+            where: { key: `${TRANSCRIPT_KEY_PREFIX}${r.id}` },
+            update: { value: r.transcript },
+            create: {
+              key: `${TRANSCRIPT_KEY_PREFIX}${r.id}`,
+              value: r.transcript,
+            },
+          })
+          transcriptsRestored++
+        } catch {
+          /* best-effort — the message itself is already restored */
+        }
+      }
     }
   }
 
@@ -379,5 +444,6 @@ export async function POST(req: NextRequest) {
     chatsCreated,
     chatsSkipped,
     messagesImported,
+    transcriptsRestored,
   })
 }

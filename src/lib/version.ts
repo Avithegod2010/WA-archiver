@@ -4,7 +4,7 @@
  * the same number. Bump all three together on release.
  */
 
-export const APP_VERSION = '1.9.0'
+export const APP_VERSION = '1.9.1'
 
 /** GitHub Releases page — wired into the guide/about dialog. */
 export const RELEASES_URL = 'https://github.com/Avithegod2010/WA-archiver/releases'
