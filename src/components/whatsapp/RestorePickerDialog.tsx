@@ -258,7 +258,9 @@ export function RestorePickerDialog({
               className="gap-1.5"
             >
               {busy && <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden />}
-              {t('restsel.confirm', { count: selCount })}
+              {selCount === 1
+                ? t('restsel.confirmOne')
+                : t('restsel.confirm', { count: selCount })}
             </Button>
           </div>
         </div>

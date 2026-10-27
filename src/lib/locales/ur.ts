@@ -520,6 +520,7 @@ export const strings = {
   'restsel.none': 'کچھ منتخب نہ کریں',
   'restsel.summary': '{total} میں سے {sel} چیٹس منتخب · {msgs} پیغامات',
   'restsel.confirm': '{count} چیٹس بحال کریں',
+  'restsel.confirmOne': '1 چیٹ بحال کریں',
   'restsel.cancel': 'منسوخ کریں',
   'restsel.noMatch': '“{query}” سے ملنے والی کوئی چیٹ نہیں',
   'restsel.choose': 'چیٹس منتخب کریں…',

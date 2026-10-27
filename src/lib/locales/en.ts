@@ -549,6 +549,7 @@ export const strings = {
   'restsel.none': 'Select none',
   'restsel.summary': '{sel} of {total} chats selected · {msgs} messages',
   'restsel.confirm': 'Restore {count} chats',
+  'restsel.confirmOne': 'Restore 1 chat',
   'restsel.cancel': 'Cancel',
   'restsel.noMatch': 'No chats match “{query}”',
   'restsel.choose': 'Choose chats…',

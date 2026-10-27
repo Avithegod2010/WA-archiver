@@ -519,6 +519,7 @@ export const strings = {
   'restsel.none': 'काहीही निवडू नका',
   'restsel.summary': '{total} पैकी {sel} चॅट निवडल्या · {msgs} संदेश',
   'restsel.confirm': '{count} चॅट रीस्टोर करा',
+  'restsel.confirmOne': '1 चॅट रीस्टोर करा',
   'restsel.cancel': 'रद्द करा',
   'restsel.noMatch': '“{query}” शी जुळणारी कोणतीच चॅट नाही',
   'restsel.choose': 'चॅट निवडा…',

@@ -519,6 +519,7 @@ export const strings = {
   'restsel.none': 'எதையும் தேர்ந்தெடுக்காதே',
   'restsel.summary': '{total} இல் {sel} அரட்டைகள் தேர்ந்தெடுக்கப்பட்டன · {msgs} செய்திகள்',
   'restsel.confirm': '{count} அரட்டைகளை மீட்டமை',
+  'restsel.confirmOne': '1 அரட்டையை மீட்டமை',
   'restsel.cancel': 'ரத்து செய்',
   'restsel.noMatch': '“{query}” உடன் பொருந்தும் அரட்டை இல்லை',
   'restsel.choose': 'அரட்டைகளைத் தேர்ந்தெடு…',

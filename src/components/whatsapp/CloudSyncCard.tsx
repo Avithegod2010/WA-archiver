@@ -361,7 +361,7 @@ export function CloudSyncCard({
       imported = out?.messagesImported ?? 0
     }
     toast.success(
-      `Restored from cloud · ${created} chats · ${imported.toLocaleString()} messages`
+      `Restored from cloud · ${created} chat${created === 1 ? '' : 's'} · ${imported.toLocaleString()} message${imported === 1 ? '' : 's'}`
     )
     await onRefreshChats?.()
   }

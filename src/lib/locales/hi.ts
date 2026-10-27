@@ -546,6 +546,7 @@ export const strings: Record<TranslationKey, string> = {
   'restsel.none': 'कोई न चुनें',
   'restsel.summary': '{total} में से {sel} चैट चुनी गईं · {msgs} मैसेज',
   'restsel.confirm': '{count} चैट रिस्टोर करें',
+  'restsel.confirmOne': '1 चैट रिस्टोर करें',
   'restsel.cancel': 'रद्द करें',
   'restsel.noMatch': '“{query}” से मेल खाती कोई चैट नहीं',
   'restsel.choose': 'चैट चुनें…',
