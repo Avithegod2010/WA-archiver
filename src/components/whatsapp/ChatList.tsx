@@ -886,7 +886,7 @@ export function ChatList({
       { id: FOLDER_GROUPS, label: t('chats.tab.groups'), Icon: Users },
       { id: FOLDER_FAVORITES, label: t('chats.tab.favorites'), Icon: Star },
       ...folders.map((f) => ({ id: f.id, label: f.name, emoji: f.emoji })),
-      ...SMART_FOLDERS.map((f) => ({ id: f.id, label: f.name, emoji: f.emoji })),
+      ...SMART_FOLDERS.map((f) => ({ id: f.id, label: t(f.key), emoji: f.emoji })),
     ],
     [folders, t]
   )
@@ -1194,8 +1194,9 @@ export function ChatList({
   const totalUnread = unreadStats.total
   const activeFolderName =
     folders.find((f) => f.id === effectiveFolderId)?.name ??
-    SMART_FOLDERS.find((f) => f.id === effectiveFolderId)?.name ??
-    ''
+    (SMART_FOLDERS.find((f) => f.id === effectiveFolderId)?.key
+      ? t(SMART_FOLDERS.find((f) => f.id === effectiveFolderId)!.key)
+      : '');
   const pinnedCount = activeChats.filter((c) => c.pinned).length
   const hasBothSections = pinnedCount > 0 && pinnedCount < activeChats.length
 

@@ -17,6 +17,9 @@ export const strings = {
   'chats.tab.unread': 'न वाचलेले',
   'chats.tab.groups': 'ग्रुप्स',
   'chats.tab.favorites': 'आवडते',
+  'chats.tab.media': 'मीडिया',
+  'chats.tab.activeWeek': 'या आठवड्यात सक्रिय',
+  'chats.tab.biggest': 'सर्वात मोठे',
   'chats.empty': 'अजून कोणतीही चॅट नाही',
 
   /* Chats list (ChatList) — rows, tabs, folders */

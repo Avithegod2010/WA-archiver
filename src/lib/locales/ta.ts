@@ -17,6 +17,9 @@ export const strings = {
   'chats.tab.unread': 'படிக்காதவை',
   'chats.tab.groups': 'குழுக்கள்',
   'chats.tab.favorites': 'பிடித்தவை',
+  'chats.tab.media': 'மீடியா',
+  'chats.tab.activeWeek': 'இந்த வாரம் செயலில்',
+  'chats.tab.biggest': 'மிகப் பெரியவை',
   'chats.empty': 'இன்னும் அரட்டைகள் இல்லை',
 
   /* Chats list (ChatList) — rows, tabs, folders */

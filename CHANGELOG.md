@@ -3,6 +3,15 @@
 All notable changes to WA Archiver are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [Unreleased]
+
+### Added
+- **Weblate community translations** — the 5 UI locales (en, hi, ur, mr, ta; 516
+  strings each) are now bridge-exported to Weblate-friendly JSON
+  (`locales/*.json`) with lossless `bun run i18n:export` /`i18n:import`
+  round-trip scripts; key parity stays compile-enforced. Translator guide
+  lives in docs/translations.md; Weblate badge + section added to the README.
+
 ## [1.9.1] — 2026-10-25
 
 ### Added

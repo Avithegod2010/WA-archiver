@@ -21,6 +21,9 @@ export const strings = {
   'chats.tab.unread': 'Unread',
   'chats.tab.groups': 'Groups',
   'chats.tab.favorites': 'Favorites',
+  'chats.tab.media': 'Media',
+  'chats.tab.activeWeek': 'Active this week',
+  'chats.tab.biggest': 'Biggest',
   'chats.empty': 'No chats yet',
 
   /* Chats list (ChatList) — rows, tabs, folders */

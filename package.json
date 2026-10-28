@@ -13,7 +13,9 @@
     "db:generate": "prisma generate",
     "db:migrate": "prisma migrate dev",
     "db:reset": "prisma migrate reset",
-    "copy:wasm": "node scripts/copy-sql-wasm.mjs"
+    "copy:wasm": "node scripts/copy-sql-wasm.mjs",
+    "i18n:export": "bun scripts/i18n-export.ts",
+    "i18n:import": "bun scripts/i18n-import.ts"
   },
   "dependencies": {
     "@capacitor-community/sqlite": "^8.1.1",

@@ -9,12 +9,7 @@
 [![Next.js](https://img.shields.io/badge/Next.js-16-black?logo=next.js)](https://nextjs.org)
 [![PRs welcome](https://img.shields.io/badge/PRs-welcome-25D366.svg)](#-contributing)
 [![Web app](https://img.shields.io/badge/web%20app-Open%20in%20browser-00A884.svg?logo=googlechrome)](https://avithegod2010.github.io/WA-archiver/app/)
-<!-- Google Play badge — uncomment once the Play listing is live and set the
-     real package URL. The app-side button flips on via PLAY_LISTING_URL in
-     src/lib/version.ts.
-[![Get it on Google Play](https://img.shields.io/badge/Get%20it%20on-Google%20Play-00A884.svg?logo=googleplay)](https://play.google.com/store/apps/details?id=io.github.avithegod2010.waarchiver)
--->
-
+[![Translations](https://img.shields.io/badge/translations-Weblate-2ECCAA.svg?logo=weblate)](https://hosted.weblate.org/engage/wa-archiver/)
 
 **Turn your exported WhatsApp chats into a beautiful, private chat experience —
 with AI superpowers, voice notes, reactions, stats and an app lock.**
@@ -281,6 +276,13 @@ browser, though, and the full Android APK works on any Android 8+ phone.
 
 Issues and PRs are welcome! For big changes, open an issue first so we can align
 on direction. Feature ideas live in the issue tracker.
+
+## 🌍 Translations
+
+The UI ships in English, हिन्दी, اردو, मराठी and தமிழ். Community
+translations are managed on **[Weblate](https://hosted.weblate.org/engage/wa-archiver/)** —
+translate in the browser, no code needed. See
+**[docs/translations.md](docs/translations.md)** for the full workflow.
 
 ## 📄 License
 

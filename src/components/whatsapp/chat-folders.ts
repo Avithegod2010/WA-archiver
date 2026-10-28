@@ -42,6 +42,7 @@ export const SMART_BIG_ID = '__smart_big'
 export const SMART_MEDIA = {
   id: SMART_MEDIA_ID,
   name: 'Media',
+  key: 'chats.tab.media',
   emoji: '🖼️',
 } as const
 
@@ -49,6 +50,7 @@ export const SMART_MEDIA = {
 export const SMART_ACTIVE = {
   id: SMART_ACTIVE_ID,
   name: 'Active this week',
+  key: 'chats.tab.activeWeek',
   emoji: '⏱️',
 } as const
 
@@ -56,6 +58,7 @@ export const SMART_ACTIVE = {
 export const SMART_BIG = {
   id: SMART_BIG_ID,
   name: 'Biggest',
+  key: 'chats.tab.biggest',
   emoji: '📊',
 } as const
 
