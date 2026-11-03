@@ -197,7 +197,10 @@ intermediary server. No key? Everything else keeps working.
 - **Zero telemetry.** The app makes exactly two kinds of network calls: the AI
   actions you explicitly trigger, and link previews — both optional.
 - App Lock is a 4–8 digit PIN verified server-side (your machine) with an
-  httpOnly cookie session.
+  httpOnly cookie session (Secure flag on HTTPS). PIN guessing is throttled
+  (5 wrong attempts → 15-minute lockout), and a network client cannot reset
+  your lock — recovery needs the current PIN, server-local access, or the
+  operator's `WA_LOCK_RESET_TOKEN`.
 - Security policy: see [docs/SECURITY.md](docs/SECURITY.md) and
   [docs/offline-architecture.md](docs/offline-architecture.md) for the design decisions.
 

@@ -276,6 +276,7 @@ export function SettingsDialog({
   const [pinCurrent, setPinCurrent] = useState('')
   const [pinNew, setPinNew] = useState('')
   const [pinDisable, setPinDisable] = useState('')
+  const [pinReset, setPinReset] = useState('')
   const [pinError, setPinError] = useState<string | null>(null)
   const [lockBusy, setLockBusy] = useState(false)
   const [resetOpen, setResetOpen] = useState(false)
@@ -865,10 +866,15 @@ export function SettingsDialog({
   }
 
   const resetLock = async () => {
-    setResetOpen(false)
+    // Server mode: send the current PIN when provided — that path works from
+    // any browser. A PIN-less reset is only honored by the server when the
+    // request is local (owner at the machine) or carries the operator's
+    // recovery token; otherwise it 403s and we surface the guidance.
+    // Device mode: always PIN-less — it only ever touches this browser's data.
     setLockBusy(true)
     try {
-      await lockReset(mode, data)
+      await lockReset(mode, data, pinReset || undefined)
+      setResetOpen(false)
       setLockOn(false)
       setPinStage('idle')
       setPinCreate('')
@@ -876,15 +882,20 @@ export function SettingsDialog({
       setPinCurrent('')
       setPinNew('')
       setPinDisable('')
+      setPinReset('')
       setPinError(null)
       window.dispatchEvent(new Event(LOCK_CHANGED_EVENT))
       toast.success('App lock reset — set a new PIN anytime')
     } catch (err) {
-      toast.error(
-        err instanceof Error
-          ? err.message
-          : 'Could not reset the lock — try again'
-      )
+      const message = err instanceof Error ? err.message : 'Could not reset the lock — try again'
+      if (mode === 'server' && /reset requires/i.test(message)) {
+        toast.error(
+          'Reset blocked over the network — enter the current PIN, or run the recovery on the server (docs/SECURITY.md)',
+          { duration: 8000 }
+        )
+      } else {
+        toast.error(message)
+      }
     } finally {
       setLockBusy(false)
     }
@@ -2052,15 +2063,47 @@ export function SettingsDialog({
             </div>
           )}
 
-          <AlertDialog open={resetOpen} onOpenChange={setResetOpen}>
+          <AlertDialog
+            open={resetOpen}
+            onOpenChange={(open) => {
+              setResetOpen(open)
+              if (open) setPinReset('')
+            }}
+          >
             <AlertDialogContent>
               <AlertDialogHeader>
                 <AlertDialogTitle>Reset app lock?</AlertDialogTitle>
-                <AlertDialogDescription>
-                  This resets the lock without a PIN — this is a local viewer,
-                  so the reset is allowed. Your chats are not touched.
+                <AlertDialogDescription asChild>
+                  <div>
+                    {mode === 'device' ? (
+                      <>
+                        This resets the lock without a PIN — it only clears this
+                        device's own lock settings. Your chats are not touched.
+                      </>
+                    ) : (
+                      <>
+                        Your chats are not touched. Resetting needs the current
+                        PIN from a remote browser — leave it empty only when
+                        the server itself considers this a local request (or
+                        use the recovery token; docs/SECURITY.md).
+                      </>
+                    )}
+                  </div>
                 </AlertDialogDescription>
               </AlertDialogHeader>
+              {mode === 'server' && (
+                <Input
+                  type="password"
+                  inputMode="numeric"
+                  maxLength={8}
+                  autoComplete="off"
+                  value={pinReset}
+                  onChange={(e) => setPinReset(digitsOnly(e.target.value))}
+                  placeholder="Current PIN (optional here)"
+                  aria-label="Current PIN for lock reset (4–8 digits)"
+                  className="w-36 text-center tracking-[0.35em]"
+                />
+              )}
               <AlertDialogFooter>
                 <AlertDialogCancel disabled={lockBusy}>Cancel</AlertDialogCancel>
                 <AlertDialogAction

@@ -5,6 +5,27 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Security
+- **Fixed an unauthenticated app-lock bypass** — `POST /api/auth/lock
+  {"action":"reset"}` disabled the PIN lock without any credential,  
+  exposing the whole archive on hosted instances. Reset now requires the
+  current PIN, a direct local (loopback, no-proxy) connection, or the
+  operator-set `WA_LOCK_RESET_TOKEN` header (see docs/SECURITY.md →
+  Forgotten PIN recovery). Locality is derived from an unspoofable socket
+  address captured at the Node http layer, never from `X-Forwarded-For`.
+- **PIN brute-force throttling** — 5 wrong PINs within 15 minutes lock the
+  client out for 15 minutes (429 + Retry-After, shared across
+  verify/change/disable/reset), keyed on the socket address (or the trusted
+  rightmost XFF entry when `WA_TRUST_PROXY=1`).
+- **Lock gate fails closed** — `assertAppUnlocked` now denies with 503 when
+  the lock state cannot be read (DB error) instead of silently unlocking
+  every data route.
+- **Secure cookie flag** — the 12-hour unlock cookie gains `Secure` when
+  the request arrived over HTTPS.
+- Device transport (APK/offline) reset behavior is unchanged (local-only
+  by design); automated regression tests ship as
+  `bun run test:security` (17 cases).
+
 ### Added
 - **Weblate community translations** — the 5 UI locales (en, hi, ur, mr, ta; 516
   strings each) are now bridge-exported to Weblate-friendly JSON

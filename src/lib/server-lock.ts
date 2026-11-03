@@ -78,12 +78,20 @@ export async function makeUnlockCookie(): Promise<{ name: string; value: string;
   return { name: UNLOCK_COOKIE, value: `${exp}.${signUnlock(exp, secret)}`, maxAge: UNLOCK_TTL_S }
 }
 
-export function unlockCookieHeader(value: string): string {
-  return `${UNLOCK_COOKIE}=${value}; Path=/; Max-Age=${UNLOCK_TTL_S}; HttpOnly; SameSite=Lax`
+/**
+ * Serialize the unlock cookie. `secure` must reflect the transport the
+ * request arrived on (see requestIdentity().secureTransport) — the
+ * session cookie then also carries the `Secure` flag so browsers refuse
+ * to send it over plain HTTP on hosted instances.
+ */
+export function unlockCookieHeader(value: string, secure = false): string {
+  const base = `${UNLOCK_COOKIE}=${value}; Path=/; Max-Age=${UNLOCK_TTL_S}; HttpOnly; SameSite=Lax`
+  return secure ? `${base}; Secure` : base
 }
 
-export function clearUnlockCookieHeader(): string {
-  return `${UNLOCK_COOKIE}=; Path=/; Max-Age=0; HttpOnly; SameSite=Lax`
+export function clearUnlockCookieHeader(secure = false): string {
+  const base = `${UNLOCK_COOKIE}=; Path=/; Max-Age=0; HttpOnly; SameSite=Lax`
+  return secure ? `${base}; Secure` : base
 }
 
 function readCookieFromRequest(req?: Request): string | null {
@@ -116,6 +124,10 @@ export async function isUnlocked(req?: Request): Promise<boolean> {
  * Guard for data routes: returns a 401 NextResponse while the app lock is
  * enabled and the request is not unlocked; returns null (allow) otherwise.
  *
+ * Security note (lock-bypass fix): if the lock state cannot be read (DB
+ * error) this now fails CLOSED with 503 — a transient DB hiccup must not
+ * silently disable the only access control a hosted instance has.
+ *
  * Usage at the top of every data route handler:
  *   const denied = await assertAppUnlocked(req)
  *   if (denied) return denied
@@ -125,8 +137,12 @@ export async function assertAppUnlocked(req?: Request): Promise<NextResponse | n
   try {
     enabled = await isLockEnabled()
   } catch {
-    // DB hiccups must never brick the whole app — fail open.
-    return null
+    // Fail closed: the lock state is UNKNOWN, not "off". Returning null
+    // here would unlock every data route for the duration of the outage.
+    return NextResponse.json(
+      { error: 'Lock state unavailable — access denied (fail closed)' },
+      { status: 503 }
+    )
   }
   if (!enabled) return null
   if (await isUnlocked(req)) return null

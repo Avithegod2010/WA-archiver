@@ -1,3 +1,4 @@
+import { createHash, timingSafeEqual } from 'node:crypto'
 import { NextResponse } from 'next/server'
 import {
   clearUnlockCookieHeader,
@@ -12,11 +13,17 @@ import {
   setSetting,
   unlockCookieHeader,
 } from '@/lib/server-lock'
+import { isDirectLocalRequest, requestIdentity } from '@/lib/request-identity'
+import {
+  pinThrottleCheck,
+  recordPinFailure,
+  recordPinSuccess,
+} from '@/lib/pin-throttle'
 
 export const runtime = 'nodejs'
 
 /**
- * Server-side app lock gate (Task 14). This route IS the auth gate, so it
+ * Server-side app lock gate. This route IS the auth gate, so it
  * deliberately does NOT call assertAppUnlocked — every other data route does.
  *
  * GET  → { enabled, unlocked } (always accessible, no lock guard)
@@ -25,7 +32,14 @@ export const runtime = 'nodejs'
  *   change  → rotate the PIN (requires the current one), fresh 12 h session
  *   verify  → check a PIN, issue the unlock session cookie on success
  *   disable → turn the lock off (requires the current PIN), clears the session
- *   reset   → remove the lock WITHOUT a PIN (see the tradeoff comment below)
+ *   reset   → remove the lock — see the recovery rules in the reset case
+ *
+ * Security (lock-bypass fix): every action that checks a PIN (verify /
+ * change / disable / reset-with-PIN) is throttled per client — 5 wrong
+ * attempts within 15 minutes trigger a 15-minute lockout (429, correct
+ * PIN included). 'reset' without a PIN is no longer callable by arbitrary
+ * network clients: it requires local (loopback, direct) access or the
+ * operator-set WA_LOCK_RESET_TOKEN header.
  */
 
 const PIN_RE = /^\d{4,8}$/
@@ -47,11 +61,60 @@ function badRequest(error: string): NextResponse {
   return NextResponse.json({ error }, { status: 400 })
 }
 
+/**
+ * 429 response while the client is locked out of PIN attempts, or null when
+ * the client may still try. Shared by verify / change / disable / reset.
+ */
+function throttleReject(identity: ReturnType<typeof requestIdentity>): NextResponse | null {
+  const retryAfter = pinThrottleCheck(identity.throttleKey)
+  if (retryAfter === null) return null
+  return NextResponse.json(
+    {
+      ok: false,
+      error: `Too many incorrect PIN attempts — locked for ${Math.ceil(retryAfter / 60)} more minute(s)`,
+    },
+    { status: 429, headers: { 'Retry-After': String(retryAfter) } }
+  )
+}
+
+/**
+ * Shared PIN gate: lockout check → constant-time compare → throttle bookkeeping.
+ * Returns a NextResponse on rejection, or null when the PIN is correct.
+ */
+async function wrongPinGate(
+  identity: ReturnType<typeof requestIdentity>,
+  pin: string,
+  errorBody: string
+): Promise<NextResponse | null> {
+  const throttled = throttleReject(identity)
+  if (throttled) return throttled
+  if (!(await pinMatches(pin))) {
+    recordPinFailure(identity.throttleKey)
+    await slowDown()
+    return NextResponse.json(
+      { ok: false, error: errorBody },
+      { status: 401 }
+    )
+  }
+  recordPinSuccess(identity.throttleKey)
+  return null
+}
+
+/** Timing-safe compare of a client-supplied recovery token against the env value. */
+function recoveryTokenMatches(provided: string, expected: string): boolean {
+  const a = createHash('sha256').update(provided).digest()
+  const b = createHash('sha256').update(expected).digest()
+  return timingSafeEqual(a, b)
+}
+
 /** JSON response carrying a fresh 12-hour unlock session cookie. */
-async function okWithSession(body: Record<string, unknown>): Promise<NextResponse> {
+async function okWithSession(
+  body: Record<string, unknown>,
+  identity: ReturnType<typeof requestIdentity>
+): Promise<NextResponse> {
   const res = NextResponse.json(body)
   const cookie = await makeUnlockCookie()
-  res.headers.append('Set-Cookie', unlockCookieHeader(cookie.value))
+  res.headers.append('Set-Cookie', unlockCookieHeader(cookie.value, identity.secureTransport))
   return res
 }
 
@@ -93,6 +156,8 @@ export async function POST(req: Request) {
       return badRequest('Missing lock action')
     }
 
+    const identity = requestIdentity(req)
+
     switch (action) {
       case 'set': {
         if (await isLockEnabled()) {
@@ -108,7 +173,7 @@ export async function POST(req: Request) {
         await setSetting('lock:pin:salt', salt)
         await setSetting('lock:pin:hash', hashPin(pin, salt))
         await setSetting('lock:enabled', '1')
-        return okWithSession({ ok: true })
+        return okWithSession({ ok: true }, identity)
       }
 
       case 'change': {
@@ -123,19 +188,14 @@ export async function POST(req: Request) {
         ) {
           return badRequest('PINs must be 4–8 digits (numbers only)')
         }
-        if (!(await pinMatches(pin))) {
-          await slowDown()
-          return NextResponse.json(
-            { ok: false, error: 'Current PIN is incorrect' },
-            { status: 401 }
-          )
-        }
+        const denied = await wrongPinGate(identity, pin, 'Current PIN is incorrect')
+        if (denied) return denied
         const salt = genSalt()
         await setSetting('lock:pin:salt', salt)
         await setSetting('lock:pin:hash', hashPin(newPin, salt))
         // `lock:enabled` stays '1' — a fresh session cookie is issued so the
         // person who changed the PIN stays unlocked.
-        return okWithSession({ ok: true })
+        return okWithSession({ ok: true }, identity)
       }
 
       case 'verify': {
@@ -145,14 +205,9 @@ export async function POST(req: Request) {
         if (typeof pin !== 'string' || !PIN_RE.test(pin)) {
           return badRequest('Enter your PIN (4–8 digits)')
         }
-        if (await pinMatches(pin)) {
-          return okWithSession({ ok: true })
-        }
-        await slowDown()
-        return NextResponse.json(
-          { ok: false, error: 'Incorrect PIN' },
-          { status: 401 }
-        )
+        const denied = await wrongPinGate(identity, pin, 'Incorrect PIN')
+        if (denied) return denied
+        return okWithSession({ ok: true }, identity)
       }
 
       case 'disable': {
@@ -162,31 +217,60 @@ export async function POST(req: Request) {
         if (typeof pin !== 'string' || !PIN_RE.test(pin)) {
           return badRequest('Enter your current PIN (4–8 digits)')
         }
-        if (!(await pinMatches(pin))) {
-          await slowDown()
-          return NextResponse.json(
-            { ok: false, error: 'Incorrect PIN' },
-            { status: 401 }
-          )
-        }
+        const denied = await wrongPinGate(identity, pin, 'Incorrect PIN')
+        if (denied) return denied
         await setSetting('lock:enabled', '0')
         await delSetting('lock:pin:hash')
         await delSetting('lock:pin:salt')
         const res = NextResponse.json({ ok: true })
-        res.headers.append('Set-Cookie', clearUnlockCookieHeader())
+        res.headers.append('Set-Cookie', clearUnlockCookieHeader(identity.secureTransport))
         return res
       }
 
       case 'reset': {
-        // TRADEOFF (deliberate, Task 14): resetting requires NO PIN. This is a
-        // local, single-user viewer — the lock must never permanently lock its
-        // owner out of their own data (forgotten PIN, stale cookie, restored
-        // backup), and there is no auth system that could gate an admin reset.
-        // The PIN protects against casual passers-by on a shared screen, not
-        // against the device owner, who can always reset from Settings.
+        // RECOVERY GATE (security fix). Resetting without the PIN used to be
+        // callable by anyone over HTTP, which disabled the app's only access
+        // control. It is now limited to paths only the machine's owner can
+        // satisfy, keeping the "never permanently lock the owner out" promise:
+        //
+        //   1. correct current PIN              — same trust level as disable
+        //   2. local recovery                    — a direct (no proxy) loopback
+        //      connection, i.e. the owner at the server console / SSH tunnel
+        //   3. WA_LOCK_RESET_TOKEN recovery      — operator sets a random token
+        //      in the environment; requests carry it in the `x-wa-recovery`
+        //      header (see docs/SECURITY.md → "Forgotten PIN recovery")
+        //
+        // Resetting while no lock exists is a harmless no-op.
+
+        if (!(await isLockEnabled())) {
+          return NextResponse.json({ ok: true, reset: true, noop: true })
+        }
+
+        // Path 1 — the current PIN proves ownership.
+        if (typeof pin === 'string' && PIN_RE.test(pin)) {
+          const denied = await wrongPinGate(identity, pin, 'Incorrect PIN — cannot reset')
+          if (denied) return denied
+        } else {
+          // Paths 2 & 3 — owner-only recovery without the PIN.
+          const token = process.env.WA_LOCK_RESET_TOKEN
+          const provided = req.headers.get('x-wa-recovery')
+          const localOk = isDirectLocalRequest(identity)
+          const tokenOk = !!token && !!provided && recoveryTokenMatches(provided, token)
+          if (!localOk && !tokenOk) {
+            return NextResponse.json(
+              {
+                ok: false,
+                error:
+                  'Lock reset requires the current PIN, local server access, or the recovery token (docs/SECURITY.md → Forgotten PIN recovery)'
+              },
+              { status: 403 }
+            )
+          }
+        }
+
         await wipeLock()
         const res = NextResponse.json({ ok: true, reset: true })
-        res.headers.append('Set-Cookie', clearUnlockCookieHeader())
+        res.headers.append('Set-Cookie', clearUnlockCookieHeader(identity.secureTransport))
         return res
       }
 

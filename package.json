@@ -15,7 +15,8 @@
     "db:reset": "prisma migrate reset",
     "copy:wasm": "node scripts/copy-sql-wasm.mjs",
     "i18n:export": "bun scripts/i18n-export.ts",
-    "i18n:import": "bun scripts/i18n-import.ts"
+    "i18n:import": "bun scripts/i18n-import.ts",
+    "test:security": "bun test src/lib/lock-security.test.ts"
   },
   "dependencies": {
     "@capacitor-community/sqlite": "^8.1.1",

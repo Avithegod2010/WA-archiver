@@ -205,15 +205,26 @@ export async function lockDisable(
 }
 
 /**
- * Remove the lock WITHOUT the PIN. Server transport documents this tradeoff
- * ("Forgot PIN?"); the device path behaves the same for local data.
+ * Remove the lock without knowing the current PIN — with owner-only limits.
+ *
+ * Device transport: purely local (this browser's own SQLCipher data), so
+ * the PIN-less reset stays as-is — the owner resetting their own device.
+ *
+ * Server transport: the API now gates the PIN-less reset behind local
+ * (direct loopback) access or the WA_LOCK_RESET_TOKEN recovery header
+ * (security fix for the unauthenticated network bypass). Passing `pin`
+ * uses the "correct current PIN" path, which works from any client —
+ * the Settings UI sends it when the user still remembers the PIN.
+ * Without a PIN the server must judge the request local, or the call
+ * fails with 403 and the UI surfaces the recovery instructions.
  */
 export async function lockReset(
   mode: 'server' | 'device',
-  data: DataClient
+  data: DataClient,
+  pin?: string
 ): Promise<void> {
   if (mode === 'server') {
-    await serverAction('reset')
+    await serverAction('reset', pin ? { pin } : {})
     return
   }
   await data.deleteSetting(K_ENABLED)
