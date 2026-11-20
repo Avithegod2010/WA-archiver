@@ -1,31 +1,27 @@
-# WA Archiver
+<div align="center">
 
-Open exported WhatsApp chats in your browser. Browse messages, play voice notes and explore chat stats on your device.
+<h1>WA Archiver</h1>
 
-**[Try demo chats](https://avithegod2010.github.io/WA-archiver/app/)** · [Download Android APK](https://github.com/Avithegod2010/WA-archiver/releases/download/v1.9.1/WA-Archiver-v1.9.1-universal-release.apk)
+<p><strong>Open exported WhatsApp chats, play voice notes and explore chat stats on your device.</strong></p>
 
-Choose **Try demo chats** on the welcome screen to explore sample conversations.
+<p><strong><a href="https://avithegod2010.github.io/WA-archiver/app/">💬 Try demo chats</a></strong> · <a href="https://github.com/Avithegod2010/WA-archiver/releases/download/v1.9.1/WA-Archiver-v1.9.1-universal-release.apk">⬇️ Download Android APK</a> · <a href="docs/user-guide.md">📖 User guide</a></p>
 
-<p align="center"><img src="chat-view-light-detail.png" width="315" alt="Cropped light-mode demo conversation with messages and a media card" /></p>
+<picture>
+  <source media="(prefers-reduced-motion: reduce)" srcset="readme-hero.png" />
+  <img src="readme-hero.gif" width="820" alt="An illustrated conversation bubble beside an archive box" />
+</picture>
 
-[![Release](https://img.shields.io/github/v/release/Avithegod2010/WA-archiver?color=00A884&label=release&logo=github)](https://github.com/Avithegod2010/WA-archiver/releases/latest)
-[![Build APK](https://github.com/Avithegod2010/WA-archiver/actions/workflows/android-apk.yml/badge.svg)](https://github.com/Avithegod2010/WA-archiver/actions/workflows/android-apk.yml)
-[![License](https://img.shields.io/badge/license-MIT-00A884.svg)](LICENSE)
-[![Platform](https://img.shields.io/badge/platform-Web%20%7C%20Android-075E54.svg)](#-android-app-offline-apk)
-[![Next.js](https://img.shields.io/badge/Next.js-16-black?logo=next.js)](https://nextjs.org)
-[![PRs welcome](https://img.shields.io/badge/PRs-welcome-25D366.svg)](#-contributing)
-[![Web app](https://img.shields.io/badge/web%20app-Open%20in%20browser-00A884.svg?logo=googlechrome)](https://avithegod2010.github.io/WA-archiver/app/)
-[![Translations](https://img.shields.io/badge/translations-Weblate-2ECCAA.svg?logo=weblate)](https://hosted.weblate.org/engage/wa-archiver/)
+</div>
 
-[**Web app**](https://avithegod2010.github.io/WA-archiver/app/) · [Features](#-features) · [Quick start](#-quick-start) · [**User guide**](docs/user-guide.md) · [Android app](#-android-app-offline-apk) · [Host it yourself](docs/hosting.md) · [Privacy](#-privacy-model) · [Policy](PRIVACY.md) · [FAQ](#-faq) · [Roadmap](#-roadmap)
+## 💬 Inside a demo chat
 
+<p align="center">
+  <a href="https://avithegod2010.github.io/WA-archiver/app/"><img src="chat-view-light-detail.png" width="325" alt="Cropped light-mode demo conversation with messages and a media card" /></a>
+</p>
 
-
----
+<p align="center"><sub>Open the web app and choose <strong>Try demo chats</strong> to explore sample messages.</sub></p>
 
 ## 🤔 What is this?
-
-Three bullet points, honestly:
 
 - 📥 **You export** — In WhatsApp, open a chat → `⋮ → More → Export chat → with media`. You get a `.zip` (or `.txt`).
 - 💬 **You drop it in** — WA Archiver reads the export and shows it in a familiar, polished chat interface: bubbles, replies, reactions, photos, voice notes, documents, locations.
@@ -38,10 +34,10 @@ Three bullet points, honestly:
 
 | | |
 |---|---|
-| ![Chat list](docs/screenshots/01-chat-list.png) | <img src="chat-view-light-detail.png" width="320" alt="Cropped light-mode demo conversation with messages and a media card" /> |
+| ![Chat list](docs/screenshots/01-chat-list.png) | ![Chat list in dark mode](docs/screenshots/06-chat-list-dark.png) |
 | ![Insights](docs/screenshots/03-insights.png) | ![Dark mode](docs/screenshots/04-chat-view-dark.png) |
 
-*Chat list · chat view with voice notes & media · cross-chat Insights dashboard · dark mode.*
+*Chat lists in light and dark themes · cross-chat Insights · a conversation in dark mode.*
 
 > 📖 **Step-by-step help** — exporting from WhatsApp (Android/iOS), importing,
 > troubleshooting and device migration live in the [User guide](docs/user-guide.md).
@@ -279,6 +275,10 @@ The UI ships in English, हिन्दी, اردو, मराठी and த�
 translations are managed on **[Weblate](https://hosted.weblate.org/engage/wa-archiver/)** —
 translate in the browser, no code needed. See
 **[docs/translations.md](docs/translations.md)** for the full workflow.
+
+[![Release](https://img.shields.io/github/v/release/Avithegod2010/WA-archiver?color=00A884&label=release&logo=github)](https://github.com/Avithegod2010/WA-archiver/releases/latest)
+[![Build APK](https://github.com/Avithegod2010/WA-archiver/actions/workflows/android-apk.yml/badge.svg)](https://github.com/Avithegod2010/WA-archiver/actions/workflows/android-apk.yml)
+[![Translations](https://img.shields.io/badge/translations-Weblate-2ECCAA.svg?logo=weblate)](https://hosted.weblate.org/engage/wa-archiver/)
 
 ## 📄 License
 
