@@ -1,6 +1,12 @@
-<div align="center">
+# WA Archiver
 
-<img src="docs/assets/banner.svg" alt="WA Archiver — read, explore and enrich your exported WhatsApp chats, privately and locally" width="100%">
+Open exported WhatsApp chats in your browser. Browse messages, play voice notes and explore chat stats on your device.
+
+**[Try demo chats](https://avithegod2010.github.io/WA-archiver/app/)** · [Download Android APK](https://github.com/Avithegod2010/WA-archiver/releases/download/v1.9.1/WA-Archiver-v1.9.1-universal-release.apk)
+
+Choose **Try demo chats** on the welcome screen to explore sample conversations.
+
+<p align="center"><img src="chat-view-light-detail.png" width="315" alt="Cropped light-mode demo conversation with messages and a media card" /></p>
 
 [![Release](https://img.shields.io/github/v/release/Avithegod2010/WA-archiver?color=00A884&label=release&logo=github)](https://github.com/Avithegod2010/WA-archiver/releases/latest)
 [![Build APK](https://github.com/Avithegod2010/WA-archiver/actions/workflows/android-apk.yml/badge.svg)](https://github.com/Avithegod2010/WA-archiver/actions/workflows/android-apk.yml)
@@ -11,22 +17,9 @@
 [![Web app](https://img.shields.io/badge/web%20app-Open%20in%20browser-00A884.svg?logo=googlechrome)](https://avithegod2010.github.io/WA-archiver/app/)
 [![Translations](https://img.shields.io/badge/translations-Weblate-2ECCAA.svg?logo=weblate)](https://hosted.weblate.org/engage/wa-archiver/)
 
-**Turn your exported WhatsApp chats into a beautiful, private chat experience —
-with AI superpowers, voice notes, reactions, stats and an app lock.**
-
-No account · No cloud · No tracking · Your data never leaves your device
-
-<div align="center">
-
-### 🌐 **[→ OPEN THE WEB APP: avithegod2010.github.io/WA-archiver/app ←](https://avithegod2010.github.io/WA-archiver/app/)**
-
-*The full app, live on GitHub Pages — nothing to install, nothing to configure.*
-
-</div>
-
 [**Web app**](https://avithegod2010.github.io/WA-archiver/app/) · [Features](#-features) · [Quick start](#-quick-start) · [**User guide**](docs/user-guide.md) · [Android app](#-android-app-offline-apk) · [Host it yourself](docs/hosting.md) · [Privacy](#-privacy-model) · [Policy](PRIVACY.md) · [FAQ](#-faq) · [Roadmap](#-roadmap)
 
-</div>
+
 
 ---
 
@@ -45,7 +38,7 @@ Three bullet points, honestly:
 
 | | |
 |---|---|
-| ![Chat list](docs/screenshots/01-chat-list.png) | ![Chat view](docs/screenshots/02-chat-view-light.png) |
+| ![Chat list](docs/screenshots/01-chat-list.png) | <img src="chat-view-light-detail.png" width="320" alt="Cropped light-mode demo conversation with messages and a media card" /> |
 | ![Insights](docs/screenshots/03-insights.png) | ![Dark mode](docs/screenshots/04-chat-view-dark.png) |
 
 *Chat list · chat view with voice notes & media · cross-chat Insights dashboard · dark mode.*
