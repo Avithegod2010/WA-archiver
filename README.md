@@ -6,18 +6,23 @@
 
 <p><strong><a href="https://avithegod2010.github.io/WA-archiver/app/">💬 Try demo chats</a></strong> · <a href="https://github.com/Avithegod2010/WA-archiver/releases/download/v1.9.1/WA-Archiver-v1.9.1-universal-release.apk">⬇️ Download Android APK</a> · <a href="docs/user-guide.md">📖 User guide</a></p>
 
-<picture>
-  <source media="(prefers-reduced-motion: reduce)" srcset="readme-hero.png" />
-  <img src="readme-hero.gif" width="820" alt="An illustrated conversation bubble beside an archive box" />
-</picture>
-
 </div>
 
 ## 💬 Inside a demo chat
 
 <p align="center">
-  <a href="https://avithegod2010.github.io/WA-archiver/app/"><img src="chat-view-light-detail.png" width="325" alt="Cropped light-mode demo conversation with messages and a media card" /></a>
+  <a href="https://avithegod2010.github.io/WA-archiver/app/"><img src="chat-view-light-detail.png" width="400" alt="Cropped light-mode demo conversation with messages and a media card" /></a>
 </p>
+
+<details>
+<summary>Project illustration</summary>
+
+<picture>
+  <source media="(prefers-reduced-motion: reduce)" srcset="readme-hero.png" />
+  <img src="readme-hero.gif" width="820" alt="An illustrated conversation bubble beside an archive box" />
+</picture>
+
+</details>
 
 <p align="center"><sub>Open the web app and choose <strong>Try demo chats</strong> to explore sample messages.</sub></p>
 
