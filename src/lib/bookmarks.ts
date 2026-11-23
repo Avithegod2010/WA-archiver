@@ -71,10 +71,6 @@ export function getBookmarksSnapshot(chatId: string): BookmarkEntry[] {
   return readAll()[chatId] ?? EMPTY
 }
 
-export function loadBookmarks(chatId: string): BookmarkEntry[] {
-  return getBookmarksSnapshot(chatId)
-}
-
 /** The bookmark pointing at `messageId`, if any (upsert lookup). */
 export function bookmarkFor(
   chatId: string,

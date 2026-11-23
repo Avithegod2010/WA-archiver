@@ -225,8 +225,3 @@ export function suggestReplies(messages: ChatMessage[], salt = 0): string[] {
 
   return [...new Set(picks)].slice(0, MAX_CHIPS)
 }
-
-/** True when the anchor message would produce chips (cheap guard for UI). */
-export function hasSmartReplies(messages: ChatMessage[]): boolean {
-  return suggestReplies(messages).length > 0
-}

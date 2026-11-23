@@ -162,28 +162,3 @@ export function setChatMuted(chatId: string, muted: boolean): void {
   }
   window.dispatchEvent(new CustomEvent(CHAT_MUTE_EVENT, { detail: { chatId } }))
 }
-
-/**
- * Subscribe to theme changes (custom event + cross-tab 'storage').
- * Returns an unsubscribe function.
- */
-export function subscribeChatTheme(cb: () => void): () => void {
-  if (typeof window === 'undefined') return () => {}
-  window.addEventListener(CHAT_THEME_EVENT, cb)
-  window.addEventListener('storage', cb)
-  return () => {
-    window.removeEventListener(CHAT_THEME_EVENT, cb)
-    window.removeEventListener('storage', cb)
-  }
-}
-
-/** Subscribe to mute changes (custom event + cross-tab 'storage'). */
-export function subscribeChatMute(cb: () => void): () => void {
-  if (typeof window === 'undefined') return () => {}
-  window.addEventListener(CHAT_MUTE_EVENT, cb)
-  window.addEventListener('storage', cb)
-  return () => {
-    window.removeEventListener(CHAT_MUTE_EVENT, cb)
-    window.removeEventListener('storage', cb)
-  }
-}

@@ -15,6 +15,3 @@ export const RELEASES_URL = 'https://github.com/Avithegod2010/WA-archiver/releas
  * Play" button (v1.9 prep; flip this single constant when the listing is up).
  */
 export const PLAY_LISTING_URL: string | null = null
-
-/** Short marketing line for the current release (shown next to the version). */
-export const RELEASE_TAGLINE = 'Cloud sync (Drive/S3), auto-push, change log & export self-test'

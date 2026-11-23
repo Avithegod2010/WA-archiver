@@ -77,16 +77,6 @@ export function saveFolderRules(rules: FolderRule[]): void {
   }
 }
 
-export function subscribeFolderRules(cb: () => void): () => void {
-  if (typeof window === 'undefined') return () => {}
-  window.addEventListener(RULES_EVENT, cb)
-  window.addEventListener('storage', cb)
-  return () => {
-    window.removeEventListener(RULES_EVENT, cb)
-    window.removeEventListener('storage', cb)
-  }
-}
-
 /** Test a title against one rule; null when it doesn't match / fails. */
 export function ruleMatches(rule: FolderRule, title: string): boolean {
   if (!rule.enabled) return false
@@ -126,20 +116,6 @@ export function applyFolderRuleForChat(
     )
   )
   return folder
-}
-
-/**
- * Apply rules to a batch of imported chats. `titles` maps chat id → title;
- * returns how many chats were filed.
- */
-export function applyFolderRulesForImports(
-  titles: Record<string, string>
-): number {
-  let filed = 0
-  for (const [id, title] of Object.entries(titles)) {
-    if (applyFolderRuleForChat(id, title)) filed++
-  }
-  return filed
 }
 
 /**

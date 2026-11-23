@@ -127,19 +127,6 @@ export function formatChatTime(d: Date | string | number): string {
   return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
 }
 
-/** True when the live clock pref renders in 24-hour mode (e.g. axis labels). */
-export function is24hClock(): boolean {
-  const pref = getTimeFormat()
-  if (pref === 'h24') return true
-  if (pref === 'h12') return false
-  try {
-    return new Date().toLocaleTimeString().includes('AM') === false &&
-      new Date().toLocaleTimeString().includes('PM') === false
-  } catch {
-    return true
-  }
-}
-
 /** CSS variables for the app shell root, from the current bubble prefs. */
 export function displayVars(style: BubbleStyleKey, density: DensityKey): CSSProperties {
   const b = BUBBLE_STYLES[style]

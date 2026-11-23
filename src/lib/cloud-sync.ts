@@ -162,11 +162,6 @@ export function saveCloudSyncConfig(cfg: CloudSyncConfig): void {
   window.localStorage.setItem(CONFIG_KEY, JSON.stringify(cfg))
 }
 
-export function clearCloudSyncConfig(): void {
-  if (typeof window === 'undefined') return
-  window.localStorage.removeItem(CONFIG_KEY)
-}
-
 function providerOf(cfg: CloudSyncConfig): CloudProvider {
   return cfg.provider ?? 'webdav'
 }

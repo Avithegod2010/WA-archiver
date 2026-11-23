@@ -79,13 +79,3 @@ export function clearProgress(id: string): void {
   delete next[id]
   writeAll(next)
 }
-
-/** Drop oldest entries beyond the cap (call after writes, cheap). */
-export function trimProgress(): void {
-  const map = readAll()
-  const keys = Object.keys(map)
-  if (keys.length <= MAX_ENTRIES) return
-  const next: ProgressMap = {}
-  for (const k of keys.slice(keys.length - MAX_ENTRIES)) next[k] = map[k]
-  writeAll(next)
-}

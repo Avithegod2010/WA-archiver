@@ -86,23 +86,6 @@ export function saveDeltaManifest(m: DeltaManifest): void {
   }
 }
 
-export function clearDeltaManifest(filename?: string): void {
-  if (typeof window === 'undefined') return
-  try {
-    if (!filename) {
-      window.localStorage.removeItem(MANIFEST_KEY)
-      return
-    }
-    const raw = window.localStorage.getItem(MANIFEST_KEY)
-    if (!raw) return
-    const all = JSON.parse(raw) as Record<string, DeltaManifest>
-    delete all[filename]
-    window.localStorage.setItem(MANIFEST_KEY, JSON.stringify(all))
-  } catch {
-    /* ignore */
-  }
-}
-
 // ---------------------------------------------------------------------------
 // Hashing
 // ---------------------------------------------------------------------------

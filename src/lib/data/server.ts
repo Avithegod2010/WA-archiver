@@ -440,9 +440,3 @@ export class ServerDataClient implements DataClient {
 
 /** Stateless singleton — the server transport holds no connections. */
 export const serverDataClient = new ServerDataClient()
-
-/** Re-export so transport-agnostic code can reference the constant safely. */
-export { SAVED_CHAT_ID as SERVER_SAVED_CHAT_ID }
-
-/** Type-only helper used by tests/tools to enumerate the SearchHit shape. */
-export type { SearchHit }
