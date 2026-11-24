@@ -48,12 +48,6 @@ function readAll(): PlayedMap {
   return cached
 }
 
-/** True when the voice message has NOT been played yet (client-side). */
-export function isUnplayed(id: string): boolean {
-  if (!id) return false
-  return readAll()[id] !== 1
-}
-
 /**
  * Record a message as played (first write persists + caps the map) and
  * dispatch 'wa-voice-played' { id }. Safe to call repeatedly.

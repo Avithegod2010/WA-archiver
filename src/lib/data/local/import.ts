@@ -540,11 +540,3 @@ export async function importFileToDevice(
   })
   return commitDeviceImport(preview, null, opts)
 }
-
-/**
- * True when the file looks like a WhatsApp export we can parse locally —
- * used by the UI to decide between device import and server import.
- */
-export function looksLikeLocalExport(name: string): boolean {
-  return /\.(zip|txt)$/i.test(name) && !isMediaFilename(name)
-}

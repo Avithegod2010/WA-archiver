@@ -93,8 +93,3 @@ export function subscribeStorageMode(onChange: () => void): () => void {
     window.removeEventListener('storage', onChange)
   }
 }
-
-/** Human label used in Settings and the header. */
-export function storageModeLabel(mode: StorageMode): string {
-  return mode === 'device' ? 'This device' : 'Server'
-}

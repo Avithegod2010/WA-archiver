@@ -84,18 +84,3 @@ export function clearMsgChanges(chatId: string): void {
     /* ignore */
   }
 }
-
-/** How many chats currently have recorded changes (settings badge, etc.). */
-export function countChatsWithChanges(): number {
-  if (typeof window === 'undefined') return 0
-  try {
-    let n = 0
-    for (let i = 0; i < window.localStorage.length; i++) {
-      const k = window.localStorage.key(i)
-      if (k && k.startsWith(KEY_PREFIX)) n++
-    }
-    return n
-  } catch {
-    return 0
-  }
-}

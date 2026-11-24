@@ -55,17 +55,6 @@ export function countWords(body: string, into: Map<string, number>): void {
   }
 }
 
-export function topEntries<T>(
-  map: Map<string, number>,
-  mapFn: ([k, count]: [string, number]) => T,
-  limit: number
-): T[] {
-  return [...map.entries()]
-    .sort((a, b) => b[1] - a[1])
-    .slice(0, limit)
-    .map(mapFn)
-}
-
 export function median(values: number[]): number {
   if (values.length === 0) return 0
   const s = [...values].sort((a, b) => a - b)

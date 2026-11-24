@@ -95,17 +95,6 @@ export function setChatAvatar(chatId: string, dataUrl: string | null): void {
   }
 }
 
-/** Remove every chat's custom photo (Settings "reset" helpers may use this). */
-export function clearAllChatAvatars(): void {
-  if (typeof window === 'undefined') return
-  writeMap({})
-  try {
-    window.dispatchEvent(new CustomEvent(CHAT_AVATAR_EVENT, { detail: {} }))
-  } catch {
-    /* ignore */
-  }
-}
-
 /** Subscribe to avatar changes (custom event + cross-tab 'storage'). */
 export function subscribeChatAvatars(cb: () => void): () => void {
   if (typeof window === 'undefined') return () => {}

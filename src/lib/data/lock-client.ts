@@ -232,8 +232,3 @@ export async function lockReset(
   await data.deleteSetting(K_SALT)
   deviceClearUnlock()
 }
-
-/** Dispatched by callers after any successful lock-state mutation. */
-export function fireLockChanged(): void {
-  window.dispatchEvent(new Event('wa-lock-changed'))
-}

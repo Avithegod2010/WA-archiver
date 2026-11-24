@@ -54,14 +54,9 @@ async function computeStorage(): Promise<{
 
 // Short TTL cache — the stats scan reads the whole messages table plus all
 // media dirs per request; on big imports that's seconds of CPU per open.
-// 60s staleness is imperceptible for a dashboard, and any send/delete that
-// matters can bust it via the exported helper.
+// 60s staleness is imperceptible for a dashboard.
 let statsCache: { at: number; data: unknown } | null = null
 const STATS_TTL_MS = 60_000
-export function bustStatsCache(): void {
-  statsCache = null
-}
-
 export async function GET(req: Request) {
   const denied = await assertAppUnlocked(req)
   if (denied) return denied

@@ -549,9 +549,6 @@ export function buildDemoScript(id: string, now?: Date): string | null {
   return BUILDERS[id]()
 }
 
-/** Ids that have a demo script ('personal', 'group', 'family', ...). */
-export const DEMO_SCRIPT_IDS = Object.keys(BUILDERS)
-
 /** True when buildDemoScript(id) would produce a transcript. */
 export function isDemoScriptId(id: string): boolean {
   return id in BUILDERS

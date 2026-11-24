@@ -215,22 +215,6 @@ export async function mediaStats(): Promise<MediaStats> {
   }
 }
 
-export async function mediaBytesForChat(chatId: string): Promise<MediaStats> {
-  const db = await openDb()
-  try {
-    const tx = db.transaction(STORE, 'readonly')
-    const index = tx.objectStore(STORE).index(CHAT_INDEX)
-    const records = (await requestToPromise(
-      index.getAll(chatId)
-    )) as (MediaRecord & { chatId: string })[]
-    let bytes = 0
-    for (const r of records) bytes += r.size ?? r.blob?.size ?? 0
-    return { files: records.length, bytes }
-  } finally {
-    db.close()
-  }
-}
-
 /**
  * Per-file byte sizes for one chat, keyed by the blob's base name (the
  * message row's mediaPath). Media gallery rows use this to show sizes the

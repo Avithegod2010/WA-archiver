@@ -142,15 +142,6 @@ export function setAppTheme(k: AppThemeKey) {
   window.dispatchEvent(new Event(APP_THEME_EVENT))
 }
 
-/** Resolve the live accent color (any CSS-parseable value) for canvas/SVG code. */
-export function getThemeAccent(): string {
-  if (typeof window === 'undefined') return '#00a884'
-  const v = getComputedStyle(document.documentElement)
-    .getPropertyValue('--wa-accent')
-    .trim()
-  return v || '#00a884'
-}
-
 /** Apply the theme attribute to <html> (call on mount + on change). */
 export function applyThemeAttribute(k: AppThemeKey) {
   document.documentElement.setAttribute('data-wa-theme', k)
