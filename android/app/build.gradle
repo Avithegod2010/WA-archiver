@@ -52,8 +52,19 @@ android {
     buildTypes {
         release {
             minifyEnabled false
-            proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
-            signingConfig hasReleaseKeystore ? signingConfigs.release : signingConfigs.debug
+            proguardFiles getDefaultProguardFile('proguard-android.txt'), "proguard-rules.pro"
+            // Never fall back to the public AOSP debug key for a distributable APK:
+            // anyone can rebuild it and sign an update that installs over this app.
+            if (hasReleaseKeystore) {
+                signingConfig signingConfigs.release
+            } else if (project.hasProperty('allowDebugSigning') || System.getenv('ALLOW_DEBUG_SIGNING') == '1') {
+                signingConfig signingConfigs.debug
+            } else {
+                throw new GradleException(
+                    "No release keystore configured. Set the keystore path, or pass " +
+                    "-PallowDebugSigning=true for a local debug-signed build."
+                )
+            }
         }
     }
 }

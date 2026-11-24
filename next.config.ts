@@ -52,6 +52,10 @@ const nextConfig: NextConfig = isApkExport
       }
     : {
       output: "standalone",
+      // The Image Optimization API is unauthenticated and reaches sharp/libvips;
+      // it was the entry point for the unauthenticated-RCE class in the Next
+      // advisories below 16.4.5. Nothing here needs server-side image resize.
+      images: { unoptimized: true },
       typescript: {
         ignoreBuildErrors: true,
       },
